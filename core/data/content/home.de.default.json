@@ -1,0 +1,43 @@
+{
+    "slug": "home",
+    "language": "de",
+    "title": "Home",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "eyebrow": "z77 · Open Source",
+            "title": "Klares Framework für klare Projekte.",
+            "subline": "Ein schlankes PHP-Framework, das lieber lesbar als clever ist. Gebaut für Solo-Entwickler und kleine Teams, die Ownership über ihren Code behalten wollen."
+        },
+        {
+            "type": "features",
+            "eyebrow": "Was wir machen",
+            "title": "Drei Schwerpunkte, klar getrennt.",
+            "items": [
+                {
+                    "number": "01",
+                    "title": "Webentwicklung",
+                    "text": "PHP-Backend, sauberes MVC, eigene Datenmodelle. Keine fremden Abhängigkeiten, die niemand mehr versteht."
+                },
+                {
+                    "number": "02",
+                    "title": "Beratung",
+                    "text": "Code-Reviews, Architektur-Sparring, Übergaben. Wir hinterlassen Dokumentation, nicht Magie."
+                },
+                {
+                    "number": "03",
+                    "title": "Betrieb",
+                    "text": "Deployment, Monitoring, Updates. Langfristig wartbar statt kurzfristig fancy."
+                }
+            ]
+        },
+        {
+            "type": "prose-section",
+            "variant": "dark",
+            "eyebrow": "Prinzip",
+            "title": "Open Source, weil Transparenz Vertrauen schafft.",
+            "lead": "Geld wird durch die Anwendung verdient, nicht durch das Framework. Was öffentlich ist, muss verständlich sein — das zwingt zu sauberer Doku und gibt Nachfolger:innen eine echte Chance."
+        }
+    ]
+}

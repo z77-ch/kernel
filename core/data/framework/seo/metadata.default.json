@@ -1,0 +1,21 @@
+[
+    {
+        "id": 1,
+        "navigation_id": 3,
+        "language": "de",
+        "title": "Home | Muster AG",
+        "description": "Willkommen bei Muster AG.",
+        "theme_color": "#ffffff",
+        "application_ld": {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "name": "Home",
+            "url": "https://example.com/de/home",
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": "Muster AG",
+                "url": "https://example.com"
+            }
+        }
+    }
+]

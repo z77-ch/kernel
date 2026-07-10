@@ -1,0 +1,37 @@
+{
+    "name": "z77/kernel",
+    "description": "Z77 Kernel – boot (Core), platform (Shared) and data storage (Persistence) as one foundation package for all Z77 modules. ⚠️ In development – not ready for production use.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Peter Ruepp",
+            "email": "peter.ruepp@z77.ch"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "Z77\\Core\\": "core/src/",
+            "Z77\\Shared\\": "shared/src/",
+            "Z77\\Persistence\\": "persistence/src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0.x-dev"
+        }
+    },
+    "require": {
+        "php": ">=8.2"
+    },
+    "require-dev": {
+        "composer/composer": "^2.0"
+    },
+    "support": {
+        "issues": "https://github.com/z77-ch/kernel/issues",
+        "source": "https://github.com/z77-ch/kernel"
+    },
+    "readme": "README.md"
+}

@@ -1,0 +1,51 @@
+[
+    {
+        "id": 1,
+        "navigation_id": 3,
+        "path": "/home",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 2,
+        "navigation_id": 4,
+        "path": "/about",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 3,
+        "navigation_id": 5,
+        "path": "/services",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 4,
+        "navigation_id": 8,
+        "path": "/login",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 5,
+        "navigation_id": 10,
+        "path": "/contact",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 6,
+        "navigation_id": 11,
+        "path": "/legal",
+        "is_canonical": true,
+        "active": true
+    },
+    {
+        "id": 7,
+        "navigation_id": 12,
+        "path": "/privacy",
+        "is_canonical": true,
+        "active": true
+    }
+]

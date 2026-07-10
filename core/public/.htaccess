@@ -1,0 +1,23 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    #
+    # F = Forbiden
+    # L = Last - stop processing rules
+    # H = handler (set Handler)
+    # QSA (append query string from request to substituted URL)
+    # R=301 (permanent redirect to new URL)
+
+    RewriteCond %{HTTP_HOST} ^www\.(.+)$
+    RewriteRule ^ https://%1%{REQUEST_URI} [QSA,L,R=301]
+
+    RewriteCond %{SERVER_PORT} !^443$ [OR]
+    RewriteCond %{HTTPS} =off
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [QSA,L,R=301]
+
+    RewriteRule ^$ index.php [QSA,L]
+
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^(.*)$ index.php/$1 [QSA,L]
+</IfModule>

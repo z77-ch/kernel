@@ -1,0 +1,43 @@
+{
+    "slug": "about",
+    "language": "fr",
+    "title": "À propos",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "eyebrow": "À propos",
+            "title": "Une personne, un framework, aucun lock-in.",
+            "subline": "z77 est la deuxième génération d'un framework construit depuis plus de 15 ans pour des projets clients suisses. Cette fois en open source, pour que celles et ceux qui reprennent puissent suivre."
+        },
+        {
+            "type": "prose-section",
+            "eyebrow": "Mission",
+            "title": "La lisibilité avant l'élégance.",
+            "lead": "Nous écrivons du PHP de façon à ce que, dans cinq ans, on comprenne encore ce qui se passe. Pas de méthodes magiques cachées, pas de framework dans le framework, pas d'abstractions en réserve."
+        },
+        {
+            "type": "prose-section",
+            "eyebrow": "Implantation",
+            "title": "Conçu en Suisse.",
+            "lead": "Hébergement, stockage des données et communication passent par des prestataires suisses. Conforme au RGPD et à la nLPD."
+        },
+        {
+            "type": "features",
+            "eyebrow": "Principes",
+            "title": "Peu nombreux, mais tenus avec rigueur.",
+            "items": [
+                {
+                    "number": "Outils",
+                    "title": "PHP 8.4, sans zoo de dépendances.",
+                    "text": "Peu de dépendances, toutes éprouvées. Sass pour le CSS, sinon du Vanilla."
+                },
+                {
+                    "number": "Posture",
+                    "title": "La documentation fait partie du code.",
+                    "text": "Chaque domaine a sa doc thématique. Aucun savoir ne vit uniquement dans une tête."
+                }
+            ]
+        }
+    ]
+}

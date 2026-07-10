@@ -1,0 +1,18 @@
+{
+    "nav.aria.primary": "Hauptnavigation",
+    "nav.aria.mobile": "Navigation",
+    "nav.aria.language": "Sprache",
+    "nav.home": "Home",
+    "nav.about": "Über uns",
+    "nav.services": "Leistungen",
+    "nav.contact": "Kontakt",
+    "nav.legal": "Impressum",
+    "nav.privacy": "Datenschutz",
+    "footer.tagline": "Open-Source-PHP-Framework aus der Schweiz.",
+    "footer.pages": "Seiten",
+    "footer.legal": "Rechtliches",
+    "footer.rights": "Alle Rechte vorbehalten.",
+    "common.close": "Schliessen",
+    "js.connectionError": "Verbindungsfehler",
+    "js.scriptLoadError": "Script konnte nicht geladen werden"
+}

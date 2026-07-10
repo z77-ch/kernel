@@ -1,0 +1,18 @@
+{
+    "nav.aria.primary": "Navigation principale",
+    "nav.aria.mobile": "Navigation",
+    "nav.aria.language": "Langue",
+    "nav.home": "Accueil",
+    "nav.about": "À propos",
+    "nav.services": "Services",
+    "nav.contact": "Contact",
+    "nav.legal": "Mentions légales",
+    "nav.privacy": "Confidentialité",
+    "footer.tagline": "Framework PHP open source, conçu en Suisse.",
+    "footer.pages": "Pages",
+    "footer.legal": "Mentions légales",
+    "footer.rights": "Tous droits réservés.",
+    "common.close": "Fermer",
+    "js.connectionError": "Erreur de connexion",
+    "js.scriptLoadError": "Le script n'a pas pu être chargé"
+}
