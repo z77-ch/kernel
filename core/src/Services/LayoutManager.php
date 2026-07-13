@@ -282,7 +282,10 @@ class LayoutManager
 
     /**
      * Generates a CSS file from a PHP template and runtime data, then registers it as a CSS asset.
-     * Version must come from the caller — typically max(updatedAt) of the driving entities.
+     * Version must come from the caller — typically max(updatedAt) of the driving entities, OR a
+     * pure function of the driving data (e.g. an entity count) when the CSS depends on nothing
+     * else: a count version never regenerates needlessly and cannot go backwards on a delete the
+     * way max(updatedAt) can (see docs/01-handbook/patterns/slider.md).
      * If the versioned file already exists it is reused without re-rendering.
      *
      * Template path convention: res/view/templates/{group}/{controller}/css/{template}.css.tpl.php

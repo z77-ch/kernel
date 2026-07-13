@@ -569,3 +569,24 @@ document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.flash.wireExisting();
     _Z77.core.message.wireExisting();
 });
+
+/* ── scrollbar width ───────────────────────────────────────────────────────
+ * Publishes `--z77-scrollbar-width` = the viewport scrollbar's width, so that
+ * scroll-locking (overflow:hidden on a nav overlay / modal) can add an equal
+ * `padding-right` and NOT shift the page when the scrollbar disappears (the
+ * classic no-jump technique). Measured as innerWidth - clientWidth while a
+ * scrollbar is present; skipped while scroll is already locked (overflow:hidden
+ * reports 0), so the last good value is kept. Module-agnostic — sets a generic
+ * variable, references no module-specific markup. Deferred, so the DOM is already
+ * parsed on first run.
+ */
+(function () {
+    var de = document.documentElement;
+    function update() {
+        if (getComputedStyle(de).overflowY === 'hidden') return;   // don't measure while locked
+        de.style.setProperty('--z77-scrollbar-width', (window.innerWidth - de.clientWidth) + 'px');
+    }
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('load', update);
+})();
