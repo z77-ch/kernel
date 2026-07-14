@@ -84,6 +84,11 @@ class Bootstrap
 
         // 3. Configure error handling
         define('DEBUG', file_exists(ABS_BASE_PATH . '/data/framework/debug.flag'));
+        // Site-wide search-engine crawl block (staging / pre-launch) — flag-file
+        // driven exactly like DEBUG (see metadata.md SEO-NOINDEX-001). When true the
+        // frontend head emits `<meta name="robots" content="noindex, nofollow">` and
+        // the backend shows a persistent Störer. Distinct from per-page MetaData.
+        define('SEO_NOINDEX', file_exists(ABS_BASE_PATH . '/data/framework/seo/noindex.flag'));
         DI::getCacheManager()->setCacheDir($bootstrapConfig->getCacheDir());
 
         if (DEBUG) {
