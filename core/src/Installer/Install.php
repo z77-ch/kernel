@@ -101,11 +101,25 @@ class Install
             $this->buildPaths();
 
             $publicDir = $this->bootstrapConfig['htmlRoot'];
-            $sourceDir = __DIR__ . '/../../' . $publicDir;
             $targetDir = $this->trailingSlash($this->baseDir) . $publicDir;
 
-            $this->copyFiles($sourceDir, $targetDir);
-            $this->createDirectories($config['directories'] ?? []);
+            // public/ belongs to the developer (ADR-024). Seed the framework baseline on the
+            // FIRST install only — once public/ exists the installer never touches it again.
+            // New / updated framework assets then stay in vendor and it is the developer's job
+            // (with Claude's help) to deploy them into public. No overwrite, no force command.
+            $firstInstall = !is_dir($targetDir);
+
+            if ($firstInstall) {
+                $sourceDir = __DIR__ . '/../../' . $publicDir;
+                $this->copyFiles($sourceDir, $targetDir);
+            } else {
+                $this->io->write(
+                    'public/ exists — left untouched (developer-owned, ADR-024). '
+                    . 'New framework assets stay in vendor; deploy them into public yourself.'
+                );
+            }
+
+            $this->createDirectories($config['directories'] ?? [], $firstInstall);
         }
 
         $this->writeBootstrapConfig();
@@ -193,25 +207,24 @@ class Install
                     $assetSuffixes[] = "vendor/{$rel}";
                 }
 
-                $assetPaths = array_map(
-                    fn($s) => "\$baseDir.'{$publicDir}/{$assetDir}/{$s}'",
-                    $assetSuffixes
-                );
-
                 if (isset($configPaths[$namespace])) {
                     $configPaths[$namespace]['sourcePaths'] = array_merge(
                         $configPaths[$namespace]['sourcePaths'],
                         $sourcePaths
                     );
-                    $configPaths[$namespace]['assetPaths'] = array_merge(
-                        $configPaths[$namespace]['assetPaths'],
-                        $assetPaths
-                    );
+                    // assetPaths stays single-tier — the project tier set by the override loop.
+                    // No public vendor tier for assets (ADR-024).
                 } else {
+                    // Framework namespace without a project override entry (rare): derive the
+                    // single project-tier asset path from the namespace name.
+                    $assetName = $this->deriveAssetDirName($namespace);
                     $configPaths[$namespace]['sourcePaths'] = $sourcePaths;
-                    $configPaths[$namespace]['assetPaths']  = $assetPaths;
+                    $configPaths[$namespace]['assetPaths']  = $assetName === ''
+                        ? []
+                        : ["\$baseDir.'{$publicDir}/{$assetDir}/{$assetName}'"];
                 }
 
+                // Source locator for createPublicAssets: vendor res/assets → project tier.
                 $publicAssetPaths[$namespace]['vendor'] = $assetSuffixes;
             }
         }
@@ -270,7 +283,9 @@ class Install
                 continue;
             }
 
-            if (file_exists($dst) && !$this->shouldOverwrite($dst)) {
+            // Never overwrite an existing file — public/ is developer-owned (ADR-024).
+            // (On the first install the target is empty, so everything is copied.)
+            if (file_exists($dst)) {
                 $this->io->write('   Skipped: ' . basename($dst));
                 continue;
             }
@@ -283,27 +298,11 @@ class Install
         }
     }
 
-    /**
-     * debug=true  → always overwrite (development: keep public/ files in sync)
-     * debug=false → ask if interactive, skip if non-interactive (CI/production)
-     */
-    private function shouldOverwrite(string $path): bool
-    {
-        if ($this->bootstrapConfig['debug'] ?? false) {
-            return true;
-        }
-        if ($this->io->isInteractive()) {
-            $answer = $this->io->ask("File '" . basename($path) . "' exists. Overwrite? [y/N]: ");
-            return strtolower((string) $answer) === 'y';
-        }
-        return false;
-    }
-
     // -------------------------------------------------------------------------
     // Directory creation
     // -------------------------------------------------------------------------
 
-    private function createDirectories(array $config): void
+    private function createDirectories(array $config, bool $firstInstall): void
     {
         if (empty($config)) {
             return;
@@ -315,7 +314,12 @@ class Install
 
         $this->createOverrideDirs();
         $this->createModuleTree($config['moduleTree'] ?? [], $replacements);
-        $this->createPublicAssets($config['publicAssetTree'] ?? [], $replacements);
+        // Public assets are seeded on the first install only — public/ is developer-owned
+        // afterwards (ADR-024). createOverrideDirs / moduleTree / logs only ever mkdir missing
+        // dirs (never overwrite content), so they stay unconditional.
+        if ($firstInstall) {
+            $this->createPublicAssets($config['publicAssetTree'] ?? [], $replacements);
+        }
         $this->createLogDirs($config['logs'] ?? [], $replacements);
     }
 
