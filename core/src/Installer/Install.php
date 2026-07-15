@@ -61,6 +61,14 @@ class Install
     private array  $publicAssetPaths    = [];
     private array  $z77Modules          = [];
 
+    // Collected asset-drift entries (update only). Each entry is
+    // ['display' => …, 'src' => absolute vendor path, 'dst' => absolute public path].
+    // Rendered as one coloured notice at the end of execute(), then offered for an
+    // opt-in per-file deploy (interactive only) — see renderAssetDriftNotice() /
+    // promptAssetDeploy(). Never printed line-by-line mid-run.
+    private array  $assetDriftChanged   = [];
+    private array  $assetDriftAdded     = [];
+
     // -------------------------------------------------------------------------
     // Composer entry point
     // -------------------------------------------------------------------------
@@ -117,6 +125,7 @@ class Install
                     'public/ exists — left untouched (developer-owned, ADR-024). '
                     . 'New framework assets stay in vendor; deploy them into public yourself.'
                 );
+                $this->reportAssetDrift();
             }
 
             $this->createDirectories($config['directories'] ?? [], $firstInstall);
@@ -136,6 +145,12 @@ class Install
         } else {
             $this->io->write('Z77 composer.json extra was empty — only default config written.');
         }
+
+        // Last thing shown, so the developer can't miss it: a single coloured notice
+        // listing the framework assets that differ from public/ (ADR-025), followed by
+        // an opt-in per-file deploy prompt (interactive only, default No — ADR-024 amend).
+        $this->renderAssetDriftNotice();
+        $this->promptAssetDeploy();
     }
 
     // -------------------------------------------------------------------------
@@ -407,6 +422,194 @@ class Install
 
             foreach ($existingSources as $source) {
                 $this->copyFiles($source, $target);
+            }
+        }
+    }
+
+    /**
+     * On an update (public/ present) the installer never writes into public/ (ADR-024).
+     * Instead it reports — read-only — which framework assets in vendor differ from what
+     * is deployed in public/, so the developer can decide what to adopt (ADR-025,
+     * INST-ASSET-DIFF-001). It hashes each shipped `res/assets` file against its public
+     * counterpart and COLLECTS the ones that are new or changed into $assetDriftChanged /
+     * $assetDriftAdded. It does NOT print here — {@see renderAssetDriftNotice()} shows the
+     * collected entries as one coloured notice at the very end of the run. It CANNOT tell a
+     * framework change from a developer edit — it collects every file whose deployed copy
+     * differs from the shipped one; the developer knows which they customized. Writes nothing.
+     */
+    private function reportAssetDrift(): void
+    {
+        $publicDir = $this->bootstrapConfig['htmlRoot'];
+        $assetDir  = $this->bootstrapConfig['assetDir'];
+
+        foreach ($this->publicAssetPaths as $namespace => $types) {
+            if (!str_starts_with($namespace, $this->frameworkPrefix)) {
+                continue;
+            }
+
+            $vendorPaths = $types['vendor'] ?? [];
+            if (empty($vendorPaths)) {
+                continue;
+            }
+
+            $assetName = $this->deriveAssetDirName($namespace);
+            if ($assetName === '') {
+                continue;
+            }
+
+            $target = $this->trailingSlash($this->baseDir)
+                    . $this->trailingSlash($publicDir) . "{$assetDir}/{$assetName}";
+
+            foreach ($vendorPaths as $vendorPath) {
+                $source = $this->trailingSlash($this->baseDir) . "{$vendorPath}/res/assets";
+                if (is_dir($source)) {
+                    $this->collectAssetDrift(
+                        $source,
+                        $target,
+                        $assetName,
+                        $this->assetDriftChanged,
+                        $this->assetDriftAdded
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Renders the collected asset drift (ADR-025) as ONE coloured notice at the end of
+     * the run — a solid yellow block so it stands out from the plain install log. The
+     * action line depends on the mode: interactive → "you'll be asked per file below";
+     * non-interactive (CI / deploy) → "deploy yourself" (nothing is written there).
+     * Prints nothing when public/ matches the shipped assets.
+     */
+    private function renderAssetDriftNotice(): void
+    {
+        if (empty($this->assetDriftChanged) && empty($this->assetDriftAdded)) {
+            return;
+        }
+
+        $lines = [
+            'Framework assets differ from your public/.',
+            $this->io->isInteractive()
+                ? 'You will be asked per file below whether to deploy it (default: No).'
+                : 'Review and deploy the ones you want into public/ yourself:',
+            '',
+        ];
+        foreach ($this->assetDriftAdded as $entry) {
+            $lines[] = '  + new:     ' . $entry['display'];
+        }
+        foreach ($this->assetDriftChanged as $entry) {
+            $lines[] = '  ~ changed: ' . $entry['display'];
+        }
+
+        // Pad every line to a uniform width so the background colour forms a solid block.
+        $width = max(array_map('strlen', $lines)) + 2;
+
+        $this->io->write('');
+        foreach ($lines as $line) {
+            $padded = ' ' . str_pad($line, $width);
+            // <bg=yellow;fg=black> is a Symfony Console (Composer IO) inline style.
+            $this->io->write("<bg=yellow;fg=black>{$padded}</>");
+        }
+        $this->io->write('');
+    }
+
+    /**
+     * Opt-in, interactive-only deploy of drifted framework assets into public/ (ADR-024
+     * amendment). Runs after the drift notice. NEVER runs non-interactively (CI / deploy):
+     * there the notice stays a pure read-only report and public/ is never written. Every
+     * prompt defaults to NO, so a blind Enter never overwrites anything.
+     *
+     *   + new     → copying is risk-free (the file is absent in public/): "Deploy? [y/N]".
+     *   ~ changed → the deployed copy may be YOUR edit or a build artefact (compiled CSS/JS
+     *               from override/scss). Overwriting it with the framework version can wipe
+     *               your work — the exact INST-ASSET-002 footgun. Warn loudly, then ask.
+     */
+    private function promptAssetDeploy(): void
+    {
+        if (!$this->io->isInteractive()) {
+            return;
+        }
+        if (empty($this->assetDriftChanged) && empty($this->assetDriftAdded)) {
+            return;
+        }
+
+        $deployed = 0;
+
+        foreach ($this->assetDriftAdded as $entry) {
+            $this->io->write('');
+            $this->io->write('+ new: ' . $entry['display']);
+            if ($this->io->askConfirmation('   Deploy into public/? [y/N] ', false)) {
+                $this->deployAsset($entry['src'], $entry['dst']);
+                $this->io->write('   ✓ deployed');
+                $deployed++;
+            }
+        }
+
+        foreach ($this->assetDriftChanged as $entry) {
+            $this->io->write('');
+            $this->io->write('<bg=yellow;fg=black> ~ changed: ' . $entry['display'] . ' </>');
+            $this->io->write('   ⚠ This may be YOUR own edit or a compiled build artefact (from override/scss).');
+            $this->io->write('   ⚠ Overwriting replaces it with the framework version — your changes are lost.');
+            if ($this->io->askConfirmation('   Overwrite public/ file? [y/N] ', false)) {
+                $this->deployAsset($entry['src'], $entry['dst']);
+                $this->io->write('   ✓ overwritten');
+                $deployed++;
+            }
+        }
+
+        $this->io->write('');
+        $this->io->write($deployed > 0
+            ? "Asset deploy: {$deployed} file(s) written to public/."
+            : 'Asset deploy: nothing written — public/ unchanged.');
+    }
+
+    /**
+     * Copies one drifted asset from vendor into public/ (opt-in, see promptAssetDeploy()).
+     * Creates missing parent dirs and overwrites an existing target (intended for
+     * ~ changed). Throws on failure — no silent errors.
+     */
+    private function deployAsset(string $src, string $dst): void
+    {
+        $dir = dirname($dst);
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Failed to create directory: {$dir}");
+        }
+        if (!copy($src, $dst)) {
+            throw new \RuntimeException("Failed to deploy asset: {$src} → {$dst}");
+        }
+    }
+
+    /**
+     * Recursively hashes every file under $source against its counterpart under $target
+     * (same relative path). Fills $changed / $added with entries
+     * ['display' => prefixed rel path, 'src' => abs vendor path, 'dst' => abs public path] —
+     * src/dst let the opt-in deploy (promptAssetDeploy()) copy the file. Read-only — never
+     * writes. (ADR-025)
+     */
+    private function collectAssetDrift(string $source, string $target, string $displayPrefix, array &$changed, array &$added): void
+    {
+        foreach (scandir($source) ?: [] as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+
+            $src = $this->trailingSlash($source) . $item;
+            $dst = $this->trailingSlash($target) . $item;
+            $rel = $displayPrefix . '/' . $item;
+
+            if (is_dir($src)) {
+                $this->collectAssetDrift($src, $dst, $rel, $changed, $added);
+                continue;
+            }
+
+            if (!file_exists($dst)) {
+                $added[] = ['display' => $rel, 'src' => $src, 'dst' => $dst];
+                continue;
+            }
+
+            if (hash_file('sha1', $src) !== hash_file('sha1', $dst)) {
+                $changed[] = ['display' => $rel, 'src' => $src, 'dst' => $dst];
             }
         }
     }
