@@ -11,6 +11,7 @@ use Z77\Core\Services\LayoutManager,
     Z77\Core\Http\Response\FileResponse,
     Z77\Core\Http\Response\RedirectResponse,
     Z77\Core\Http\Response\VoidResponse,
+    Z77\Core\Http\Response\NoContentResponse,
     Z77\Core\Http\RequestMode,
     Z77\Core\Exception\NotFoundException,
     Z77\Core\DI
@@ -275,5 +276,15 @@ abstract class AbstractBaseController
     protected function void(): VoidResponse
     {
         return new VoidResponse();
+    }
+
+    /**
+     * Returns a 204 No Content response — success without a body.
+     * For fetch endpoints that signal "up to date / nothing to deliver"
+     * (e.g. revalidation: data unchanged). Not for error cases.
+     */
+    protected function noContent(): NoContentResponse
+    {
+        return new NoContentResponse();
     }
 }
