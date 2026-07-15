@@ -20,5 +20,3 @@ Don't start a project with `composer require`. Use the
 `composer install`. It ships the full project `composer.json`, runs the installer, and lays
 out the override structure. `composer require z77/kernel` only adds the kernel to an
 **existing** z77 project.
-
-⚠️ In development — not ready for production use.

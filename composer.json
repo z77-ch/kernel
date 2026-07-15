@@ -1,6 +1,6 @@
 {
     "name": "z77/kernel",
-    "description": "Z77 Kernel – boot (Core), platform (Shared) and data storage (Persistence) as one foundation package for all Z77 modules. ⚠️ In development – not ready for production use.",
+    "description": "Z77 Kernel – boot (Core), platform (Shared) and data storage (Persistence) as one foundation package for all Z77 modules.",
     "type": "library",
     "license": "MIT",
     "authors": [
