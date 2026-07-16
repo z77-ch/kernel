@@ -24,10 +24,15 @@
         }
     },
     "require": {
-        "php": ">=8.2"
+        "php": ">=8.2",
+        "ext-mbstring": "*",
+        "ext-fileinfo": "*"
     },
     "require-dev": {
         "composer/composer": "^2.0"
+    },
+    "suggest": {
+        "ext-apcu": "Shared in-memory data cache across requests; without it the framework falls back to a per-request cache (enable apc.enable_cli=1 for CLI)"
     },
     "support": {
         "issues": "https://github.com/z77-ch/kernel/issues",

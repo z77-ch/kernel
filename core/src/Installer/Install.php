@@ -918,12 +918,16 @@ class Install
 
         if ($debug) {
             if (!file_exists($flag)) {
-                touch($flag);
+                if (!touch($flag)) {
+                    throw new \RuntimeException("Failed to create debug flag: {$flag}");
+                }
                 $this->io->write('   Created: debug.flag (debug=true)');
             }
         } else {
             if (file_exists($flag)) {
-                unlink($flag);
+                if (!unlink($flag)) {
+                    throw new \RuntimeException("Failed to remove debug flag: {$flag}");
+                }
                 $this->io->write('   Removed: debug.flag (debug=false)');
             }
         }
