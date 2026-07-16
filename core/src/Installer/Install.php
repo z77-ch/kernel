@@ -31,6 +31,10 @@ class Install
     private const ADMIN_USERNAME        = 'admin';
     private const BCRYPT_COST           = 12;
 
+    private const DOCS_PACKAGE          = 'z77/docs';
+    private const CLAUDE_TEMPLATE       = __DIR__ . '/../../res/CLAUDE.project.md';
+    private const CLAUDE_FILE           = 'CLAUDE.md';
+
     // Header policy notes written into generated config files so the developer
     // knows whether a file may be edited by hand (see docs/topics/installer.md).
     private const NOTE_REGENERATE =
@@ -139,6 +143,7 @@ class Install
         $this->writeDataFiles();
         $this->provisionAdmin();
         $this->writeDebugFlag();
+        $this->seedProjectClaudeMd();
 
         if (!empty($config)) {
             $this->io->write('✓ Z77 Core installation complete');
@@ -151,6 +156,10 @@ class Install
         // an opt-in per-file deploy prompt (interactive only, default No — ADR-024 amend).
         $this->renderAssetDriftNotice();
         $this->promptAssetDeploy();
+
+        // After everything else so the answer can trigger a nested `composer require`
+        // without interleaving the install log.
+        $this->offerDocsInstall();
     }
 
     // -------------------------------------------------------------------------
@@ -1084,6 +1093,117 @@ class Install
         $this->io->write('A one-time setup token was written to:');
         $this->io->write('    ' . self::AUTH_DIR . '/' . self::SETUP_TOKEN_FILE);
         $this->io->write('Read it from the server filesystem, then open /backend/system/setup/setup to create the admin.');
+    }
+
+    // -------------------------------------------------------------------------
+    // AI docs + project CLAUDE.md (see docs/topics/installer.md)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Seed-once: writes the project-level CLAUDE.md from the template shipped with the
+     * kernel. It points an AI coding assistant at `vendor/z77/docs` (topic trigger map,
+     * read-first list) and carries the CE key rules in short form — the piece that makes
+     * "open the project, ask the assistant, start working" actually happen. Once the
+     * file exists it is never touched again: it belongs to the developer.
+     */
+    private function seedProjectClaudeMd(): void
+    {
+        $target = $this->trailingSlash($this->baseDir) . self::CLAUDE_FILE;
+        if (file_exists($target)) {
+            return;
+        }
+
+        if (!is_readable(self::CLAUDE_TEMPLATE)) {
+            // Template missing would be a packaging defect — report, don't break installs.
+            $this->io->writeError('   Skipped CLAUDE.md seed: template not found in kernel.');
+            return;
+        }
+
+        $content = file_get_contents(self::CLAUDE_TEMPLATE);
+        if ($content === false) {
+            throw new \RuntimeException('Failed to read CLAUDE.md template: ' . self::CLAUDE_TEMPLATE);
+        }
+
+        $this->writeFile($this->baseDir, self::CLAUDE_FILE, $content);
+        $this->io->write('   Created: CLAUDE.md (project context for AI assistants — seed-once, yours to edit)');
+    }
+
+    /**
+     * Opt-in install of the AI-optimized framework documentation (`z77/docs`) as a
+     * require-dev package. Asked once per project — never again as soon as the package
+     * is installed or required. Default YES: unlike the overwrite prompts (default No),
+     * saying yes only adds a dev dependency; nothing existing is touched.
+     *
+     *   interactive     → ask, then run a nested `composer require --dev z77/docs:^1.0`.
+     *                     A failure is non-fatal (the install itself is already complete);
+     *                     the manual command is printed instead.
+     *   non-interactive → never ask, never require — print the manual command once.
+     */
+    private function offerDocsInstall(): void
+    {
+        if ($this->isDocsPresent()) {
+            return;
+        }
+
+        if (!$this->io->isInteractive()) {
+            $this->io->write('');
+            $this->io->write('AI-optimized framework docs are not installed. Add them any time with:');
+            $this->io->write('    composer require --dev ' . self::DOCS_PACKAGE);
+            return;
+        }
+
+        $this->io->write('');
+        $wants = $this->io->askConfirmation(
+            'Install the AI-optimized framework docs into vendor/ (recommended for Claude Code)? [Y/n] ',
+            true
+        );
+        if (!$wants) {
+            $this->io->write('Skipped. Add them any time with: composer require --dev ' . self::DOCS_PACKAGE);
+            return;
+        }
+
+        $cmd = $this->composerCommand()
+             . ' require --dev ' . escapeshellarg(self::DOCS_PACKAGE . ':^1.0')
+             . ' --working-dir=' . escapeshellarg($this->baseDir);
+
+        $this->io->write('Running: composer require --dev ' . self::DOCS_PACKAGE);
+        passthru($cmd, $exitCode);
+
+        if ($exitCode !== 0) {
+            $this->io->writeError('   Docs install failed (the project install itself is complete).');
+            $this->io->writeError('   Retry manually: composer require --dev ' . self::DOCS_PACKAGE);
+            return;
+        }
+
+        $this->io->write('   ✓ Docs installed → vendor/' . self::DOCS_PACKAGE . ' (entry: README.md)');
+    }
+
+    /** True when `z77/docs` is already installed or declared by the root package. */
+    private function isDocsPresent(): bool
+    {
+        foreach ($this->getInstalledPackages() as $package) {
+            if ($package->getName() === self::DOCS_PACKAGE) {
+                return true;
+            }
+        }
+
+        $root = $this->composer->getPackage();
+        return isset($root->getRequires()[self::DOCS_PACKAGE])
+            || isset($root->getDevRequires()[self::DOCS_PACKAGE]);
+    }
+
+    /**
+     * Rebuilds the command line of the currently running Composer so the nested
+     * `require` uses the exact same binary (php + composer.phar). Falls back to a
+     * plain `composer` lookup on PATH when argv is not usable.
+     */
+    private function composerCommand(): string
+    {
+        $argv0 = $_SERVER['argv'][0] ?? '';
+        if ($argv0 !== '' && is_file($argv0)) {
+            return escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($argv0);
+        }
+        return 'composer';
     }
 
     // -------------------------------------------------------------------------

@@ -2,6 +2,8 @@
     "name": "z77/kernel",
     "description": "Z77 Kernel – boot (Core), platform (Shared) and data storage (Persistence) as one foundation package for all Z77 modules.",
     "type": "library",
+    "keywords": ["php", "framework", "mvc", "flat-file", "json-storage", "z77"],
+    "homepage": "https://github.com/z77-ch/z77-framework",
     "license": "MIT",
     "authors": [
         {
@@ -35,8 +37,9 @@
         "ext-apcu": "Shared in-memory data cache across requests; without it the framework falls back to a per-request cache (enable apc.enable_cli=1 for CLI)"
     },
     "support": {
-        "issues": "https://github.com/z77-ch/kernel/issues",
-        "source": "https://github.com/z77-ch/kernel"
+        "issues": "https://github.com/z77-ch/z77-framework/issues",
+        "source": "https://github.com/z77-ch/kernel",
+        "docs": "https://github.com/z77-ch/z77-framework/tree/main/docs"
     },
     "readme": "README.md"
 }
