@@ -264,5 +264,33 @@
         "param": "",
         "sort_key": 0,
         "parent_id": 23
+    },
+    {
+        "id": 25,
+        "name": "Service",
+        "module": "",
+        "group": "",
+        "controller": "",
+        "action": "",
+        "slot": "backend-main",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 4,
+        "parent_id": null
+    },
+    {
+        "id": 26,
+        "name": "Backup",
+        "module": "backend",
+        "group": "service",
+        "controller": "backup",
+        "action": "list",
+        "slot": "",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 0,
+        "parent_id": 25
     }
 ]

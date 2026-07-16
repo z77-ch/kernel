@@ -1,0 +1,92 @@
+#!/usr/bin/env php
+<?php
+/**
+ * z77 backup CLI — the framework's cron entry for BackupService (ADR-028).
+ *
+ *   php vendor/bin/z77-backup {data|db|full} [--project=/abs/path]
+ *
+ * Runs one backup of the given type for the project and applies the retention
+ * policy from config/backup.inc.php. HTTP-free: no router, no session, no auth
+ * context — whoever can run PHP against the project files may back them up.
+ * Output is one line per run (cron-mail friendly); exit 0 = ok, 1 = error.
+ * `db` without a configured database is a no-op note, exit 0 — so one cron
+ * line fits every installation.
+ */
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "z77-backup: CLI only.\n");
+    exit(1);
+}
+
+$typeArg = null;
+$projectArg = null;
+foreach (array_slice($argv, 1) as $arg) {
+    if (str_starts_with($arg, '--project=')) {
+        $projectArg = substr($arg, strlen('--project='));
+    } elseif ($typeArg === null && $arg[0] !== '-') {
+        $typeArg = $arg;
+    }
+}
+
+/**
+ * Project root resolution: an explicit --project always wins; otherwise walk
+ * upwards from the working directory (the cron convention is
+ * `cd /path/to/project && php vendor/bin/z77-backup data`). The script's own
+ * location is deliberately NOT used — in monorepo development vendor/z77/kernel
+ * is a path-repo symlink, which would resolve to the framework, not the project.
+ */
+$findRoot = static function (?string $explicit): ?string {
+    if ($explicit !== null) {
+        $explicit = rtrim(str_replace('\\', '/', $explicit), '/');
+        return is_file($explicit . '/vendor/autoload.php') ? $explicit : null;
+    }
+    $dir = str_replace('\\', '/', (string)getcwd());
+    while ($dir !== '' && $dir !== dirname($dir)) {
+        if (is_file($dir . '/vendor/autoload.php') && is_file($dir . '/composer.json')) {
+            return $dir;
+        }
+        $dir = dirname($dir);
+    }
+    return null;
+};
+
+$projectRoot = $findRoot($projectArg);
+if ($projectRoot === null) {
+    fwrite(STDERR, "z77-backup: project root not found — run from the project directory or pass --project=/abs/path\n");
+    exit(1);
+}
+
+require_once $projectRoot . '/vendor/autoload.php';
+
+use Z77\Shared\Backup\BackupService;
+use Z77\Shared\Backup\BackupType;
+
+$type = BackupType::fromName($typeArg);
+if ($type === null) {
+    fwrite(STDERR, "Usage: z77-backup {data|db|full} [--project=/abs/path]\n");
+    exit(1);
+}
+
+try {
+    $service = BackupService::fromProjectRoot($projectRoot);
+
+    if ($type === BackupType::Db && !$service->isDatabaseConfigured()) {
+        echo "z77-backup: db skipped — no database configured (config/backup.inc.php).\n";
+        exit(0);
+    }
+
+    $entry = $service->run($type, 'cron');
+
+    printf(
+        "z77-backup: %s ok — %s (%d files, %.1f MB, %.1fs)\n",
+        $type->value,
+        $entry->getFileName(),
+        (int)($entry->getMeta()['files'] ?? 0),
+        $entry->getSizeBytes() / 1048576,
+        (float)($entry->getMeta()['duration_seconds'] ?? 0)
+    );
+    exit(0);
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'z77-backup: ' . $type->value . ' FAILED — ' . $e->getMessage() . "\n");
+    exit(1);
+}

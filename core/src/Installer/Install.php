@@ -23,6 +23,7 @@ class Install
     private const MODULE_MANAGER_CONFIG = 'moduleManager';
     private const AUTH_CONFIG           = 'auth';
     private const I18N_CONFIG           = 'i18n';
+    private const BACKUP_CONFIG         = 'backup';
     private const FILE_FINDER_CONFIG    = 'fileFinder.inc.php';
 
     private const AUTH_DIR              = 'data/framework/auth';
@@ -58,6 +59,7 @@ class Install
     private array  $moduleManagerConfig = [];
     private array  $authConfig          = [];
     private array  $i18nConfig          = [];
+    private array  $backupConfig        = [];
     private string $frameworkPrefix     = '';
     private string $modulePrefix        = '';
     private array  $additionalPsr4Paths = [];
@@ -139,6 +141,7 @@ class Install
         $this->writeModuleManagerConfig();
         $this->writeAuthConfig();
         $this->writeI18nConfig();
+        $this->writeBackupConfig();
         $this->writeFileFinderConfig();
         $this->writeDataFiles();
         $this->provisionAdmin();
@@ -824,6 +827,35 @@ class Install
         $this->writeFile($dir, $name, $content);
     }
 
+    /**
+     * Seed-once (INST-CONFIG-001): backup.inc.php holds the installation-wide
+     * backup policy (retention, full-backup excludes, optional database block)
+     * that the developer adapts after install — same class as auth/i18n. Once
+     * it exists the installer never overwrites it. See docs/topics/backup.md.
+     */
+    private function writeBackupConfig(): void
+    {
+        $dir  = $this->configDir();
+        $name = self::BACKUP_CONFIG . '.inc.php';
+
+        $target = $this->trailingSlash($dir) . $name;
+        if (file_exists($target)) {
+            $this->io->write("Skipped: {$name} already exists (seed-once, not overwritten)");
+            return;
+        }
+
+        $this->io->write("Write Backup config → {$dir}/{$name}");
+
+        $content  = $this->header($name, self::NOTE_SEED_ONCE);
+        $content .= "return [\n";
+        foreach ($this->backupConfig as $key => $value) {
+            $content .= "    '{$key}' => " . $this->exportPhpValue($value) . ",\n";
+        }
+        $content .= "];\n";
+
+        $this->writeFile($dir, $name, $content);
+    }
+
     private function writeFileFinderConfig(): void
     {
         $dir  = $this->configDir();
@@ -1226,6 +1258,9 @@ class Install
 
         $defaults              = require $dir . self::I18N_CONFIG . '.default.inc.php';
         $this->i18nConfig      = array_merge($defaults, $config['core-i18n'] ?? []);
+
+        $defaults              = require $dir . self::BACKUP_CONFIG . '.default.inc.php';
+        $this->backupConfig    = array_merge($defaults, $config['core-backup'] ?? []);
 
         return $config;
     }

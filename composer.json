@@ -18,6 +18,9 @@
             "Z77\\Persistence\\": "persistence/src/"
         }
     },
+    "bin": [
+        "bin/z77-backup"
+    ],
     "minimum-stability": "dev",
     "prefer-stable": true,
     "extra": {
@@ -28,7 +31,8 @@
     "require": {
         "php": ">=8.2",
         "ext-mbstring": "*",
-        "ext-fileinfo": "*"
+        "ext-fileinfo": "*",
+        "ext-zip": "*"
     },
     "require-dev": {
         "composer/composer": "^2.0"
