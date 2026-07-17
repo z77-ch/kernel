@@ -50,6 +50,21 @@ class SessionManager
         }
 
         if (session_status() === PHP_SESSION_NONE) {
+            // Explicit cookie hardening — never rely on the host's php.ini
+            // (PHP's default for samesite is EMPTY): HttpOnly (no JS access),
+            // SameSite=Lax (CSRF defense-in-depth on top of CsrfService),
+            // Secure on HTTPS (same detection as Request::parseUrl), and
+            // strict mode so uninitialized session ids are rejected
+            // (session fixation).
+            ini_set('session.use_strict_mode', '1');
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path'     => '/',
+                'domain'   => '',
+                'secure'   => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+                'httponly' => true,
+                'samesite' => 'Lax',
+            ]);
             session_start();
         }
 

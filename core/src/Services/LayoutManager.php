@@ -120,6 +120,19 @@ class LayoutManager
             );
         }
 
+        // Dev tool: partial-label overlay script (gate: flag + DEBUG + admin).
+        // Missing deployment must not take a page down — tool goes silently off.
+        if (PartialLabels::active()) {
+            try {
+                $this->addJs('partial-labels', 'Z77\\Shared');
+            } catch (LayoutManagerException $e) {
+                error_log(
+                    'PartialLabels: overlay script not deployed to public/assets/shared/js — '
+                    . $e->getMessage()
+                );
+            }
+        }
+
         return $this;
     }
 
@@ -365,8 +378,11 @@ class LayoutManager
             }
         } catch (\RuntimeException $e) {
             $min = $this->javascriptManager->minSuffix();
+            $tried = $min !== ''
+                ? "'js/{$name}{$min}.js' (unminified fallback 'js/{$name}.js' also missing)"
+                : "'js/{$name}.js'";
             throw new LayoutManagerException(
-                "JS file 'js/{$name}{$min}.js' not found in assets directory.",
+                "JS file {$tried} not found in assets directory.",
                 0,
                 $e
             );
@@ -387,8 +403,11 @@ class LayoutManager
             return $this->toWebPath($filePath);
         } catch (\RuntimeException $e) {
             $min = $this->javascriptManager->minSuffix();
+            $tried = $min !== ''
+                ? "'js/{$name}{$min}.js' (unminified fallback 'js/{$name}.js' also missing)"
+                : "'js/{$name}.js'";
             throw new LayoutManagerException(
-                "JS file 'js/{$name}{$min}.js' not found in assets directory.",
+                "JS file {$tried} not found in assets directory.",
                 0,
                 $e
             );

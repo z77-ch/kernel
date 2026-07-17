@@ -535,6 +535,16 @@ class Request {
     }
 
     /**
+     * All POST body parameters. THE way to hand a whole form to a DTO/mapper
+     * (e.g. Form::fromPost($request->getPostParameters())) — controllers must
+     * never touch $_POST directly (Key Rule 4).
+     */
+    public function getPostParameters(): array
+    {
+        return $_POST;
+    }
+
+    /**
      * Uploaded files for a form field as transport-agnostic {@see UploadedFile} VOs.
      * Handles both a single `<input name="doc">` and a multiple `<input name="doc[]">`
      * (PHP's column-wise `$_FILES` layout). Entries with no file are skipped; an absent

@@ -58,6 +58,10 @@ class TemplateRenderer
             $path . '.tpl.php',
             $ns
         );
-        return $this->render($resolvedPath, $context);
+        $html = $this->render($resolvedPath, $context);
+
+        return PartialLabels::active()
+            ? PartialLabels::wrap($path, $html)
+            : $html;
     }
 }

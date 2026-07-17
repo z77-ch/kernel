@@ -45,6 +45,11 @@ final class JavascriptManager
      *
      * debug:      js/main.js          → js/main_at-{mtime}.js
      * production: js/main.min.js      → js/main_at-{mtime}.min.js
+     *
+     * Production resilience: a missing .min.js must not take the page down
+     * (a skipped build step would otherwise 500 every request, including the
+     * backend needed to re-enable debug). Falls back to the unminified source
+     * and logs an error instead.
      */
     public function getVersionedJs(string $baseName, string $nameSpace): string
     {
@@ -53,8 +58,21 @@ final class JavascriptManager
         $sourcePath = DI::getFileFinder()->getFirstAssetMatch(
             fileName: "js/{$baseName}{$min}.js",
             nameSpace: $nameSpace,
-            throwError: true
+            throwError: $min === ''
         );
+
+        if ($sourcePath === null) {
+            error_log(
+                "JS asset 'js/{$baseName}{$min}.js' not found (namespace '{$nameSpace}') — "
+                . "serving unminified 'js/{$baseName}.js' as fallback. Build the .min file."
+            );
+            $min = '';
+            $sourcePath = DI::getFileFinder()->getFirstAssetMatch(
+                fileName: "js/{$baseName}.js",
+                nameSpace: $nameSpace,
+                throwError: true
+            );
+        }
 
         $version  = $this->assetVersion->version($sourcePath);
         $dir      = str_replace('\\', '/', dirname($sourcePath));

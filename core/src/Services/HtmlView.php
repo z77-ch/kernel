@@ -81,12 +81,18 @@ class HtmlView
     private function renderPartials(): array
     {
         $renderedByLevel = [];
+        $labels          = PartialLabels::active();
 
         foreach ($this->partials as $level => $sections) {
             foreach ($sections as $section => $paths) {
                 $html = '';
                 foreach ((array) $paths as $path) {
-                    $html .= $this->renderer->render($path, $this->context);
+                    $rendered = $this->renderer->render($path, $this->context);
+                    // Dev tool: body-level partials get overlay markers (head
+                    // partials render meta/link tags — nothing to label).
+                    $html .= $labels && $level === 'body'
+                        ? PartialLabels::wrap(PartialLabels::nameFromPath($path), $rendered)
+                        : $rendered;
                 }
                 $renderedByLevel[$level][$section] = $html;
             }

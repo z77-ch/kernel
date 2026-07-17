@@ -34,7 +34,8 @@ use Z77\Core\DI,
     Z77\Persistence\Resolver\UnifiedEntityManager,
     Z77\Shared\Libraries\Convention\Naming,
     Z77\Shared\Services\AuthService,
-    Z77\Shared\Services\CurrentUserService
+    Z77\Shared\Services\CurrentUserService,
+    Z77\Shared\Mail\EmailService
 ;
 
 /**
@@ -229,6 +230,9 @@ class Bootstrap
             }, true)
             ->set('MessageService', function($c) {
                 return new MessageService($c->get('SessionManager'));
+            }, true)
+            ->set('EmailService', function() {
+                return new EmailService();
             }, true)
             ->set('CsrfService', function($c) {
                 return new CsrfService($c->get('SessionManager'));
