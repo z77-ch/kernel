@@ -325,6 +325,16 @@ class Request {
         return '/' . implode('/', $this->pathSegments);
     }
 
+    /**
+     * The raw request URI as received (language prefix and query string
+     * included, percent-decoded). Source for same-page return redirects
+     * (e.g. the admin-overlay toggle form).
+     */
+    public function getRawRequestUri(): string
+    {
+        return $this->rawRequestUri;
+    }
+
     private function setAction(string $action): void
     {
         $cleanActionName = $this->cleanAndTranslate($action, 'cleanAlphaNum');

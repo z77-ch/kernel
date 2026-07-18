@@ -292,5 +292,19 @@
         "param": "",
         "sort_key": 0,
         "parent_id": 25
+    },
+    {
+        "id": 27,
+        "name": "E-Mail",
+        "module": "backend",
+        "group": "service",
+        "controller": "email-settings",
+        "action": "list",
+        "slot": "",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 1,
+        "parent_id": 25
     }
 ]

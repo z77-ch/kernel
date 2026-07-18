@@ -190,9 +190,12 @@ class Bootstrap
                 );
             }, true)
             ->set('PageCachePolicy', function($c) {
+                // Lazy factory: first resolved via the Dispatcher factory, at
+                // which point AuthService (registered after routing) exists.
                 return new PageCachePolicy(
                     $c->getModuleManager(),
                     $c->getCacheManager()->page(),
+                    $c->get('AuthService'),
                     DEBUG
                 );
             }, true)

@@ -120,7 +120,7 @@ class LayoutManager
             );
         }
 
-        // Dev tool: partial-label overlay script (gate: flag + DEBUG + admin).
+        // Dev tool: partial-label overlay script (gate: DEBUG + admin + user preference).
         // Missing deployment must not take a page down — tool goes silently off.
         if (PartialLabels::active()) {
             try {

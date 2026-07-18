@@ -2,18 +2,21 @@
 
 namespace Z77\Core\Routing;
 
+use Z77\Core\Config\AuthRole;
 use Z77\Core\Http\Request;
 use Z77\Core\Http\RequestMode;
 use Z77\Core\Libraries\Cache\PageCache;
 use Z77\Core\Libraries\Cache\PageIdentity;
 use Z77\Core\Services\ModuleManager;
+use Z77\Shared\Services\AuthService;
 
 /**
  * PageCachePolicy
  *
  * Single source of truth for the page-cache decision. Returns one of three modes:
- *   - NewPage             — render fresh, do not cache (debug, POST, query string,
- *                           fetch mode, or module config disabled)
+ *   - NewPage             — render fresh, do not cache (debug, admin session,
+ *                           POST, query string, fetch mode, or module config
+ *                           disabled)
  *   - PageFromCache       — server has a fresh entry, send it with ETag
  *   - PageFromClientCache — browser already has the fresh version (matched
  *                           If-None-Match against the cache file's mtime),
@@ -28,12 +31,23 @@ class PageCachePolicy
     public function __construct(
         private ModuleManager $moduleManager,
         private PageCache $pageCache,
+        private AuthService $authService,
         private bool $debug
     ) {}
 
     public function decide(Request $request): PageCacheDecision
     {
         if ($this->debug) {
+            return PageCacheDecision::newPage();
+        }
+
+        // A role >= ADMIN session renders admin-only chrome (frontend admin
+        // overlay, dev tools) into the page. The PageIdentity has no user
+        // dimension, so an admin's render must never enter the shared cache —
+        // and an admin must never be served the cached guest version
+        // (CACHE-ADMIN-001). Requires the session to be started before this
+        // runs (AccessGuard::enforce() precedes decide() in the Dispatcher).
+        if ($this->authService->getCurrentUser()->hasAtLeast(AuthRole::ADMIN)) {
             return PageCacheDecision::newPage();
         }
 
