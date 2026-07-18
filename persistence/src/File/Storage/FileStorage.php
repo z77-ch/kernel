@@ -15,12 +15,34 @@ class FileStorage
         }
     }
 
+    /**
+     * Loads a data JSON file into an array.
+     *
+     * Missing file → []. Empty/whitespace file → [] (legitimately empty). A
+     * leading UTF-8 BOM is tolerated (stripped before decode) — some external
+     * editors/shells add one (see DATA-JSON-001, docs/topics/persistence-file.md).
+     *
+     * A NON-EMPTY file that fails to parse throws instead of silently returning
+     * [] — a corrupt data file (e.g. a BOM'd or truncated navigation.json) must be
+     * visible, never blank the entity set behind a silent []. This does NOT catch
+     * mojibake double-encoding (that is valid UTF-8 and decodes fine) — that class
+     * is a prevention/convention matter, not detectable on read.
+     */
     public function load(string $path): array
     {
         $path = trim($path, '/');
         if (!file_exists($this->basePath.$path)) return [];
+
         $json = file_get_contents($this->basePath.$path);
-        $data = json_decode($json, true) ?? [];
+        $json = preg_replace('/^\xEF\xBB\xBF/', '', $json);   // tolerate a stray BOM
+        if (trim($json) === '') return [];                    // legitimately empty
+
+        $data = json_decode($json, true);
+        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
+            throw new \RuntimeException(
+                "Corrupt data file '{$path}': " . json_last_error_msg()
+            );
+        }
 
         return is_array($data) ? $data : [];
     }
