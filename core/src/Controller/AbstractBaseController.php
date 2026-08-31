@@ -205,7 +205,11 @@ abstract class AbstractBaseController
     {
         $request = DI::getRequest();
         $i18n    = DI::getI18n();
-        $origin  = url_origin($_SERVER);
+        // Configured origin, never the Host header: these URLs are rendered INTO the
+        // page and the page cache keys on path only (no host), so one request with a
+        // forged Host would poison the canonical/hreflang served to every visitor
+        // afterwards (SEC-005).
+        $origin  = $request->getBaseUrl();
         $base    = $this->currentCanonicalPath();   // canonical alias path (+ content slugs)
 
         $canonical = $origin . localizedUrl($base, $current);

@@ -12,6 +12,21 @@ namespace Z77\Core\Libraries\Cache;
  *
  * Not for HTML output — see PageCache for that. JSON encoding makes raw HTML bloated
  * and unreadable, and APCu's small memory pool would be evicted by even a few pages.
+ *
+ * The pool prefix is NAMESPACED PER INSTALLATION (hash of ABS_BASE_PATH):
+ * APCu is shared across every vhost of a PHP pool, so two z77 installations
+ * on the same hosting account would otherwise read each other's entries —
+ * observed live 2026-08-06 (cyon: axo3.ch served zihlundsee.ch's cached
+ * layout/config the moment both ran with debug off). Same reason
+ * clearAllApcu() deletes only this pool's keys, never the whole APCu.
+ *
+ * CROSS-PROCESS INVALIDATION (CACHE-CLI-001): APCu is per process tree. A
+ * CLI run (cron, z77-run, installer) has its own pool and cannot reach the
+ * FPM pool with apcu_delete(). So every clearAllApcu() also touches a stamp
+ * file on disk (lib/cache/apcu.stamp), and each process compares that
+ * file's mtime with the mtime it stored in ITS pool the last time it
+ * synced — a newer file means "somebody else invalidated": wipe and resync.
+ * One filemtime() per request.
  */
 class DataCache
 {
@@ -19,7 +34,26 @@ class DataCache
     private array $toCache = [];
     private array $debugStats = [];
     private int $defaultTTL = 31536000; // 1 year
-    private string $poolPrefix = 'Z77-apcu-pool';
+    private string $poolPrefix;
+    private ?string $stampPath = null;
+
+    public function __construct(?string $basePath = null)
+    {
+        $this->poolPrefix = self::poolPrefixFor(
+            $basePath ?? (defined('ABS_BASE_PATH') ? ABS_BASE_PATH : '')
+        );
+    }
+
+    /**
+     * Installation-scoped pool prefix: first 12 hex chars of md5(basePath).
+     * Hashing the FULL path matters — sibling installations share long path
+     * prefixes (/home/{account}/public_html/…), so a substring of the path
+     * itself would not separate them.
+     */
+    public static function poolPrefixFor(string $basePath): string
+    {
+        return 'Z77-apcu-pool-' . substr(md5($basePath), 0, 12);
+    }
 
     /**
      * Builds a stable, sanitized cache key from a class name and arbitrary components.
@@ -135,20 +169,84 @@ class DataCache
     }
 
     /**
-     * Full invalidation primitive: wipes the entire APCu cache (regardless of pool
-     * prefix) AND the in-process tiers (local read cache + deferred writes). Used at
-     * boot in DEBUG mode and on every entity write (FileEntityManager). The local tier
-     * MUST be dropped too — otherwise a read-after-write in the SAME request (e.g.
-     * granting an ACE and re-rendering effective rights) would return the stale value
-     * the local cache still holds, since it is read before APCu.
+     * Registers the cross-process invalidation stamp and syncs against it
+     * immediately: a stamp newer than the one this pool remembers means
+     * another process (typically a CLI job) invalidated since this pool was
+     * filled — wipe it. Called once at boot via CacheManager::setCacheDir().
+     */
+    public function setStampPath(string $path): void
+    {
+        $this->stampPath = $path;
+        $this->syncWithStamp();
+    }
+
+    private function stampKey(): string
+    {
+        return "{$this->poolPrefix}::__stamp";
+    }
+
+    private function stampMtime(): int
+    {
+        clearstatcache(true, $this->stampPath);
+        $mtime = @filemtime($this->stampPath);
+        return $mtime === false ? 0 : $mtime;
+    }
+
+    private function syncWithStamp(): void
+    {
+        if ($this->stampPath === null || !function_exists('apcu_fetch')) {
+            return;
+        }
+        $onDisk = $this->stampMtime();
+        $known  = apcu_fetch($this->stampKey(), $success);
+        if ($success && (int) $known === $onDisk) {
+            return;
+        }
+        $this->clear();
+        $this->localCache = [];
+        $this->toCache    = [];
+        apcu_store($this->stampKey(), $onDisk, 0);
+    }
+
+    /**
+     * Advances the stamp so every OTHER pool wipes on its next sync. Strictly
+     * monotonic: filemtime has one-second resolution, so a touch within the
+     * same second as the last sync would go unnoticed — hence max(now, old+1).
+     * Our own pool is re-marked as in sync (it was just wiped by the caller).
+     */
+    private function touchStamp(): void
+    {
+        if ($this->stampPath === null) {
+            return;
+        }
+        $next = max(time(), $this->stampMtime() + 1);
+        if (!@touch($this->stampPath, $next)) {
+            return; // cache dir unwritable — same failure class as PageCache writes, must not kill the request
+        }
+        if (function_exists('apcu_store')) {
+            apcu_store($this->stampKey(), $next, 0);
+        }
+    }
+
+    /**
+     * Full invalidation primitive for THIS INSTALLATION: drops every APCu key
+     * of this pool prefix AND the in-process tiers (local read cache +
+     * deferred writes). Used at boot in DEBUG mode and on every entity write
+     * (FileEntityManager). The local tier MUST be dropped too — otherwise a
+     * read-after-write in the SAME request (e.g. granting an ACE and
+     * re-rendering effective rights) would return the stale value the local
+     * cache still holds, since it is read before APCu.
+     *
+     * Deliberately NOT apcu_clear_cache(): APCu is shared across the PHP
+     * pool, a full wipe would evict every co-hosted installation's cache on
+     * each entity write / debug boot (the pre-2026-08-06 behaviour).
      */
     public function clearAllApcu(): void
     {
-        if (function_exists('apcu_clear_cache')) {
-            apcu_clear_cache();
-        }
+        $this->clear();
         $this->localCache = [];
         $this->toCache    = [];
+        $this->touchStamp();
     }
 
     /**

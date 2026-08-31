@@ -25,10 +25,11 @@ class Install
     private const I18N_CONFIG           = 'i18n';
     private const BACKUP_CONFIG         = 'backup';
     private const MAIL_CONFIG           = 'mail';
+    private const SYSTEM_CONFIG         = 'systemConfig';
     private const FILE_FINDER_CONFIG    = 'fileFinder.inc.php';
 
     private const AUTH_DIR              = 'data/framework/auth';
-    private const LOGIN_USERS_FILE      = 'loginUsers.json';
+    private const BACKEND_USERS_FILE      = 'backendUsers.json';
     private const SETUP_TOKEN_FILE      = 'SETUP_TOKEN';
     private const ADMIN_USERNAME        = 'admin';
     private const BCRYPT_COST           = 12;
@@ -62,6 +63,7 @@ class Install
     private array  $i18nConfig          = [];
     private array  $backupConfig        = [];
     private array  $mailConfig          = [];
+    private array  $systemConfig        = [];
     private string $frameworkPrefix     = '';
     private string $modulePrefix        = '';
     private array  $additionalPsr4Paths = [];
@@ -137,6 +139,7 @@ class Install
             }
 
             $this->createDirectories($config['directories'] ?? [], $firstInstall);
+            $this->seedCronEntry();
         }
 
         $this->writeBootstrapConfig();
@@ -145,6 +148,7 @@ class Install
         $this->writeI18nConfig();
         $this->writeBackupConfig();
         $this->writeMailConfig();
+        $this->writeSystemConfig();
         $this->writeFileFinderConfig();
         $this->writeDataFiles();
         $this->provisionAdmin();
@@ -852,6 +856,17 @@ class Install
         $content  = $this->header($name, self::NOTE_SEED_ONCE);
         $content .= "return [\n";
         foreach ($this->backupConfig as $key => $value) {
+            if ($key === 'retention') {
+                // The one key whose SEMANTICS the operator needs where they
+                // edit: the generated file carries no comments otherwise, and
+                // the tier form is not guessable from the values.
+                $content .= "    // Per type: integer = keep the newest N (0 = unlimited), or a tiered\n";
+                $content .= "    // map for LATE discovery (a mistake noticed days later still has a\n";
+                $content .= "    // clean state): tiers last/daily/weekly/monthly/yearly, count per\n";
+                $content .= "    // tier, 0 = that tier unlimited; `last` protects a manual pre-change\n";
+                $content .= "    // backup from the same-day scheduled run. A misspelled tier name\n";
+                $content .= "    // throws. Full story: docs/topics/backup.md.\n";
+            }
             $content .= "    '{$key}' => " . $this->exportPhpValue($value) . ",\n";
         }
         $content .= "];\n";
@@ -865,6 +880,35 @@ class Install
      * same class as auth/i18n/backup. Once it exists the installer never
      * overwrites it. See docs/topics/mail.md.
      */
+    /**
+     * Installation identity (ADR-030) — seed-once like the mail config: written
+     * when absent, never overwritten, meant to be edited on the server. It must
+     * survive `composer install`, because it is the one place where an
+     * installation differs from every other one built from the same repository.
+     */
+    private function writeSystemConfig(): void
+    {
+        $dir  = $this->configDir();
+        $name = self::SYSTEM_CONFIG . '.inc.php';
+
+        $target = $this->trailingSlash($dir) . $name;
+        if (file_exists($target)) {
+            $this->io->write("Skipped: {$name} already exists (seed-once, not overwritten)");
+            return;
+        }
+
+        $this->io->write("Write System config → {$dir}/{$name}");
+
+        $content  = $this->header($name, self::NOTE_SEED_ONCE);
+        $content .= "return [\n";
+        foreach ($this->systemConfig as $key => $value) {
+            $content .= "    '{$key}' => " . $this->exportPhpValue($value) . ",\n";
+        }
+        $content .= "];\n";
+
+        $this->writeFile($dir, $name, $content);
+    }
+
     private function writeMailConfig(): void
     {
         $dir  = $this->configDir();
@@ -896,8 +940,14 @@ class Install
         $this->io->write("Write FileFinder config → {$dir}/{$name}");
 
         $content  = $this->header($name, self::NOTE_REGENERATE);
-        $content .= "\$vendorDir = dirname(__DIR__).'/{$this->vendorBaseName}/';\n";
-        $content .= "\$baseDir = dirname(__DIR__).'/';\n";
+        // Anchored on ABS_BASE_PATH, NOT dirname(__DIR__): __DIR__ is the
+        // symlink-RESOLVED real path, so a symlinked config/ would anchor
+        // these paths in the link target's tree instead of the project's.
+        // ABS_BASE_PATH comes from the entry point and is the same anchor
+        // FileFinder already uses to locate this very file — one anchor,
+        // and the file works regardless of where it physically lives.
+        $content .= "\$vendorDir = ABS_BASE_PATH.'/{$this->vendorBaseName}/';\n";
+        $content .= "\$baseDir = ABS_BASE_PATH.'/';\n";
         $content .= "return [\n";
         $content .= "    'resourceDir' => [\n";
         $content .= "        'sourceDir' => '" . self::SOURCE_DIR . "',\n";
@@ -951,37 +1001,83 @@ class Install
 
     /**
      * Seeds runtime data files from their defaults. Generic by convention: every
-     * `*.default.json` anywhere under the package `data/` directory is deployed to
-     * the same relative path with the `.default` marker stripped, e.g.
+     * `*.default.json` anywhere under a framework package's data directory is
+     * deployed to the same relative path with the `.default` marker stripped, e.g.
      *   `framework/routing/navigation.default.json` → `data/framework/routing/navigation.json`
      *   `content/home.de.default.json`              → `data/content/home.de.json`
      * `writeDataFile` skips targets that already exist, so existing runtime data
      * is preserved. Adding a new seeded entity needs no installer change — just drop
-     * its `*.default.json` under `data/` (framework scaffolding or starter content).
+     * its `*.default.json` under the package's data dir (framework scaffolding or
+     * starter content).
+     *
+     * Walks EVERY installed framework package (INST-SEED-001) — previously only the
+     * kernel's own `core/data` was scanned, so module seeds (e.g. module-dms
+     * `data/documents/folders.default.json`) never reached a project. The kernel is
+     * not special-cased anymore. On a rel-path collision across packages the first
+     * package wins (and seed-once protects existing runtime data either way).
      */
     private function writeDataFiles(): void
     {
-        $base = realpath(__DIR__ . '/../../data');
-        if ($base === false) {
-            return;
-        }
+        foreach ($this->frameworkDataRoots() as $base) {
+            $it = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS)
+            );
 
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS)
-        );
+            foreach ($it as $file) {
+                if (!$file->isFile() || !str_ends_with($file->getFilename(), '.default.json')) {
+                    continue;
+                }
 
-        foreach ($it as $file) {
-            if (!$file->isFile() || !str_ends_with($file->getFilename(), '.default.json')) {
-                continue;
+                $relPath  = str_replace('\\', '/', substr($file->getPathname(), strlen($base) + 1));
+                $subDir   = trim(dirname($relPath), '.\\/');
+                $relDir   = 'data' . ($subDir !== '' ? '/' . $subDir : '');
+                $fileName = substr($file->getFilename(), 0, -strlen('.default.json')) . '.json';
+
+                $this->writeDataFile($relDir, $fileName, $file->getPathname());
             }
-
-            $relPath  = str_replace('\\', '/', substr($file->getPathname(), strlen($base) + 1));
-            $subDir   = trim(dirname($relPath), '.\\/');
-            $relDir   = 'data' . ($subDir !== '' ? '/' . $subDir : '');
-            $fileName = substr($file->getFilename(), 0, -strlen('.default.json')) . '.json';
-
-            $this->writeDataFile($relDir, $fileName, $file->getPathname());
         }
+    }
+
+    /**
+     * Absolute, existing data roots of all installed framework packages. Derived
+     * from each package's framework psr-4 paths with the same `stripSrc` logic
+     * `buildPaths()` uses: `core/src` → `{install}/core/data`, `src` → `{install}/data`.
+     * Deduplicated (a package exposing several namespaces from one root, e.g. the
+     * kernel, contributes each data dir once).
+     *
+     * @return string[]
+     */
+    private function frameworkDataRoots(): array
+    {
+        $roots   = [];
+        $manager = $this->composer->getInstallationManager();
+
+        foreach ($this->getInstalledPackages() as $package) {
+            $installPath = null;
+
+            foreach ($package->getAutoload()['psr-4'] ?? [] as $namespace => $path) {
+                if (!str_starts_with($namespace, $this->frameworkPrefix)) {
+                    continue;
+                }
+
+                $installPath ??= $manager->getInstallPath($package);
+                if ($installPath === null || $installPath === '') {
+                    break;  // metapackage — nothing on disk
+                }
+
+                foreach ((array) $path as $p) {
+                    $sub  = trim($this->stripSrc($p), '/');
+                    $dir  = $this->trailingSlash($installPath)
+                          . ($sub !== '' ? $sub . '/' : '') . 'data';
+                    $real = realpath($dir);
+                    if ($real !== false && is_dir($real)) {
+                        $roots[$real] = true;
+                    }
+                }
+            }
+        }
+
+        return array_keys($roots);
     }
 
     private function writeDebugFlag(): void
@@ -1036,7 +1132,7 @@ class Install
     /**
      * Provisions the first account — the SUPER_USER (ADR-021) — WITHOUT ever shipping a
      * default credential (the framework is open source — anything seeded would be
-     * public). Runs once: if `loginUsers.json` already exists it is never touched
+     * public). Runs once: if `backendUsers.json` already exists it is never touched
      * (re-install / update). The username stays `admin` (cosmetic); the ROLE is
      * `superUser` — `admin` (level 80) is a normal, grant-managed role.
      *
@@ -1050,7 +1146,7 @@ class Install
     private function provisionAdmin(): void
     {
         $authDir   = $this->trailingSlash($this->baseDir) . self::AUTH_DIR;
-        $usersFile = $this->trailingSlash($authDir) . self::LOGIN_USERS_FILE;
+        $usersFile = $this->trailingSlash($authDir) . self::BACKEND_USERS_FILE;
 
         if (file_exists($usersFile)) {
             return;
@@ -1067,7 +1163,7 @@ class Install
      * Creates the admin from a hidden password prompt. The password is evaluated
      * against {@see PasswordPolicy} (length + blocklist, never composition): a weak
      * one is accepted but the resulting `password_weak` flag drives the every-login
-     * nag. The user store is written as plain JSON matching the {@see LoginUser}
+     * nag. The user store is written as plain JSON matching the {@see BackendUser}
      * shape (snake_case) — no DI / EntityManager boot needed at install time.
      */
     private function provisionAdminInteractive(string $authDir, string $usersFile): void
@@ -1114,8 +1210,8 @@ class Install
         ]];
 
         $json = json_encode($admin, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
-        $this->writeFile($authDir, self::LOGIN_USERS_FILE, $json);
-        $this->io->write('   ✓ Admin account created → ' . self::AUTH_DIR . '/' . self::LOGIN_USERS_FILE);
+        $this->writeFile($authDir, self::BACKEND_USERS_FILE, $json);
+        $this->io->write('   ✓ Admin account created → ' . self::AUTH_DIR . '/' . self::BACKEND_USERS_FILE);
     }
 
     /** Asks for a password twice (hidden) until non-empty and both entries match. */
@@ -1297,7 +1393,38 @@ class Install
         $defaults              = require $dir . self::MAIL_CONFIG . '.default.inc.php';
         $this->mailConfig      = array_merge($defaults, $config['core-mail'] ?? []);
 
+        // ADR-030: installation identity — deliberately NOT merged from composer
+        // `extra`. composer.json is committed, so staging and production would
+        // share one value; these belong to the single installation.
+        $this->systemConfig    = require $dir . self::SYSTEM_CONFIG . '.default.inc.php';
+
         return $config;
+    }
+
+    /**
+     * Seeds `cron/run.php` — the cron entry for hosts whose panel takes one
+     * command and no `cd` (the panel cron starts in the home directory, where
+     * z77-run's upward walk finds no project). Seed-ONCE like public/: the
+     * file is three lines of hand-over with no generated content, and an
+     * installation may have adapted it (a hoster-specific guard, a different
+     * PHP ini) — regenerating would overwrite that silently. Unlike public/
+     * it seeds even on an existing installation, as long as the file itself
+     * is absent — existing projects get the entry on their next install.
+     */
+    private function seedCronEntry(): void
+    {
+        $dir    = $this->trailingSlash($this->baseDir) . 'cron';
+        $target = $dir . '/run.php';
+        if (is_file($target)) {
+            return;
+        }
+
+        $this->io->write("Seed cron entry → {$target}");
+        $source = __DIR__ . '/../../cron/run.php';
+        if (!is_file($source)) {
+            throw new \RuntimeException("Cron entry template not found: {$source}");
+        }
+        $this->writeFile($dir, 'run.php', (string) file_get_contents($source));
     }
 
     private function writeFile(string $dir, string $fileName, string $content): void

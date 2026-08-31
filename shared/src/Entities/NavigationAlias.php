@@ -4,6 +4,8 @@ namespace Z77\Shared\Entities;
 
 use Z77\Shared\Attributes\Clean;
 use Z77\Shared\Attributes\Entity;
+use Z77\Shared\Attributes\ImportIdentity;
+use Z77\Shared\Attributes\ImportRef;
 use Z77\Shared\Traits\ArrayMappable;
 
 /**
@@ -18,7 +20,12 @@ use Z77\Shared\Traits\ArrayMappable;
  * `id` is server-controlled (no setter) — assigned by the FileRepository on persist
  * and hydrated via reflection on load.
  */
+// Import identity (ADR-032): the alias path is a true natural key — unique
+// across all aliases by validator invariant. Deliberately NO near-match: a
+// differing path IS a different alias (multiple per navigation are legal),
+// never a rename to guess at.
 #[Entity('file', 'framework/routing/navigation_aliases.json', invalidatesCache: true)]
+#[ImportIdentity(['path'])]
 class NavigationAlias
 {
     use ArrayMappable;
@@ -34,6 +41,7 @@ class NavigationAlias
 
     /** FK to the {@see Navigation} this alias is the entry URL for. */
     #[Clean('int')]
+    #[ImportRef(Navigation::class)]
     private ?int $navigationId = null;
 
     /** Canonical (default-language) entry path, e.g. `/home` or `/schweiz/stadt`. */

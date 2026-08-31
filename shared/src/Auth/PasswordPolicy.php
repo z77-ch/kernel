@@ -15,7 +15,7 @@ namespace Z77\Shared\Auth;
  * The minimum length is supplied by the installation-wide {@see PasswordTier}
  * (config key `passwordTier`), NOT hardcoded — callers pass the configured tier.
  *
- * Used by the installer (admin provisioning), `LoginUserController`
+ * Used by the installer (admin provisioning), `BackendUserController`
  * (add/edit → `passwordWeak` flag) and the login nag. One ruleset, three callers.
  */
 final class PasswordPolicy

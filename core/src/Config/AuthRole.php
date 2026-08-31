@@ -7,6 +7,9 @@ class AuthRole
     public const ADMIN = 'admin';
     public const CRON_JOB = 'cronJob';
     public const MEMBER = 'member';
+    /** Self-registered external account (module-member) — below MEMBER so that
+     *  member-role grants (e.g. DMS ACEs) never implicitly cover customers. */
+    public const CUSTOMER = 'customer';
     public const VISITOR = 'visitor';
     public const GUEST = 'guest';
 
@@ -15,6 +18,7 @@ class AuthRole
         return [
             self::GUEST     => 0,
             self::VISITOR    => 10,
+            self::CUSTOMER   => 15,
             self::MEMBER     => 20,
             self::CRON_JOB   => 30,
             self::ADMIN      => 80,

@@ -2,13 +2,15 @@
 
 namespace Z77\Persistence\Validation;
 
-use Z77\Shared\Libraries\Convention\Naming;
+use Z77\Shared\Libraries\Convention\Naming,
+    Z77\Persistence\Concurrency\EntityStateHash;
 
 abstract class EntityValidator
 {
     protected object $entity;
     private array $errors = [];
     private array $fieldErrors = [];
+    private ?string $stateConflict = null;
 
     private string $currentField = '';
     private string $currentLabel = '';
@@ -32,8 +34,29 @@ abstract class EntityValidator
     {
         $this->errors      = [];
         $this->fieldErrors = [];
+        if ($this->stateConflict !== null) {
+            $this->errors[] = $this->stateConflict;
+        }
         $this->executeValidation($only);
         return empty($this->errors) && empty($this->fieldErrors);
+    }
+
+    /**
+     * Optimistic locking: compares the hash the edit form was rendered from
+     * (hidden entity_hash field) against the entity's CURRENT stored state.
+     * A mismatch means someone else saved in between — the save is rejected
+     * as a general validation error through the normal re-render path.
+     *
+     * MUST be called BEFORE mapFromArray() hydrates the POST body, while the
+     * entity still carries the freshly loaded stored state. New entities have
+     * no stored state — skip the call entirely. The conflict survives the
+     * per-call reset in isValid() (state, not a rule result).
+     */
+    final public function guardStoredState(string $submittedHash): void
+    {
+        if ($submittedHash === '' || EntityStateHash::of($this->entity) !== $submittedHash) {
+            $this->stateConflict = 'Der Eintrag wurde inzwischen geändert — neu laden und Änderung erneut anbringen.';
+        }
     }
 
     protected function executeValidation(?array $only = null): void
@@ -48,6 +71,12 @@ abstract class EntityValidator
             }
         }
     }
+
+    /**
+     * Whether guardStoredState() detected a concurrent modification. Lets the
+     * form template offer a reload control next to the conflict message.
+     */
+    final public function hasStateConflict(): bool { return $this->stateConflict !== null; }
 
     public function getErrors(): array { return $this->errors; }
     public function getFieldErrors(): array { return $this->fieldErrors; }
@@ -101,8 +130,11 @@ abstract class EntityValidator
     protected function isEmail(): static
     {
         if (!isset($this->fieldErrors[$this->currentField])) {
-            $v = (string)$this->currentValue;
-            if (!filter_var($v, FILTER_VALIDATE_EMAIL) || !preg_match('/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/', $v)) {
+            // One notion of "valid e-mail" for the whole framework; the rule
+            // used to be copied here from PublicFormValidator, character for
+            // character. Deliverability (reserved TLDs) is checked too: a
+            // stored address that can never receive mail is not an address.
+            if (!\Z77\Shared\Mail\MailAddress::isDeliverable((string)$this->currentValue)) {
                 $this->fieldErrors[$this->currentField] = $this->currentLabel . ' hat ein ungültiges Format';
             }
         }

@@ -1,6 +1,7 @@
 [
     {
         "id": 1,
+        "key": "webseiten",
         "name": "Webseiten",
         "module": "",
         "group": "",
@@ -15,6 +16,7 @@
     },
     {
         "id": 2,
+        "key": "stammdaten",
         "name": "Stammdaten",
         "module": "",
         "group": "",
@@ -29,6 +31,7 @@
     },
     {
         "id": 3,
+        "key": null,
         "name": "Home",
         "module": "frontend",
         "group": "main",
@@ -43,6 +46,7 @@
     },
     {
         "id": 4,
+        "key": null,
         "name": "About",
         "module": "frontend",
         "group": "main",
@@ -57,6 +61,7 @@
     },
     {
         "id": 5,
+        "key": null,
         "name": "Services",
         "module": "frontend",
         "group": "main",
@@ -71,6 +76,7 @@
     },
     {
         "id": 6,
+        "key": "navigation",
         "name": "Navigation",
         "module": "backend",
         "group": "content",
@@ -85,10 +91,11 @@
     },
     {
         "id": 7,
+        "key": "benutzer",
         "name": "Benutzer",
         "module": "backend",
         "group": "system",
-        "controller": "login-user",
+        "controller": "backend-user",
         "action": "list",
         "slot": "",
         "ref": null,
@@ -99,6 +106,7 @@
     },
     {
         "id": 8,
+        "key": "login",
         "name": "Login",
         "module": "backend",
         "group": "system",
@@ -113,6 +121,7 @@
     },
     {
         "id": 9,
+        "key": "logout",
         "name": "Logout",
         "module": "backend",
         "group": "system",
@@ -127,6 +136,7 @@
     },
     {
         "id": 10,
+        "key": null,
         "name": "Contact",
         "module": "frontend",
         "group": "main",
@@ -141,6 +151,7 @@
     },
     {
         "id": 11,
+        "key": null,
         "name": "Legal",
         "module": "frontend",
         "group": "main",
@@ -155,6 +166,7 @@
     },
     {
         "id": 12,
+        "key": null,
         "name": "Privacy",
         "module": "frontend",
         "group": "main",
@@ -169,6 +181,7 @@
     },
     {
         "id": 18,
+        "key": null,
         "name": "Navigation",
         "module": "",
         "group": "",
@@ -183,6 +196,7 @@
     },
     {
         "id": 19,
+        "key": "inhalte",
         "name": "Inhalte",
         "module": "backend",
         "group": "content",
@@ -197,6 +211,7 @@
     },
     {
         "id": 20,
+        "key": "metadaten",
         "name": "Metadaten",
         "module": "backend",
         "group": "content",
@@ -211,6 +226,7 @@
     },
     {
         "id": 21,
+        "key": "nav-alias",
         "name": "Nav Alias",
         "module": "backend",
         "group": "content",
@@ -225,6 +241,7 @@
     },
     {
         "id": 22,
+        "key": "uebersetzungen",
         "name": "Übersetzungen",
         "module": "backend",
         "group": "content",
@@ -239,6 +256,7 @@
     },
     {
         "id": 23,
+        "key": "drive",
         "name": "Drive",
         "module": "",
         "group": "",
@@ -253,6 +271,7 @@
     },
     {
         "id": 24,
+        "key": "dokumente",
         "name": "Dokumente",
         "module": "backend",
         "group": "documents",
@@ -267,6 +286,7 @@
     },
     {
         "id": 25,
+        "key": "service",
         "name": "Service",
         "module": "",
         "group": "",
@@ -281,6 +301,7 @@
     },
     {
         "id": 26,
+        "key": "backup",
         "name": "Backup",
         "module": "backend",
         "group": "service",
@@ -295,6 +316,7 @@
     },
     {
         "id": 27,
+        "key": "email",
         "name": "E-Mail",
         "module": "backend",
         "group": "service",
@@ -305,6 +327,51 @@
         "active": true,
         "param": "",
         "sort_key": 1,
+        "parent_id": 25
+    },
+    {
+        "id": 28,
+        "key": "jobs",
+        "name": "Jobs",
+        "module": "backend",
+        "group": "service",
+        "controller": "job",
+        "action": "list",
+        "slot": "",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 2,
+        "parent_id": 25
+    },
+    {
+        "id": 29,
+        "key": "import",
+        "name": "Import",
+        "module": "backend",
+        "group": "service",
+        "controller": "import",
+        "action": "list",
+        "slot": "",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 3,
+        "parent_id": 25
+    },
+    {
+        "id": 30,
+        "key": "form-log",
+        "name": "Formular-Protokoll",
+        "module": "backend",
+        "group": "service",
+        "controller": "form-log",
+        "action": "list",
+        "slot": "",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 4,
         "parent_id": 25
     }
 ]

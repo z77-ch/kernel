@@ -4,6 +4,7 @@ namespace Z77\Core\Services;
 
 use Z77\Core\DI,
     Z77\Core\Libraries\ConfigManager,
+    Z77\Core\Config\AuthRole,
     Z77\Core\Config\Config,
     Z77\Shared\Libraries\Convention\Naming
 ;
@@ -19,6 +20,10 @@ class ModuleManager
 
     /** Memoized reserved-route map (path prefix → 4-tuple); built once per request. */
     private ?array $reservedRoutes = null;
+
+    /** Memoized job registry (job key → definition); built once per request. */
+    private ?array $jobs = null;
+    private ?array $importEntities = null;
 
     public function __construct(ConfigManager $configManager)
     {
@@ -338,6 +343,114 @@ class ModuleManager
         }
 
         return $this->reservedRoutes = $routes;
+    }
+
+    /**
+     * Background jobs aggregated across all modules (ADR-031): a job key → its
+     * definition. A module declares them under the `jobs` config key; a key
+     * declared by two modules is a configuration error (fail-fast — the registry
+     * is global, exactly like reserved routes).
+     *
+     * The registry is the reason a queue entry stores a KEY and not a script
+     * path: whoever may edit an entry can only pick from what a module offered,
+     * never point the runner at arbitrary code.
+     *
+     * `payload` is the definition's own data, merged UNDER whatever the queue
+     * entry carries. It is what lets one class serve several keys — the three
+     * backup entries differ only by `['type' => …]`.
+     *
+     * ```php
+     * 'jobs' => [
+     *     'member-cleanup' => [
+     *         'class'           => MemberCleanupJob::class,
+     *         'label'           => 'Member-Bereinigung',
+     *         'runAs'           => AuthRole::CRON_JOB,
+     *         'maxAttempts'     => 3,
+     *         'defaultSchedule' => 'daily@03:15',
+     *         'payload'         => [],
+     *     ],
+     * ],
+     * ```
+     *
+     * @return array<string, array{class:string,label:string,runAs:string,maxAttempts:int,defaultSchedule:?string,payload:array,module:string}>
+     */
+    public function getJobs(): array
+    {
+        if ($this->jobs !== null) {
+            return $this->jobs;
+        }
+
+        $jobs = [];
+        foreach ($this->getModuleKeys() as $moduleKey) {
+            $declared = $this->getModuleConfig($moduleKey)?->get('jobs', []);
+            if (!is_array($declared)) {
+                continue;
+            }
+            foreach ($declared as $jobKey => $definition) {
+                $jobKey = (string) $jobKey;
+                if (isset($jobs[$jobKey])) {
+                    throw new \RuntimeException(
+                        "❌ Job '{$jobKey}' is declared by more than one module."
+                    );
+                }
+                if (!is_array($definition) || ($definition['class'] ?? '') === '') {
+                    throw new \RuntimeException(
+                        "❌ Job '{$jobKey}' (module '{$moduleKey}') has no 'class' entry."
+                    );
+                }
+                $jobs[$jobKey] = [
+                    'class'           => (string) $definition['class'],
+                    'label'           => (string) ($definition['label'] ?? $jobKey),
+                    'runAs'           => (string) ($definition['runAs'] ?? AuthRole::CRON_JOB),
+                    'maxAttempts'     => (int)    ($definition['maxAttempts'] ?? 3),
+                    'defaultSchedule' => isset($definition['defaultSchedule'])
+                        ? (string) $definition['defaultSchedule']
+                        : null,
+                    'payload'         => is_array($definition['payload'] ?? null) ? $definition['payload'] : [],
+                    'module'          => $moduleKey,
+                ];
+            }
+        }
+
+        return $this->jobs = $jobs;
+    }
+
+    /**
+     * Importable entity classes aggregated across all modules (ADR-032): the
+     * whitelist the backend data import works on. A module declares them under
+     * the `importEntities` config key; the union is deduplicated. Like the job
+     * registry this is what keeps the import a fixed menu — the screen never
+     * accepts an entity class from a request.
+     *
+     * ```php
+     * 'importEntities' => [Navigation::class, NavigationAlias::class, MetaData::class],
+     * ```
+     *
+     * @return list<class-string>
+     */
+    public function getImportEntities(): array
+    {
+        if ($this->importEntities !== null) {
+            return $this->importEntities;
+        }
+
+        $classes = [];
+        foreach ($this->getModuleKeys() as $moduleKey) {
+            $declared = $this->getModuleConfig($moduleKey)?->get('importEntities', []);
+            if (!is_array($declared)) {
+                continue;
+            }
+            foreach ($declared as $class) {
+                if (!is_string($class) || !class_exists($class)) {
+                    throw new \RuntimeException(
+                        "❌ importEntities of module '{$moduleKey}' names a non-existent class: " . var_export($class, true)
+                    );
+                }
+                $classes[$class] = true;
+            }
+        }
+
+        return $this->importEntities = array_keys($classes);
     }
 
     public function getModuleParameter(string $moduleKey, string $parameter): string | array

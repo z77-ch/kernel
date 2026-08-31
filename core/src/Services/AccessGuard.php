@@ -13,11 +13,15 @@ use Z77\Core\Controller\ControllerHandler,
     Z77\Core\Services\ModuleManager,
     Z77\Core\Session\SessionManager,
     Z77\Shared\Attributes\Csrf,
+    Z77\Shared\Auth\AuthBridgeInterface,
     Z77\Shared\Services\AuthService
 ;
 
 class AccessGuard
 {
+    /** Resolved bridge instances, built once per request on first enforce(). */
+    private ?array $authBridges = null;
+
     private AuthService $authService;
     private SessionManager $sessionManager;
     private ControllerHandler $controllerHandler;
@@ -61,6 +65,12 @@ class AccessGuard
         if ($csrfDenied !== null) {
             return $csrfDenied;
         }
+
+        // Let module identity doors project their session state into the ACL
+        // identity before it is read (AuthBridgeInterface — e.g. the member
+        // login). Must run before getCurrentUser(): the guard decides on what
+        // the bridges established.
+        $this->syncAuthBridges();
 
         $authUser     = $this->authService->getCurrentUser();
         $requiredRole = $this->authService->resolveRoleForCurrentController();
@@ -107,6 +117,33 @@ class AccessGuard
         }
 
         return new RedirectResponse('/', 303);
+    }
+
+    /**
+     * Collects `authBridges` (FQCN list) from every module config and calls
+     * sync() on each — a bridge whose class is missing or wrongly typed is a
+     * config error and throws. Instances are kept for the request; the list
+     * is normally empty or one entry, so the scan is cheap.
+     */
+    private function syncAuthBridges(): void
+    {
+        if ($this->authBridges === null) {
+            $this->authBridges = [];
+            foreach ($this->moduleManager->getModuleKeys() as $moduleKey) {
+                $bridges = $this->moduleManager->getModuleConfig($moduleKey)?->get('authBridges', []) ?? [];
+                foreach ($bridges as $fqcn) {
+                    $bridge = new $fqcn();
+                    if (!$bridge instanceof AuthBridgeInterface) {
+                        throw new \LogicException($fqcn . ' must implement AuthBridgeInterface');
+                    }
+                    $this->authBridges[] = $bridge;
+                }
+            }
+        }
+
+        foreach ($this->authBridges as $bridge) {
+            $bridge->sync();
+        }
     }
 
     private function buildRedirect(): RedirectResponse

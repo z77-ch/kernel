@@ -61,6 +61,7 @@ class CacheManager
 
         $this->absCacheDir = $absCacheDir;
         $this->page->setCacheDir($absCacheDir);
+        $this->data->setStampPath($absCacheDir . '/apcu.stamp');
     }
 
     /**
@@ -74,8 +75,10 @@ class CacheManager
     }
 
     /**
-     * Wipes the entire APCu cache. Used at boot in DEBUG mode so each request
-     * starts from a clean state. Does not touch file caches.
+     * Wipes this installation's APCu pool (in-process tiers included) and
+     * advances the cross-process stamp so CLI and FPM pools invalidate each
+     * other. Used at boot in DEBUG mode and on every invalidatesCache entity
+     * write. Does not touch file caches.
      */
     public function clearAllApcu(): void
     {

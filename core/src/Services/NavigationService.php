@@ -14,6 +14,13 @@ class NavigationService
     private ?Navigation $current   = null;
     private ?Navigation $uiCurrent = null;
 
+    /**
+     * Cursor for a page that has no navigation entry of its own — a sub-page of
+     * a listed controller. Set by {@see resolveCurrent()} ONLY when the exact
+     * 4-tuple matched nothing, so it can never override a real match.
+     */
+    private ?Navigation $cursorFallback = null;
+
     /** Tree algorithms for the navigation forest (roots grouped by render-slot slug). */
     private TreeService $navTree;
 
@@ -95,7 +102,10 @@ class NavigationService
      */
     public function resolveUiCurrent(?int $refId): void
     {
-        $this->uiCurrent = null;
+        // Starts on the sub-page fallback, not on null: `resolveCurrent()` sets
+        // it only when nothing matched, so a page WITH its own entry is
+        // unaffected (fallback stays null, cursor falls through to $current).
+        $this->uiCurrent = $this->cursorFallback;
         if ($refId === null || $refId <= 0 || $this->current === null) return;
 
         $refEntry = $this->findById($refId);
@@ -103,6 +113,44 @@ class NavigationService
         if ($refEntry->getRef() !== $this->current->getId()) return;
 
         $this->uiCurrent = $refEntry;
+    }
+
+    /**
+     * A page WITHOUT an entry of its own names where it belongs in the menu
+     * (NAV-CURSOR-001). The sibling fallback in {@see resolveCurrent()} only
+     * reaches pages whose controller is listed — as soon as a screen becomes a
+     * TAB of some object, its controller has no listed entry at all, and the
+     * left column would go empty (AXO3: `estate/tree` under the tenant tabs).
+     *
+     * Called from the controller, so it lands after resolveUiCurrent() and
+     * before anything renders. Both cursor fields are set: `uiCurrent` is what
+     * the subnav reads, `cursorFallback` what a later resolveUiCurrent() would
+     * start from.
+     *
+     * ⚠️ `$current` is NOT touched — it drives the SEO metadata and the
+     * canonical path. A page borrowing another entry's canonical URL would be
+     * a lie told to search engines, not a menu highlight. Same reason the
+     * sibling fallback keeps its hands off it.
+     *
+     * ⚠️ A page that HAS its own entry is left alone: its own position is
+     * always the better one, and a stray call must not move it.
+     */
+    public function setUiCursor(string $canonicalPath): void
+    {
+        if ($this->current !== null) {
+            return;
+        }
+
+        $entry = $this->findByPath($canonicalPath);
+        // Inactive entries are skipped for the same reason the sibling fallback
+        // skips them: `iterateTree()` never yields them, so a cursor sitting on
+        // one would find no section either — and the column stays empty.
+        if ($entry === null || !$entry->isActive()) {
+            return;
+        }
+
+        $this->cursorFallback = $entry;
+        $this->uiCurrent      = $entry;
     }
 
     /**
@@ -118,7 +166,9 @@ class NavigationService
      */
     public function resolveCurrent(string $module, string $group, string $controller, string $action, array $query = []): void
     {
-        $this->current = null;
+        $this->current        = null;
+        $this->cursorFallback = null;
+
         foreach ($this->getAll() as $entry) {
             if ($entry->getModule() === $module
                 && $entry->getGroup() === $group
@@ -126,6 +176,31 @@ class NavigationService
                 && $entry->getAction() === $action
             ) {
                 $this->current = $entry;
+                return;
+            }
+        }
+
+        // No entry for this exact action — a SUB-PAGE of a listed controller
+        // (backend: `estate/tree` beside the listed `estate/list`). Without a
+        // cursor the whole submenu disappears: `getActiveSectionBySlot()` finds
+        // no section, and subnav returns early. So the cursor falls back to a
+        // sibling of the same controller — that is where such a page belongs,
+        // and it is the entry the operator clicked to get here.
+        //
+        // ⚠️ The fallback lands on the UI CURSOR only, never on `$current`.
+        // `$current` drives the SEO metadata and the canonical path
+        // (AbstractBaseController); a sub-page borrowing its sibling's canonical
+        // URL would be a lie told to search engines, not a menu highlight.
+        //
+        // Inactive entries are skipped: `iterateTree()` skips them too, so a
+        // cursor sitting on one would find no section either.
+        foreach ($this->getAll() as $entry) {
+            if ($entry->getModule() === $module
+                && $entry->getGroup() === $group
+                && $entry->getController() === $controller
+                && $entry->isActive()
+            ) {
+                $this->cursorFallback = $entry;
                 return;
             }
         }

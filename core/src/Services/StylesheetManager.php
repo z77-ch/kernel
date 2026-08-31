@@ -97,10 +97,12 @@ final class StylesheetManager
             throwError: true
         );
 
-        $css = (static function (string $tplPath, array $data): string {
-            extract($data);
+        // Prefixed locals + EXTR_SKIP: a data key named `tplPath` would
+        // otherwise decide which file gets included, not just what it renders.
+        $css = (static function (string $z77TplPath, array $z77TplContext): string {
+            extract($z77TplContext, EXTR_SKIP);
             ob_start();
-            include $tplPath;
+            include $z77TplPath;
             return (string) ob_get_clean();
         })($tplPath, $data);
 

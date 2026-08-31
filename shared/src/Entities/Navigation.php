@@ -4,11 +4,21 @@ namespace Z77\Shared\Entities;
 
 use Z77\Shared\Attributes\Clean;
 use Z77\Shared\Attributes\Entity;
+use Z77\Shared\Attributes\ImportIdentity;
+use Z77\Shared\Attributes\ImportNearMatch;
+use Z77\Shared\Attributes\ImportRef;
 use Z77\Shared\Traits\ArrayMappable;
 use Z77\Shared\Tree\TreeNode;
 use Z77\Shared\Tree\TreeNodeTrait;
 
+// Import identity (ADR-032): framework key → routing 4-tuple → (parent, ref)
+// for ref entries. The 4-tuple is legally non-unique (ADR-015) — the planner's
+// bijectivity rule handles that. Near-match: same resolved parent + name + slot
+// catches renamed identities (framework rename, keyless hand-created container).
+// The parentId ref comes from TreeNodeTrait (#[ImportRef('self')]).
 #[Entity('file', 'framework/routing/navigation.json', invalidatesCache: true)]
+#[ImportIdentity(['key'], ['module', 'group', 'controller', 'action'], ['parentId', 'ref'])]
+#[ImportNearMatch(['parentId', 'name', 'slot'])]
 class Navigation implements TreeNode
 {
     use ArrayMappable;
@@ -26,6 +36,17 @@ class Navigation implements TreeNode
     }
 
     private ?int $id = null;
+
+    /**
+     * Stable framework address of a framework-owned entry (ADR-032, NAV-KEY-001) —
+     * the identity a data import matches on, same pattern as `Folder::key` (ADR-020).
+     * Null for human-created entries; a code constant for shipped entries
+     * (`service`, `drive`, `jobs`, …). Unique among non-null keys
+     * (NavigationValidator::validateKey). Server-controlled — MUST never come from
+     * request input; the edit POST path forces the stored value (same protection
+     * as parentId/sortKey). A manual import assignment MAY adopt it (ADR-032 §7).
+     */
+    private ?string $key = null;
 
     #[Clean('text')]
     private string $name = '';
@@ -52,6 +73,7 @@ class Navigation implements TreeNode
     private string $slot = '';
 
     #[Clean('nullable', 'int')]
+    #[ImportRef(Navigation::class)]
     private ?int $ref = null;
 
     #[Clean('bool')]
@@ -68,6 +90,7 @@ class Navigation implements TreeNode
     private string $param = '';
 
     public function getId(): ?int { return $this->id; }
+    public function getKey(): ?string { return $this->key; }
     public function getName(): string { return $this->name; }
 
     /**
@@ -100,6 +123,13 @@ class Navigation implements TreeNode
     public function getRef(): ?int { return $this->ref; }
     public function isActive(): bool { return $this->active; }
     public function getParam(): string { return $this->param; }
+
+    /** Framework key (see field docblock). Server-controlled; blank normalizes to null. */
+    public function setKey(?string $key): void
+    {
+        $key = $key === null ? null : trim($key);
+        $this->key = ($key === null || $key === '') ? null : $key;
+    }
 
     public function setName(string $name): void { $this->name = $name; }
 

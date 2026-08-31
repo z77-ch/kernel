@@ -11,14 +11,17 @@ use Z77\Core\DI,
  * public form needs, extracted from the first consumer (zihlundsee contact
  * form; see docs/03-development/review-email-service-usage.md §1a):
  *
- *   - Time-trap: armTimeTrap() on every form render; isTooFast() treats a
- *     submit without a render timestamp (direct POST) or faster than
- *     $minSeconds as a bot. The caller decides the reaction (convention:
- *     pretend success, send nothing).
+ *   - Time-trap: armTimeTrap() on every form render (idempotent — a re-render
+ *     keeps the running window), disarmTimeTrap() when the submit completed;
+ *     isTooFast() treats a submit without a render timestamp (direct POST) or
+ *     faster than $minSeconds as a bot. The caller decides the reaction
+ *     (convention: pretend success, send nothing).
  *   - Rate limit: recordSend() after each successful send; isRateLimited()
  *     caps successful sends per session within a sliding one-hour window.
- *   - PRG confirmation flag: markSent() before the redirect, consumeSent()
- *     on the next GET (returns true once, then resets).
+ *
+ * No confirmation flag: the PRG target is a REAL page of its own (a thank-you
+ * action), not the form page rendering something else because a session flag
+ * says so — see docs/topics/forms.md.
  *
  * Honeypot fields stay on the form DTO (field names differ per form); this
  * guard covers the session-side mechanics only. Not a DI singleton — built per
@@ -36,10 +39,31 @@ final class FormGuard
         return new self($key, DI::getSessionManager());
     }
 
-    /** Arms/re-arms the time-trap window — call on every render of the form. */
+    /**
+     * Arms the time-trap window — call on every render of the form. IDEMPOTENT:
+     * a running window is kept, so the re-render after a rejected submit
+     * (validation error, CSRF error) does not restart the clock. Restarting it
+     * would classify the very next correction as a bot: fixing one field and
+     * pressing Send takes well under $minSeconds, and the caller's reaction to
+     * "too fast" is a silent fake success — the message would be dropped while
+     * the visitor reads a thank-you. The window measures "time since the form
+     * was first handed out", which is what the trap is about.
+     */
     public function armTimeTrap(): void
     {
-        $this->session->set($this->sessionKey('renderedAt'), time());
+        if ((int) $this->session->get($this->sessionKey('renderedAt'), 0) === 0) {
+            $this->session->set($this->sessionKey('renderedAt'), time());
+        }
+    }
+
+    /**
+     * Ends the current form cycle — call after a completed submit (real or
+     * bot-faked) so the next render arms a fresh window instead of inheriting
+     * the finished one.
+     */
+    public function disarmTimeTrap(): void
+    {
+        $this->session->set($this->sessionKey('renderedAt'), 0);
     }
 
     /** True when the submit came without a render timestamp or too fast after it. */
@@ -55,28 +79,33 @@ final class FormGuard
         return count($this->recentSends()) >= $maxPerHour;
     }
 
+    /**
+     * How many sends THIS BROWSER got through on this form within the last
+     * hour.
+     *
+     * The point of exposing the number next to {@see self::isRateLimited()} is
+     * that the two carry different knowledge. The verdict is about the limit —
+     * on a silent form, saying anything about it would tell a stranger that
+     * this submit was treated differently from the last. The COUNT is about
+     * what this visitor just did, which the visitor already knows: it names no
+     * account, no address and no limit, so a page may act on it without
+     * becoming an oracle.
+     *
+     * ⚠️ It saturates at the limit — past it nothing is recorded any more
+     * ({@see PublicFormHandler} records only a successful send). Read it as
+     * «asked once» vs. «asked again», never as a total.
+     */
+    public function sendCount(): int
+    {
+        return count($this->recentSends());
+    }
+
     /** Registers a successful send for the rate-limit window. */
     public function recordSend(): void
     {
         $sends   = $this->recentSends();
         $sends[] = time();
         $this->session->set($this->sessionKey('sends'), $sends);
-    }
-
-    /** Sets the PRG confirmation flag — call before the redirect after success. */
-    public function markSent(): void
-    {
-        $this->session->set($this->sessionKey('sent'), true);
-    }
-
-    /** Returns the PRG flag once and resets it (the next GET shows the confirmation). */
-    public function consumeSent(): bool
-    {
-        $sent = (bool) $this->session->get($this->sessionKey('sent'), false);
-        if ($sent) {
-            $this->session->set($this->sessionKey('sent'), false);
-        }
-        return $sent;
     }
 
     /** @return list<int> send timestamps within the last hour (pruned) */

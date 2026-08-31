@@ -34,9 +34,24 @@ class TemplateRenderer
             throw new ViewException("Template not found: {$path}");
         }
 
-        extract($context, EXTR_SKIP);
+        return $this->renderIsolated($path, $context);
+    }
+
+    /**
+     * The scope a template actually runs in. Its locals carry a prefix no view
+     * variable would use, so a context key can never collide with them: with
+     * EXTR_SKIP a key named after a local was silently dropped and the template
+     * saw the renderer's own value instead.
+     *
+     * Stays a method rather than a static closure — templates call
+     * $this->partial(), which needs the instance in scope.
+     */
+    private function renderIsolated(string $z77TplPath, array $z77TplContext): string
+    {
+        extract($z77TplContext, EXTR_SKIP);
         ob_start();
-        require $path;
+        require $z77TplPath;
+
         return ob_get_clean();
     }
 

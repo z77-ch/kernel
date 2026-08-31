@@ -32,6 +32,7 @@ class Request {
     /** Session key under which the chosen language is remembered (ADR-013). */
     private const SESSION_LANGUAGE_KEY = 'language';
 
+
     private ModuleManager $moduleManager;
     private ControllerHandler $controllerHandler;
 
@@ -485,13 +486,52 @@ class Request {
         return RequestMode::Page;
     }
 
-    private function parseUrl(): array
+    /**
+     * Absolute origin of this installation — scheme + host, no trailing slash —
+     * for every link generated to leave this request. Mail links above all: the
+     * one-time login link is only as trustworthy as the host it points at.
+     *
+     * Comes from `canonicalBaseUrl` (systemConfig, ADR-030), never from the Host
+     * header: that header belongs to the client, so under a catch-all vhost a
+     * forged Host would put an attacker's domain into a genuine mail from this
+     * installation and hand over the token that link carries (SEC-005).
+     *
+     * Throws when unconfigured — see the comment at the throw.
+     */
+    public function getBaseUrl(): string
+    {
+        $configured = defined('CANONICAL_BASE_URL') ? CANONICAL_BASE_URL : '';
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        // No default is possible — any guessed host would be wrong, and wrong
+        // invisibly. So this throws rather than falling back to the header
+        // (ADR-030, point 4): a cron aborts instead of mailing links that point
+        // nowhere, and a page that never builds an absolute URL is unaffected.
+        throw new \RuntimeException(
+            "This installation has no canonicalBaseUrl. Set it in config/systemConfig.inc.php "
+            . "(e.g. 'https://kunde.ch') — it is the origin of every mail link and of the SEO "
+            . "canonical, and it cannot be derived from the request: the Host header is the "
+            . "client's to choose (SEC-005)."
+        );
+    }
+
+    /**
+     * Scheme + host as this request actually arrived. Routing uses it deliberately:
+     * whichever host answered is the one whose paths must resolve. Only URLs handed
+     * OUT go through getBaseUrl().
+     */
+    private function requestOrigin(): string
     {
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $rawUrl = $scheme . "://" . $host . $this->rawRequestUri;
 
-        return parse_url($rawUrl);
+        return $scheme . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+    }
+
+    private function parseUrl(): array
+    {
+        return parse_url($this->requestOrigin() . $this->rawRequestUri);
     }
 
     private function setRawRequestUri(): void

@@ -15,7 +15,40 @@ final class BackupService
 {
     private const DEFAULT_DIR       = 'backup';
     private const DEFAULT_RETENTION = ['data' => 10, 'db' => 10, 'full' => 5];
-    private const DEFAULT_EXCLUDES  = ['vendor', 'node_modules', 'backup', 'lib/cache'];
+
+    /**
+     * `lib` — the whole tree, not `lib/cache`. Everything below `lib/` is
+     * scratch space the installation rebuilds by itself: the page cache, the
+     * throttle counters. It may be deleted at any moment without losing
+     * information, which is exactly what an archive has no reason to carry.
+     *
+     * Naming the tree instead of listing its members is the point: a future
+     * `lib/something` is covered the day it appears. The list would need
+     * maintaining, and the one time it was not, the throttle counters ended up
+     * in every full archive.
+     */
+    private const DEFAULT_EXCLUDES  = ['vendor', 'node_modules', 'backup', 'lib'];
+
+    /**
+     * Never part of a data backup, relative to `data/`: the job runtime state
+     * (queue, schedules' bookkeeping, lock files, heartbeat).
+     *
+     * Two reasons, both binding. It is transient state — a restore must not
+     * resurrect a queue of work from whenever the archive was taken, the same
+     * argument that keeps a running job out of systemConfig (bootstrap.md).
+     * And it MOVES while the archive is being written: `ZipArchive` reads the
+     * files at `close()`, not at `addFile()`, so a `queue.json` replaced by the
+     * very backup job that is running fails the whole archive with
+     * "ZipArchive::close(): Read error".
+     *
+     * Not configurable — this is not an operator's choice.
+     *
+     * `framework/import` (ADR-032) is the same class of state: the staging
+     * area + persisted import plans are transient — restoring them into
+     * another environment would resurrect a half-decided import against data
+     * that no longer matches its fingerprints.
+     */
+    private const DATA_EXCLUDES = ['framework/jobs', 'framework/import'];
 
     private string $baseDir;
     private array  $config;
@@ -59,7 +92,7 @@ final class BackupService
         $zipPath = $dir . '/' . date('Y-m-d_His') . '_' . $type->value . '.zip';
 
         $files = match ($type) {
-            BackupType::Data => (new ZipArchiver())->zipDirectory($this->baseDir . '/data', $zipPath),
+            BackupType::Data => (new ZipArchiver())->zipDirectory($this->baseDir . '/data', $zipPath, self::DATA_EXCLUDES),
             BackupType::Full => (new ZipArchiver())->zipDirectory($this->baseDir, $zipPath, $this->fullExcludes()),
             BackupType::Db   => $this->runDbBackup($zipPath),
         };
@@ -120,6 +153,16 @@ final class BackupService
             $excludes[] = $backupRel;
         }
 
+        // The job runtime state is excluded here too, and unconditionally: the
+        // configured list is the operator's, but this one is not negotiable —
+        // see DATA_EXCLUDES for why (transient state + it moves mid-archive).
+        foreach (self::DATA_EXCLUDES as $jobPath) {
+            $rel = 'data/' . $jobPath;
+            if (!in_array($rel, $excludes, true)) {
+                $excludes[] = $rel;
+            }
+        }
+
         return $excludes;
     }
 
@@ -142,19 +185,26 @@ final class BackupService
         }
     }
 
-    /** Keeps the newest N archives per type (config `retention`, 0 = unlimited). */
+    /**
+     * Applies the type's retention (config `retention`): an integer keeps the
+     * newest N (0 = unlimited), an array is the tiered form — all of the last
+     * days, one per week, one per month … so a mistake discovered LATE still
+     * has a clean state to restore. The decision itself is
+     * {@see RetentionPolicy} (pure, harness-tested); this method only feeds
+     * it the names and deletes what it drops.
+     */
     private function applyRetention(BackupType $type): void
     {
         $retention = $this->config['retention'][$type->value]
             ?? self::DEFAULT_RETENTION[$type->value];
-        $keep = max(0, (int)$retention);
-        if ($keep === 0) {
-            return;
-        }
 
-        $entries = $this->history()->scan($type); // newest first
-        foreach (array_slice($entries, $keep) as $entry) {
-            $this->delete($type, $entry->getFileName());
+        $names = array_map(
+            static fn(BackupEntry $entry): string => $entry->getFileName(),
+            $this->history()->scan($type),
+        );
+
+        foreach (RetentionPolicy::drops($names, is_array($retention) ? $retention : (int) $retention) as $name) {
+            $this->delete($type, $name);
         }
     }
 

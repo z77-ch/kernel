@@ -1,0 +1,179 @@
+#!/usr/bin/env php
+<?php
+/**
+ * z77 job runner — the framework's single cron entry (ADR-031).
+ *
+ *   * * * * * cd /path/to/project && php vendor/bin/z77-run
+ *
+ * Where the host's cron panel takes one command and no `cd` (cyon), call the
+ * seeded starter instead — it chdir()s into the project and hands over here:
+ *
+ *   php /path/to/project/cron/run.php
+ *
+ * One cron line per installation; everything else is configured in the
+ * application. A pass with nothing due boots and exits SILENTLY — cron
+ * mails every run that produces output, so only a pass that did something
+ * (or failed) says so.
+ *
+ *   php vendor/bin/z77-run [--project=/abs/path]
+ *   php vendor/bin/z77-run --list                 registry + queue overview
+ *   php vendor/bin/z77-run --enqueue=<job-key>    queue one entry, run at once
+ *
+ * Unlike z77-backup this DOES boot the framework's service layer
+ * (Bootstrap::pullUpServices) — a generic runner cannot know what an arbitrary
+ * job needs. It stops short of HTTP: no request, no router, no session.
+ * Output is cron-mail friendly: silence when idle, a summary when work ran,
+ * STDERR on failure; exit 0 = pass completed, 1 = it could not run.
+ */
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "z77-run: CLI only.\n");
+    exit(1);
+}
+
+$projectArg = null;
+$enqueueKey = null;
+$listOnly   = false;
+foreach (array_slice($argv, 1) as $arg) {
+    if (str_starts_with($arg, '--project=')) {
+        $projectArg = substr($arg, strlen('--project='));
+    } elseif (str_starts_with($arg, '--enqueue=')) {
+        $enqueueKey = substr($arg, strlen('--enqueue='));
+    } elseif ($arg === '--list') {
+        $listOnly = true;
+    }
+}
+
+/**
+ * Project root resolution — identical to z77-backup: an explicit --project
+ * wins, otherwise walk up from the working directory. The script's own location
+ * is deliberately NOT used; in monorepo development vendor/z77/kernel is a link
+ * that would resolve to the framework instead of the project.
+ */
+$findRoot = static function (?string $explicit): ?string {
+    if ($explicit !== null) {
+        $explicit = rtrim(str_replace('\\', '/', $explicit), '/');
+        return is_file($explicit . '/vendor/autoload.php') ? $explicit : null;
+    }
+    $dir = str_replace('\\', '/', (string) getcwd());
+    while ($dir !== '' && $dir !== dirname($dir)) {
+        if (is_file($dir . '/vendor/autoload.php') && is_file($dir . '/composer.json')) {
+            return $dir;
+        }
+        $dir = dirname($dir);
+    }
+    return null;
+};
+
+$projectRoot = $findRoot($projectArg);
+if ($projectRoot === null) {
+    fwrite(STDERR, "z77-run: project root not found — run from the project directory or pass --project=/abs/path\n");
+    exit(1);
+}
+
+define('ABS_BASE_PATH', $projectRoot);
+require_once $projectRoot . '/vendor/autoload.php';
+
+use Z77\Core\Bootstrap;
+use Z77\Core\DI;
+use Z77\Shared\Jobs\JobQueue;
+use Z77\Shared\Jobs\JobRunner;
+use Z77\Shared\Jobs\JobSchedules;
+
+try {
+    $boot = new Bootstrap();
+    $boot->pullUpServices();
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'z77-run: boot failed — ' . $e->getMessage() . "\n");
+    exit(1);
+}
+
+try {
+    if ($listOnly) {
+        $registry = DI::getModuleManager()->getJobs();
+        $queue    = new JobQueue(DI::getInstance()->get('UnifiedEntityManager'));
+
+        echo "registered jobs (" . count($registry) . ")\n";
+        foreach ($registry as $key => $definition) {
+            printf(
+                "  %-24s %s  [module: %s, runAs: %s, maxAttempts: %d]\n",
+                $key,
+                $definition['label'],
+                $definition['module'],
+                $definition['runAs'],
+                $definition['maxAttempts']
+            );
+        }
+
+        $schedules = (new JobSchedules(DI::getInstance()->get('UnifiedEntityManager')))->all();
+        echo "\nschedules (" . count($schedules) . ")\n";
+        foreach ($schedules as $schedule) {
+            printf(
+                "  %-24s %-16s %s  next %s  last %s\n",
+                $schedule->getJobKey(),
+                $schedule->getExpression(),
+                $schedule->isEnabled() ? 'on ' : 'off',
+                $schedule->getNextRunAt(),
+                $schedule->getLastRunAt() ?? '—'
+            );
+        }
+
+        $entries = $queue->all();
+        echo "\nqueue (" . count($entries) . ")\n";
+        foreach ($entries as $entry) {
+            printf(
+                "  %-24s %-8s available %s  attempts %d  %s\n",
+                $entry->getJobKey(),
+                $entry->getState(),
+                $entry->getAvailableAt(),
+                $entry->getAttempts(),
+                $entry->getNote()
+            );
+        }
+        exit(0);
+    }
+
+    if ($enqueueKey !== null) {
+        $registry = DI::getModuleManager()->getJobs();
+        if (!isset($registry[$enqueueKey])) {
+            fwrite(STDERR, "z77-run: no module declares the job '{$enqueueKey}'\n");
+            exit(1);
+        }
+        $queue = new JobQueue(DI::getInstance()->get('UnifiedEntityManager'));
+        $entry = $queue->enqueue($enqueueKey, [], 'cli');
+        echo "z77-run: queued {$enqueueKey} ({$entry->getId()})\n";
+    }
+
+    $summary = JobRunner::fromBootedProject($projectRoot)->run();
+
+    // An idle pass says NOTHING. Cron mails every run that produces output,
+    // and this runs once a minute — a summary of zeros would fill a mailbox
+    // with proof that nothing happened. Proof that the cron RUNS is the
+    // heartbeat (data/framework/jobs/last-pass.json → the job screen banner),
+    // not a mail; failures write to STDERR above and still get mailed.
+    $idle = $summary['executed'] === 0
+        && $summary['queued'] === 0
+        && $summary['reclaimed'] === 0
+        && $summary['pruned'] === 0
+        && $summary['lines'] === [];
+
+    if (!$idle) {
+        foreach ($summary['lines'] as $line) {
+            echo '  ' . $line . "\n";
+        }
+        printf(
+            "z77-run: %d executed (%d done, %d continued, %d failed), %d queued by schedule, %d reclaimed, %d pruned\n",
+            $summary['executed'],
+            $summary['done'],
+            $summary['again'],
+            $summary['failed'],
+            $summary['queued'],
+            $summary['reclaimed'],
+            $summary['pruned']
+        );
+    }
+    exit(0);
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'z77-run: FAILED — ' . get_class($e) . ': ' . $e->getMessage() . "\n");
+    exit(1);
+}

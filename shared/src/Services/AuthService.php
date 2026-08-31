@@ -2,7 +2,7 @@
 namespace Z77\Shared\Services;
 
 use Z77\Shared\Auth\AuthUser,
-    Z77\Shared\Entities\LoginUser,
+    Z77\Shared\Entities\BackendUser,
     Z77\Shared\Libraries\Convention\Naming,
     Z77\Core\Session\SessionManager,
     Z77\Core\Controller\ControllerHandler,
@@ -16,7 +16,7 @@ class AuthService
     private ControllerHandler $controllerHandler;
 
     private ?AuthUser  $currentUser  = null;
-    private ?LoginUser $verifiedUser = null;
+    private ?BackendUser $verifiedUser = null;
 
     public function __construct(SessionManager $sessionManager, ControllerHandler $controllerHandler)
     {
@@ -83,6 +83,7 @@ class AuthService
                 'id'        => $data['id'],
                 'user_name' => $data['user_name'],
                 'roles'     => $data['roles'] ?? [AuthRole::GUEST],
+                'realm'     => $data['realm'] ?? AuthUser::REALM_BACKEND,
             ])
             : new AuthUser([
                 'id'        => 0,
@@ -93,7 +94,7 @@ class AuthService
         return $this->currentUser;
     }
 
-    public function canLogin(LoginUser $user, string $password): ?self
+    public function canLogin(BackendUser $user, string $password): ?self
     {
         if (!password_verify($password, $user->getPasswordHash())) {
             return null;
@@ -111,20 +112,56 @@ class AuthService
         $this->verifiedUser = null;
 
         $this->sessionManager->regenerate();
-        $this->currentUser = new AuthUser([
+        $payload = [
             'id'        => $user->getId(),
             'user_name' => $user->getUsername(),
             'roles'     => $user->getRoles(),
-        ]);
-        $this->sessionManager->set('auth_user', [
-            'id'        => $user->getId(),
-            'user_name' => $user->getUsername(),
-            'roles'     => $user->getRoles(),
-        ]);
+            'realm'     => AuthUser::REALM_BACKEND,
+        ];
+        $this->currentUser = new AuthUser($payload);
+        $this->sessionManager->set('auth_user', $payload);
     }
 
     public function logout(): void
     {
+        $this->currentUser = null;
+        $this->sessionManager->remove('auth_user');
+    }
+
+    // ── member realm (ADR-029 second decision) ─────────────────────────────
+    //
+    // The member session (module-member) is the source of truth for WHO is
+    // signed in as a customer; these two methods are its per-request
+    // projection into the ACL identity, called by the module's AuthBridge
+    // BEFORE AccessGuard resolves roles. They never regenerate the session id
+    // (fixation defense lives in MemberSession start/end) and they never
+    // touch a backend identity: an existing backend login always wins.
+
+    /** Projects a signed-in member account into the ACL identity. */
+    public function establishMemberIdentity(string $accountId, string $displayName, array $roles): void
+    {
+        $existing = $this->sessionManager->get('auth_user', null);
+        if ($existing !== null && ($existing['realm'] ?? AuthUser::REALM_BACKEND) === AuthUser::REALM_BACKEND) {
+            return; // backend session present — never downgrade it
+        }
+
+        $payload = [
+            'id'        => $accountId,
+            'user_name' => $displayName,
+            'roles'     => $roles,
+            'realm'     => AuthUser::REALM_MEMBER,
+        ];
+        $this->currentUser = new AuthUser($payload);
+        $this->sessionManager->set('auth_user', $payload);
+    }
+
+    /** Removes a member-realm identity (sign-out, idle expiry, account gone). */
+    public function clearMemberIdentity(): void
+    {
+        $existing = $this->sessionManager->get('auth_user', null);
+        if ($existing === null || ($existing['realm'] ?? AuthUser::REALM_BACKEND) !== AuthUser::REALM_MEMBER) {
+            return;
+        }
         $this->currentUser = null;
         $this->sessionManager->remove('auth_user');
     }

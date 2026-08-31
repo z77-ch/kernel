@@ -4,6 +4,8 @@ namespace Z77\Shared\Entities;
 
 use Z77\Shared\Attributes\Clean;
 use Z77\Shared\Attributes\Entity;
+use Z77\Shared\Attributes\ImportIdentity;
+use Z77\Shared\Attributes\ImportRef;
 use Z77\Shared\Traits\ArrayMappable;
 
 /**
@@ -16,7 +18,11 @@ use Z77\Shared\Traits\ArrayMappable;
  * `id` is server-controlled (no setter) — assigned by the FileRepository on
  * persist and hydrated via reflection on load.
  */
+// Import identity (ADR-032): (resolved navigation, language) — total, so no
+// near-match. navigationId is an ImportRef: the identity is only computable
+// after the Navigation set is settled (IMP-R002, dependency ordering).
 #[Entity('file', 'framework/seo/metadata.json', invalidatesCache: true)]
+#[ImportIdentity(['navigationId', 'language'])]
 class MetaData
 {
     use ArrayMappable;
@@ -32,6 +38,7 @@ class MetaData
 
     /** FK to the {@see Navigation} entry this metadata describes. Part of the identity. */
     #[Clean('int')]
+    #[ImportRef(Navigation::class)]
     private ?int $navigationId = null;
 
     /** Language code (e.g. `de`). Part of the identity. */

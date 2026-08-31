@@ -1,7 +1,7 @@
 <?php
 namespace Z77\Shared\Services;
 
-use Z77\Shared\Entities\LoginUser,
+use Z77\Shared\Entities\BackendUser,
     Z77\Shared\ValueObjects\UserPreferences,
     Z77\Persistence\Resolver\UnifiedEntityManager
 ;
@@ -9,15 +9,15 @@ use Z77\Shared\Entities\LoginUser,
 /**
  * Per-request provider for the authenticated user entity and preferences.
  *
- * Caches the LoginUser for the lifetime of the request so that multiple
+ * Caches the BackendUser for the lifetime of the request so that multiple
  * consumers (controllers, layout hooks) share a single DB read.
  * Call savePreferences() to persist changes — the cache is invalidated
- * automatically so subsequent getLoginUser() / getPreferences() calls
+ * automatically so subsequent getBackendUser() / getPreferences() calls
  * return the updated state.
  */
 class CurrentUserService
 {
-    private ?LoginUser $loginUser = null;
+    private ?BackendUser $backendUser = null;
     private bool $loaded = false;
 
     public function __construct(
@@ -25,35 +25,42 @@ class CurrentUserService
         private UnifiedEntityManager $uem
     ) {}
 
-    public function getLoginUser(): ?LoginUser
+    public function getBackendUser(): ?BackendUser
     {
         if (!$this->loaded) {
+            // Backend realm only: a member-realm id lives in a different id
+            // space (MemberAccount) and must never be looked up here.
+            if (!$this->authService->getCurrentUser()->isBackendRealm()) {
+                $this->loaded = true;
+
+                return null;
+            }
             $this->loaded = true;
             $id = $this->authService->getCurrentUser()->getId();
             if ($id > 0) {
-                $this->loginUser = $this->uem->getRepository(LoginUser::class)->find($id);
+                $this->backendUser = $this->uem->getRepository(BackendUser::class)->find($id);
             }
         }
-        return $this->loginUser;
+        return $this->backendUser;
     }
 
     public function getPreferences(): UserPreferences
     {
-        return new UserPreferences($this->getLoginUser()?->getPreferences() ?? []);
+        return new UserPreferences($this->getBackendUser()?->getPreferences() ?? []);
     }
 
     public function savePreferences(UserPreferences $prefs): void
     {
-        $loginUser = $this->getLoginUser();
-        if ($loginUser === null) {
+        $backendUser = $this->getBackendUser();
+        if ($backendUser === null) {
             return;
         }
 
-        $loginUser->setPreferences($prefs->toArray());
-        $this->uem->persist($loginUser);
+        $backendUser->setPreferences($prefs->toArray());
+        $this->uem->persist($backendUser);
         $this->uem->flush();
 
-        $this->loginUser = null;
+        $this->backendUser = null;
         $this->loaded    = false;
     }
 }

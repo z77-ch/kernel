@@ -306,14 +306,19 @@ final class EmailService
      * Closure-scope template render (pattern: StylesheetManager::createCss) —
      * the template sees only the context variables, not $this.
      *
+     * The closure's locals carry a prefix no mail variable would use, and
+     * EXTR_SKIP guards them on top: without either, a context key named
+     * `tplPath` would not merely render wrong, it would decide which file gets
+     * included.
+     *
      * @param array<string, mixed> $context
      */
     private function render(string $tplPath, array $context): string
     {
-        return (static function (string $tplPath, array $context): string {
-            extract($context);
+        return (static function (string $z77TplPath, array $z77TplContext): string {
+            extract($z77TplContext, EXTR_SKIP);
             ob_start();
-            include $tplPath;
+            include $z77TplPath;
             return (string) ob_get_clean();
         })($tplPath, $context);
     }

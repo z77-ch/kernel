@@ -83,9 +83,12 @@ class FileEntityManager implements EntityManagerInterface
 
     public function reorder(array $entities, EntityAttr $attr): void
     {
-        // Collection-only: rewrite the file in the given entity order.
+        // Collection-only: rewrite the file in the given entity order. Under the
+        // file's exclusive lock so the write serialises against a concurrent
+        // read-merge-write cycle instead of landing in the middle of one.
+        $path = $attr->getPath();
         $data = array_map(fn($e) => $e->mapToArray(), $entities);
-        $this->storage->save($attr->getPath(), $data);
+        $this->storage->withExclusiveLock($path, fn() => $this->storage->save($path, $data));
 
         if ($attr->invalidatesCache) {
             $this->invalidateCache();

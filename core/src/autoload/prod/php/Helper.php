@@ -18,6 +18,48 @@ function e(?string $value): string
 }
 
 /**
+ * Escaped flow-text output with hand-placed, viewport-aware line breaks.
+ *
+ * Escapes the WHOLE string exactly like e() (identical XSS safety), THEN
+ * substitutes a small set of fixed plain-text markers with markup. Because the
+ * markers contain only ASCII "[]a-z-" they survive escaping untouched, and only
+ * these fixed tokens ever become markup — everything else stays escaped.
+ *
+ *   [br]    → <br>                          line break on every viewport
+ *   [br-m]  → <br class="z77-br--m">        line break on mobile only
+ *   [br-d]  → <br class="z77-br--d">        line break on desktop only (incl. tablet)
+ *   [shy]   → &shy;                          soft hyphen (optional wrap hint)
+ *
+ * The order (escape first, replace second) is load-bearing: replacing first
+ * would let authored text forge the marker output path; escaping after would
+ * destroy the emitted tags. Do NOT swap it.
+ *
+ * The [br-m] / [br-d] classes are hidden per breakpoint by the consuming
+ * project's media-bound stylesheets (a <br> with display:none produces no
+ * break) — see the frontend module's layout/_mobile|_tablet|_desktop.scss for
+ * the reference rules. No @media queries: visibility is driven by which
+ * media-scoped sheet the class appears in.
+ *
+ * Use ONLY for flow-text output where authored breaks are wanted, opted in per
+ * output site: <?= brText($card['copy']) ?>. NEVER in attribute values
+ * (aria-label, title, alt) or at nl2br() sites — those keep e() / \n, where an
+ * injected <br> would be invalid or double-render.
+ *
+ * Use in templates: <?= brText($value) ?>.
+ */
+function brText(?string $text): string
+{
+    // strtr matches the longest key first and never re-scans replacements,
+    // so [br-m] / [br-d] win over [br] and no token can chain-substitute.
+    return strtr(e($text), [
+        '[br-m]' => '<br class="z77-br--m">',
+        '[br-d]' => '<br class="z77-br--d">',
+        '[br]'   => '<br>',
+        '[shy]'  => '&shy;',
+    ]);
+}
+
+/**
  * Pass-through for trusted HTML — no escaping.
  * Explicit marker that the caller knows the value is safe.
  *

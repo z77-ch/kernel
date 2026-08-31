@@ -6,11 +6,11 @@ use Z77\Core\Config\AuthRole;
 use Z77\Persistence\Validation\EntityValidator;
 use Z77\Shared\Auth\PasswordPolicy;
 use Z77\Shared\Auth\PasswordTier;
-use Z77\Shared\Entities\LoginUser;
-use Z77\Shared\Repositories\LoginUserRepository;
+use Z77\Shared\Entities\BackendUser;
+use Z77\Shared\Repositories\BackendUserRepository;
 
 /**
- * Validates a {@see LoginUser} for the backend user management.
+ * Validates a {@see BackendUser} for the backend user management.
  *
  * Username: required, ASCII alphanumeric (+ _ -), min 3, unique across users.
  * Roles: at least one, each a known {@see AuthRole} key.
@@ -23,14 +23,14 @@ use Z77\Shared\Repositories\LoginUserRepository;
  * `excludeId` lets the live single-field check exclude the edited user from the
  * uniqueness scan (the transient check-entity carries no id).
  */
-class LoginUserValidator extends EntityValidator
+class BackendUserValidator extends EntityValidator
 {
     /** Absolute length floor enforced for every tier (a sanity minimum). */
     private const ABSOLUTE_MIN_LENGTH = 8;
 
     public function __construct(
-        LoginUser $user,
-        private ?LoginUserRepository $repo = null,
+        BackendUser $user,
+        private ?BackendUserRepository $repo = null,
         private string $password = '',
         private bool $isNew = false,
         private ?int $excludeId = null,

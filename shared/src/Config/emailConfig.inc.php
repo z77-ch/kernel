@@ -24,15 +24,28 @@
 //   'contactForm' => [
 //       'to'       => 'webmaster@example.ch',       // dev test inbox — client recipient goes in the backend
 //       'subject'  => 'New contact form request',
-//       'template' => ['partials/emails/contactForm', 'Z77\\Module\\Frontend'],
+//       'template' => ['emails/publicForm', 'Z77\\Shared'],
 //       'cc'       => '',                           // optional
 //       'routes'   => [                             // optional: routeKey → recipient override
 //           'verwaltung' => ['to' => ['a@x.ch', 'b@x.ch'], 'subject' => 'Verwaltungsanfrage'],
 //       ],
 //   ],
+//
+// `template` may stay on the generic body ['emails/publicForm', 'Z77\\Shared'],
+// which renders whatever the FormDefinition declares — a project only needs its
+// own body template when the mail must look different.
 
 return [
     'subjectPrefix' => '',
     'replyTo'       => null,   // default Reply-To; the sendForm() parameter wins
-    'forms'         => [],
+    'forms' => [
+        // The reference contact form (module-frontend IndexController::contactAction).
+        // 'to' is a placeholder — set a deliverable developer address per project
+        // (seed-address convention, mail.md), the client recipient goes in the backend.
+        'contactForm' => [
+            'to'       => '',
+            'subject'  => 'New contact form request',
+            'template' => ['emails/publicForm', 'Z77\\Shared'],
+        ],
+    ],
 ];

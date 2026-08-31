@@ -11,6 +11,7 @@
  *   [data-fetch-get]              generic GET trigger
  *   [data-fetch-post]             generic POST submit
  *   [data-check-url]              attribute on a form → blur-validates each input
+ *   [data-copy="<selector>"]      any clickable → copies the named element's text
  *
  * Native semantics carry validity state:
  *   input/select … aria-invalid="true|false"
@@ -199,6 +200,73 @@ _Z77.core.popup = (function () {
     return { show: show, close: close, bindBackdrop: bindBackdrop };
 })();
 
+/* ── clipboard channel ──────────────────────────────────────────────────────
+ * Copies an element's text on click: `[data-copy="<selector>"]` on the trigger,
+ * the selector naming the element that HOLDS the text. Module-agnostic — the
+ * source may be a readonly <textarea>, an <input> or any plain element.
+ */
+_Z77.core.clipboard = (function () {
+
+    /* Selecting first does two jobs: it shows the user WHAT was copied, and it
+     * gives the legacy path something to work on — execCommand copies the
+     * selection, nothing else. */
+    function _select(el) {
+        if (typeof el.select === 'function') {
+            el.focus();
+            el.select();
+            if (typeof el.setSelectionRange === 'function') {
+                el.setSelectionRange(0, (el.value || '').length);
+            }
+            return true;
+        }
+        var selection = window.getSelection();
+        if (!selection) return false;
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+    }
+
+    function _legacy() {
+        try { return document.execCommand('copy'); } catch (e) { return false; }
+    }
+
+    function _say(ok) {
+        if (ok) {
+            _Z77.core.flash.show('success', _Z77.core.i18n.t('js.copied', 'Kopiert'));
+            return;
+        }
+        _Z77.core.flash.show('error', _Z77.core.i18n.t('js.copyFailed', 'Kopieren nicht möglich — bitte von Hand kopieren'));
+    }
+
+    /**
+     * `navigator.clipboard` exists only in a secure context — over plain http
+     * (a dev host) the legacy path is the ONLY one, which is why the selection
+     * is made in both cases. Returns a promise resolving to whether it worked;
+     * the user is told either way.
+     */
+    function copy(source) {
+        if (!source) return Promise.resolve(false);
+
+        var text     = ('value' in source) ? source.value : (source.textContent || '');
+        var selected = _select(source);
+
+        if (window.navigator.clipboard && window.isSecureContext) {
+            return window.navigator.clipboard.writeText(text).then(
+                function () { _say(true); return true; },
+                function () { var ok = selected && _legacy(); _say(ok); return ok; }
+            );
+        }
+
+        var ok = selected && _legacy();
+        _say(ok);
+        return Promise.resolve(ok);
+    }
+
+    return { copy: copy };
+})();
+
 /* ── field validation channel ───────────────────────────────────────────── */
 _Z77.core.fields = (function () {
     var WRAPPER_SEL = '[data-z77-field-wrapper]';
@@ -337,6 +405,18 @@ _Z77.core.wire = function (container, defaultPostUrl) {
     container.querySelectorAll('[data-fetch-get]').forEach(function (el) {
         el.addEventListener('click', function () {
             _Z77.core.fetch.get(el.dataset.fetchGet);
+        });
+    });
+    // Copy to clipboard: the trigger names the element holding the text, so one
+    // control serves a snippet box, a generated key or any readonly output.
+    container.querySelectorAll('[data-copy]').forEach(function (el) {
+        var selector = el.dataset.copy;
+        if (!selector) return;                  // querySelector('') would throw
+        el.addEventListener('click', function () {
+            // Popup first, then document: an injected fragment carries its own
+            // source, and an id may legitimately repeat behind the modal.
+            _Z77.core.clipboard.copy(container.querySelector(selector)
+                || document.querySelector(selector));
         });
     });
     // Inline status toggle: a checkbox POSTs its new state on change. Server is

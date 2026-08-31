@@ -23,7 +23,7 @@ use Z77\Core\DI,
  *      safety net: admin sessions never enter the shared page cache at all —
  *      CACHE-ADMIN-001.)
  *   2. Session user role >= admin.
- *   3. Per-user preference `partial_labels[viewArea]` on the LoginUser
+ *   3. Per-user preference `partial_labels[viewArea]` on the BackendUser
  *      (UserPreferences), toggled in the frontend admin overlay. The view
  *      area is the request's module key (view-area invariant, ADR-022) —
  *      each user enables the overlay per area for themselves only.

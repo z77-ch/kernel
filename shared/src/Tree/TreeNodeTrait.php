@@ -2,6 +2,8 @@
 
 namespace Z77\Shared\Tree;
 
+use Z77\Shared\Attributes\ImportRef;
+
 /**
  * Standard storage + accessors for a {@see TreeNode}.
  *
@@ -14,7 +16,13 @@ trait TreeNodeTrait
     /** order among siblings (same parent + scope); lower comes first */
     private int $sortKey = 0;
 
-    /** id of the parent node; null = top-level root */
+    /**
+     * id of the parent node; null = top-level root. For a data import
+     * (ADR-032) this is a foreign key onto the OWN entity class — `'self'`
+     * resolves to whichever class uses the trait, so every tree entity gets
+     * the correct ref declaration without repeating it.
+     */
+    #[ImportRef('self')]
     private ?int $parentId = null;
 
     public function getSortKey(): int { return $this->sortKey; }

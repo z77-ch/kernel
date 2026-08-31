@@ -15,11 +15,14 @@
         "psr-4": {
             "Z77\\Core\\": "core/src/",
             "Z77\\Shared\\": "shared/src/",
-            "Z77\\Persistence\\": "persistence/src/"
+            "Z77\\Persistence\\": "persistence/src/",
+            "BaconQrCode\\": "vendored/bacon-qr-code/src/",
+            "DASPRiD\\Enum\\": "vendored/dasprid-enum/src/"
         }
     },
     "bin": [
-        "bin/z77-backup"
+        "bin/z77-backup",
+        "bin/z77-run"
     ],
     "minimum-stability": "dev",
     "prefer-stable": true,

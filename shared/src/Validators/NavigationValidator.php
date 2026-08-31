@@ -28,6 +28,32 @@ class NavigationValidator extends EntityValidator
     }
 
     /**
+     * Framework key (ADR-032, NAV-KEY-001): the stable import identity of a
+     * framework-owned entry. Unique among all entries carrying a key — two
+     * entries with the same key would be indistinguishable to the import
+     * matcher. Null (human-created entry) is always valid. The value itself is
+     * server-controlled (code constant / import adoption), so no format rule
+     * beyond uniqueness is enforced here.
+     */
+    public function validateKey(?string $key): void
+    {
+        if ($key === null || $this->repo === null) return;
+
+        /** @var Navigation $entity */
+        $entity = $this->entity;
+
+        foreach ($this->repo->findAll() as $other) {
+            if ($other->getKey() === $key && $other->getId() !== $entity->getId()) {
+                $this->addFieldError(
+                    'key',
+                    'Key «' . $key . '» wird bereits von Eintrag «' . $other->getName() . '» (#' . $other->getId() . ') verwendet.'
+                );
+                return;
+            }
+        }
+    }
+
+    /**
      * Routing fields must be either all set (routable entry) or all empty
      * (opener / section container with children only). Mixed state is invalid.
      *

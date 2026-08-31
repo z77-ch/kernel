@@ -141,9 +141,13 @@ class Dispatcher
         }
 
         // NewPage — render fresh, do not cache.
+        // ⚠️ Ausser der Controller hat den Modus selbst festgelegt: manche
+        // Antworten kennen ihre Frische besser als die Routing-Schicht (B3
+        // liefert Fragmente mit ETag). Ohne diese Ausnahme wurde jede solche
+        // Angabe hier stillschweigend auf `no-store` zurueckgedreht.
         $this->resolveNavigation();
         $response = $controller->run();
-        if ($response instanceof HtmlResponse) {
+        if ($response instanceof HtmlResponse && !$response->hasFixedCacheMode()) {
             $response
                 ->setCacheMode(CacheMode::NoStore)
                 ->setCacheStatus(PageCacheStatus::Bypass);

@@ -5,8 +5,8 @@ use Z77\Shared\Attributes\Clean;
 use Z77\Shared\Attributes\Entity;
 use Z77\Shared\Traits\ArrayMappable;
 
-#[Entity('file', 'framework/auth/loginUsers.json')]
-class LoginUser
+#[Entity('file', 'framework/auth/backendUsers.json')]
+class BackendUser
 {
     use ArrayMappable;
 

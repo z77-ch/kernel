@@ -35,39 +35,46 @@ final class CollectionStore implements RecordStore
 
     public function persistAll(array $entities): void
     {
+        // The whole read-merge-write cycle (incl. nextId) runs under the file's
+        // exclusive lock — a concurrent writer would otherwise merge into the
+        // same base state and drop this write (or hand out a duplicate id).
         $path = $this->attr->getPath();
-        $data = $this->storage->load($path);
+        $this->storage->withExclusiveLock($path, function () use ($path, $entities): void {
+            $data = $this->storage->load($path);
 
-        foreach ($entities as $entity) {
-            if (!$entity->getId()) {
-                $ref = new \ReflectionProperty($entity::class, 'id');
-                $ref->setValue($entity, $this->nextId($data));
-            }
+            foreach ($entities as $entity) {
+                if (!$entity->getId()) {
+                    $ref = new \ReflectionProperty($entity::class, 'id');
+                    $ref->setValue($entity, $this->nextId($data));
+                }
 
-            $row   = $entity->mapToArray();
-            $found = false;
-            foreach ($data as &$existing) {
-                if ($existing['id'] === $entity->getId()) {
-                    $existing = $row;
-                    $found    = true;
-                    break;
+                $row   = $entity->mapToArray();
+                $found = false;
+                foreach ($data as &$existing) {
+                    if ($existing['id'] === $entity->getId()) {
+                        $existing = $row;
+                        $found    = true;
+                        break;
+                    }
+                }
+                unset($existing);
+                if (!$found) {
+                    $data[] = $row;
                 }
             }
-            unset($existing);
-            if (!$found) {
-                $data[] = $row;
-            }
-        }
 
-        $this->storage->save($path, $data);
+            $this->storage->save($path, $data);
+        });
     }
 
     public function delete(object $entity): void
     {
         $path = $this->attr->getPath();
-        $data = $this->storage->load($path);
-        $data = array_filter($data, fn($row) => $row['id'] !== $entity->getId());
-        $this->storage->save($path, array_values($data));
+        $this->storage->withExclusiveLock($path, function () use ($path, $entity): void {
+            $data = $this->storage->load($path);
+            $data = array_filter($data, fn($row) => $row['id'] !== $entity->getId());
+            $this->storage->save($path, array_values($data));
+        });
     }
 
     private function nextId(array $data): int

@@ -12,7 +12,9 @@ use Z77\Core\Session\SessionManager;
  *   message  — persistent (bottom-left, stays until closed by user, append-friendly)
  *
  * Delivery modes:
- *   in-place (push*ForEnvelope)        — sent in the current FetchResponse envelope
+ *   in-place (pushFlash / pushMessage) — delivered with the CURRENT response:
+ *                                        the FetchResponse envelope in fetch mode,
+ *                                        the rendered page in page mode
  *   after redirect (push*AfterRedirect) — stored in session, consumed by the next page render
  *
  * Status values for both channels: 'success' | 'info' | 'error'.
@@ -74,22 +76,34 @@ class MessageService
     }
 
     /**
-     * Returns and clears the session-flash buffer for the next page render.
+     * Returns and clears the flashes for a page render: what a previous request
+     * left in the session (push*AfterRedirect), then what THIS request pushed
+     * (push*). Both belong on the page being rendered — a page-mode action that
+     * sets a flash for its own response used to lose it silently, because
+     * pushFlash() only fed the envelope.
+     *
      * Single-consumer guarantee: a manual reload must not re-show messages.
      * @return array<array{type:string,text:string}>
      */
     public function consumeFlashesForPage(): array
     {
-        return $this->consumeSession(self::SESSION_KEY_FLASHES);
+        return array_merge(
+            $this->consumeSession(self::SESSION_KEY_FLASHES),
+            $this->consumeFlashesForEnvelope(),
+        );
     }
 
     /**
-     * Returns and clears the session-message buffer for the next page render.
+     * Returns and clears the messages for a page render — session buffer first,
+     * then this request's (see {@see consumeFlashesForPage()}).
      * @return array<array{type:string,text:string}>
      */
     public function consumeMessagesForPage(): array
     {
-        return $this->consumeSession(self::SESSION_KEY_MESSAGES);
+        return array_merge(
+            $this->consumeSession(self::SESSION_KEY_MESSAGES),
+            $this->consumeMessagesForEnvelope(),
+        );
     }
 
     private function appendToSession(string $key, string $type, string $text): void

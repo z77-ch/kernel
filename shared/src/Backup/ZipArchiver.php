@@ -7,6 +7,27 @@ namespace Z77\Shared\Backup;
  * name and renames on success, so an aborted run never leaves a file that
  * {@see BackupHistory} would list as a valid backup. Files only — empty
  * directories are not recorded (the installer recreates the project tree).
+ *
+ * SYMLINKED DIRECTORIES ARE FOLLOWED — the release layout (see
+ * docs/01-handbook/release-structure.md) turns `data/`, `config/`, `logs/`
+ * and `public/media` into links into `shared/`, and the previous
+ * RecursiveDirectoryIterator treated a link as a leaf: `hasChildren()` said
+ * no (link view), `isFile()` said no (target view — a directory), and the
+ * whole tree silently dropped out of the archive.
+ *
+ * The walk is therefore an explicit scandir()/is_dir() recursion, NOT the
+ * iterator with FOLLOW_SYMLINKS: the decision «may I descend?» is asked
+ * PATH-BASED, and path resolution treats a real directory, a symlink and an
+ * NTFS junction identically. (The flag does not: it consults the directory
+ * entry's type, and a Windows junction reports «unknown» there, so the
+ * iterator still refuses to descend — measured, not assumed.) Entries keep
+ * the link-side path, so the exclude list matches unchanged.
+ *
+ * The price of following is paid right next to it: a realpath visited set on
+ * directories. It stops a cycle (a link pointing at an ancestor would recurse
+ * forever) and packs a tree that is reachable under two names only once.
+ * ⚠️ Following and the set are a PAIR — never keep one without the other. A
+ * flat installation has no links, the set never hits, behaviour is unchanged.
  */
 final class ZipArchiver
 {
@@ -33,37 +54,80 @@ final class ZipArchiver
 
         $zip = $this->openForWrite($zipPath . '.tmp');
 
-        // Prune excluded subtrees at descend time (never walks into vendor/ etc.).
-        $inner  = new \RecursiveDirectoryIterator($sourceDir, \FilesystemIterator::SKIP_DOTS);
-        $filter = new \RecursiveCallbackFilterIterator(
-            $inner,
-            function (\SplFileInfo $item) use ($sourceDir, $excludes): bool {
-                $rel = $this->relativePath($sourceDir, $item->getPathname());
-                foreach ($excludes as $exclude) {
-                    if ($rel === $exclude || str_starts_with($rel, $exclude . '/')) {
-                        return false;
-                    }
-                }
-                return true;
-            }
-        );
+        // Cycle/duplicate guard (see class docblock). Seeded with the root so
+        // a link pointing back AT the source is a no-op instead of an endless
+        // descent.
+        $visited  = [];
+        $rootReal = realpath($sourceDir);
+        if ($rootReal !== false) {
+            $visited[str_replace('\\', '/', $rootReal)] = true;
+        }
 
-        $count = 0;
-        foreach (new \RecursiveIteratorIterator($filter) as $item) {
-            /** @var \SplFileInfo $item */
-            if (!$item->isFile()) {
-                continue;
-            }
-            $rel = $this->relativePath($sourceDir, $item->getPathname());
-            if (!$zip->addFile($item->getPathname(), $rel)) {
-                $zip->close();
-                @unlink($zipPath . '.tmp');
-                throw new \RuntimeException("Failed to add file to backup archive: {$rel}");
-            }
-            $count++;
+        try {
+            $count = $this->addTree($zip, $sourceDir, '', $excludes, $visited);
+        } catch (\Throwable $e) {
+            $zip->close();
+            @unlink($zipPath . '.tmp');
+            throw $e;
         }
 
         $this->finalize($zip, $zipPath);
+
+        return $count;
+    }
+
+    /**
+     * Adds one directory level and recurses. Excluded subtrees are pruned at
+     * descend time (never walks into vendor/ etc.); a dangling link is
+     * neither a directory nor a file and is skipped silently.
+     *
+     * ⚠️ An unreadable directory is LOUD, not skipped: a backup that quietly
+     * leaves things out is the failure mode this class exists to avoid.
+     *
+     * @param array<string, true> $visited realpath (forward slashes) of every
+     *                                     directory already descended into
+     */
+    private function addTree(\ZipArchive $zip, string $dir, string $relPrefix, array $excludes, array &$visited): int
+    {
+        $entries = scandir($dir);
+        if ($entries === false) {
+            throw new \RuntimeException("Backup: cannot read directory '{$dir}'.");
+        }
+
+        $count = 0;
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+            $rel = $relPrefix === '' ? $entry : $relPrefix . '/' . $entry;
+            foreach ($excludes as $exclude) {
+                if ($rel === $exclude || str_starts_with($rel, $exclude . '/')) {
+                    continue 2;
+                }
+            }
+
+            $path = $dir . '/' . $entry;
+            if (is_dir($path)) {
+                // realpath answers the same string for every route to a
+                // directory — false means a dangling link, which has nothing
+                // to pack either.
+                $real = realpath($path);
+                if ($real === false) {
+                    continue;
+                }
+                $real = str_replace('\\', '/', $real);
+                if (isset($visited[$real])) {
+                    continue;
+                }
+                $visited[$real] = true;
+                $count += $this->addTree($zip, $path, $rel, $excludes, $visited);
+            } elseif (is_file($path)) {
+                if (!$zip->addFile($path, $rel)) {
+                    throw new \RuntimeException("Failed to add file to backup archive: {$rel}");
+                }
+                $count++;
+            }
+        }
 
         return $count;
     }

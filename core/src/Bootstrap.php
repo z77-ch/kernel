@@ -90,6 +90,21 @@ class Bootstrap
         // frontend head emits `<meta name="robots" content="noindex, nofollow">` and
         // the backend shows a persistent Störer. Distinct from per-page MetaData.
         define('SEO_NOINDEX', file_exists(ABS_BASE_PATH . '/data/framework/seo/noindex.flag'));
+
+        // Installation identity (ADR-030), seed-once in config/systemConfig.inc.php.
+        // Published as a constant so a web request and a cron entry that boots the
+        // framework read the same value. Loading TOLERATES an empty or absent value —
+        // a fatal here would take the backend down too, i.e. the surface an operator
+        // needs to fix it. Whoever USES the value throws instead (Request::getBaseUrl).
+        $systemConfig = DI::getConfigManager()
+            ->getBaseConfig(
+                configName: 'config/systemConfig',
+                throwError: false,
+                cachePersist: false
+            )
+        ;
+        define('CANONICAL_BASE_URL', rtrim(trim((string)$systemConfig->getCanonicalBaseUrl('')), '/'));
+
         DI::getCacheManager()->setCacheDir($bootstrapConfig->getCacheDir());
 
         if (DEBUG) {
@@ -116,24 +131,24 @@ class Bootstrap
     }
 
     /**
-     * Registers routing services, parses the request, and returns the Dispatcher.
+     * Registers the services that carry no HTTP context — modules, i18n,
+     * translation, persistence, mail. Everything here is a lazy factory, so
+     * nothing is constructed until something asks for it.
      *
-     * Also defines REL_INDEX_PATH, loads autoloads, and starts the session.
-     * The session is started after request parsing deliberately — routing first
-     * validates that the request is valid (correct module, controller, action).
-     * If routing throws, the request is rejected and no session is needed.
-     * Starting the session only after a successful route match avoids unnecessary
-     * session overhead (cookie, session file read/write) for invalid requests.
+     * Called as the first step of {@see pullUp()} (web) and directly by CLI
+     * entry points that need the framework's service layer without a request
+     * — the job runner above all (ADR-031). A generic runner cannot know what
+     * an arbitrary job requires, so ADR-028's "boot only what you need" has
+     * nothing to decide on; single-purpose binaries like z77-backup keep that
+     * rule and do not call this.
      *
-     * @return Dispatcher
+     * MUST NOT gain anything that touches Request, Session, or routing state —
+     * that is what makes it callable from a CLI process.
      */
-    public function pullUp(): Dispatcher
+    public function pullUpServices(): void
     {
-        define('REL_INDEX_PATH', getRelativePath(ABS_INDEX_PATH));
-
-        // Register routing services
-        $di = DI::getInstance();
-        $di->set('ModuleManager', function($c) {
+        DI::getInstance()
+            ->set('ModuleManager', function($c) {
                 return new ModuleManager($c->getConfigManager());
             }, true)
             ->set('I18n', function($c) {
@@ -152,16 +167,49 @@ class Bootstrap
                     $c->getCacheManager()
                 );
             }, true)
-            ->set('ControllerHandler', function($c) {
-                return new ControllerHandler($c->getModuleManager());
-            }, true)
-            ->set('Request', 'Z77\\Core\\Http\\Request', true)
             ->set('DataSourceResolver', function() {
                 return new DataSourceResolver(['file' => 'File']);
             }, true)
             ->set('UnifiedEntityManager', function($c) {
                 return new UnifiedEntityManager($c->get('DataSourceResolver'));
             }, true)
+            // Mail is HTTP-free by design: a job sends without a request, and
+            // absolute links come from CANONICAL_BASE_URL, never from the Host
+            // header (ADR-030, SEC-005).
+            ->set('EmailService', function() {
+                return new EmailService();
+            }, true)
+            // Content is consumption, not framework infrastructure: BlockRegistry
+            // and ContentService are built on demand by their consumers via
+            // factories (BlockRegistry::assemble() / ContentService::create()) —
+            // deliberately NOT registered here. See adr-012.
+        ;
+    }
+
+    /**
+     * Registers routing services, parses the request, and returns the Dispatcher.
+     *
+     * Also defines REL_INDEX_PATH, loads autoloads, and starts the session.
+     * The session is started after request parsing deliberately — routing first
+     * validates that the request is valid (correct module, controller, action).
+     * If routing throws, the request is rejected and no session is needed.
+     * Starting the session only after a successful route match avoids unnecessary
+     * session overhead (cookie, session file read/write) for invalid requests.
+     *
+     * @return Dispatcher
+     */
+    public function pullUp(): Dispatcher
+    {
+        define('REL_INDEX_PATH', getRelativePath(ABS_INDEX_PATH));
+
+        $this->pullUpServices();
+
+        // Register routing services
+        $di = DI::getInstance();
+        $di->set('ControllerHandler', function($c) {
+                return new ControllerHandler($c->getModuleManager());
+            }, true)
+            ->set('Request', 'Z77\\Core\\Http\\Request', true)
             ->set('NavigationUrlResolver', function($c) {
                 $uem = $c->get('UnifiedEntityManager');
                 return new NavigationUrlResolver(
@@ -179,10 +227,6 @@ class Bootstrap
                     $c->getCacheManager()
                 );
             }, true)
-            // Content is consumption, not framework infrastructure: BlockRegistry
-            // and ContentService are built on demand by their consumers via
-            // factories (BlockRegistry::assemble() / ContentService::create()) —
-            // deliberately NOT registered here. See adr-012.
             ->set('Router', function($c) {
                 return new Router(
                     $c->get('NavigationService'),
@@ -233,9 +277,6 @@ class Bootstrap
             }, true)
             ->set('MessageService', function($c) {
                 return new MessageService($c->get('SessionManager'));
-            }, true)
-            ->set('EmailService', function() {
-                return new EmailService();
             }, true)
             ->set('CsrfService', function($c) {
                 return new CsrfService($c->get('SessionManager'));
