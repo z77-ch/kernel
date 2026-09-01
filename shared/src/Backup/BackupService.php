@@ -17,17 +17,25 @@ final class BackupService
     private const DEFAULT_RETENTION = ['data' => 10, 'db' => 10, 'full' => 5];
 
     /**
-     * `lib` — the whole tree, not `lib/cache`. Everything below `lib/` is
+     * `var` — the whole tree, not `var/cache`. Everything below `var/` is
      * scratch space the installation rebuilds by itself: the page cache, the
-     * throttle counters. It may be deleted at any moment without losing
-     * information, which is exactly what an archive has no reason to carry.
+     * APCu stamp, the release switches, the throttle counters. It may be deleted
+     * at any moment without losing information, which is exactly what an archive
+     * has no reason to carry. (`var` was `lib` until ADR-035 renamed it; an
+     * installation whose seed-once config still says `lib` keeps excluding a
+     * directory that no longer exists and silently archives `var/` — the
+     * migration step that fixes that is in release-structure.md.)
      *
      * Naming the tree instead of listing its members is the point: a future
-     * `lib/something` is covered the day it appears. The list would need
+     * `var/something` is covered the day it appears. The list would need
      * maintaining, and the one time it was not, the throttle counters ended up
      * in every full archive.
+     *
+     * `logs/` is deliberately NOT under `var/` and NOT excluded: it carries the
+     * form log (FormLog — submitted enquiries), which is a record and belongs in
+     * the archive.
      */
-    private const DEFAULT_EXCLUDES  = ['vendor', 'node_modules', 'backup', 'lib'];
+    private const DEFAULT_EXCLUDES  = ['vendor', 'node_modules', 'backup', 'var'];
 
     /**
      * Never part of a data backup, relative to `data/`: the job runtime state

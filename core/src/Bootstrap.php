@@ -83,13 +83,28 @@ class Bootstrap
             )
         ;
 
+        // Release-local runtime state (ADR-035). Deliberately NOT configurable:
+        // `var/` is part of the release-structure contract, not a project setting.
+        // A configurable path could be pointed back into a shared store — which is
+        // exactly the defect ADR-035 removes — and the old value would keep doing
+        // so silently in every installation whose seed-once config nobody edited.
+        // Same category as `vendor/`: the name is structure, not configuration.
+        define('ABS_VAR_PATH', ABS_BASE_PATH . '/var');
+        define('ABS_STATE_PATH', ABS_VAR_PATH . '/state');
+
         // 3. Configure error handling
-        define('DEBUG', file_exists(ABS_BASE_PATH . '/data/framework/debug.flag'));
+        //
+        // Both switches live in the RELEASE-LOCAL state directory, not in the shared
+        // `data/`. In the release layout `data/` is one store behind two doors: a flag
+        // placed there would put production into debug mode the moment the staging
+        // door is switched on. `var/state/` belongs to the release the request entered
+        // through, so `next` can run in debug / noindex while `current` does not.
+        define('DEBUG', file_exists(ABS_STATE_PATH . '/debug.flag'));
         // Site-wide search-engine crawl block (staging / pre-launch) — flag-file
         // driven exactly like DEBUG (see metadata.md SEO-NOINDEX-001). When true the
         // frontend head emits `<meta name="robots" content="noindex, nofollow">` and
         // the backend shows a persistent Störer. Distinct from per-page MetaData.
-        define('SEO_NOINDEX', file_exists(ABS_BASE_PATH . '/data/framework/seo/noindex.flag'));
+        define('SEO_NOINDEX', file_exists(ABS_STATE_PATH . '/noindex.flag'));
 
         // Installation identity (ADR-030), seed-once in config/systemConfig.inc.php.
         // Published as a constant so a web request and a cron entry that boots the
@@ -105,7 +120,10 @@ class Bootstrap
         ;
         define('CANONICAL_BASE_URL', rtrim(trim((string)$systemConfig->getCanonicalBaseUrl('')), '/'));
 
-        DI::getCacheManager()->setCacheDir($bootstrapConfig->getCacheDir());
+        // Release-local, for the same reason as ABS_STATE_PATH above: rendered pages
+        // and the APCu stamp describe THIS release's code. Sharing them across
+        // releases let a staging render reach production (ADR-035).
+        DI::getCacheManager()->setCacheDir(ABS_VAR_PATH . '/cache');
 
         if (DEBUG) {
             DI::getCacheManager()->clearAllApcu();

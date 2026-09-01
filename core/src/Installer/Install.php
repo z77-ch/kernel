@@ -28,6 +28,11 @@ class Install
     private const SYSTEM_CONFIG         = 'systemConfig';
     private const FILE_FINDER_CONFIG    = 'fileFinder.inc.php';
 
+    // Release-local runtime state (ADR-035). Mirrors ABS_VAR_PATH / ABS_STATE_PATH
+    // in Bootstrap — fixed structure, deliberately not read from config.
+    private const VAR_DIR               = 'var';
+    private const STATE_DIR             = 'var/state';
+
     private const AUTH_DIR              = 'data/framework/auth';
     private const BACKEND_USERS_FILE      = 'backendUsers.json';
     private const SETUP_TOKEN_FILE      = 'SETUP_TOKEN';
@@ -1080,13 +1085,22 @@ class Install
         return array_keys($roots);
     }
 
+    /**
+     * The flag lives in the release-local state directory (ADR-035), not in the
+     * shared `data/`: on a release layout `data/` sits behind two doors, so a flag
+     * written there would switch production along with staging.
+     */
     private function writeDebugFlag(): void
     {
-        $flag  = $this->trailingSlash($this->baseDir) . 'data/framework/debug.flag';
+        $dir   = $this->trailingSlash($this->baseDir) . self::STATE_DIR;
+        $flag  = $this->trailingSlash($dir) . 'debug.flag';
         $debug = $this->bootstrapConfig['debug'] ?? false;
 
         if ($debug) {
             if (!file_exists($flag)) {
+                if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+                    throw new \RuntimeException("Failed to create state directory: {$dir}");
+                }
                 if (!touch($flag)) {
                     throw new \RuntimeException("Failed to create debug flag: {$flag}");
                 }

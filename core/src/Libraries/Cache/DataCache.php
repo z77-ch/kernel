@@ -23,10 +23,17 @@ namespace Z77\Core\Libraries\Cache;
  * CROSS-PROCESS INVALIDATION (CACHE-CLI-001): APCu is per process tree. A
  * CLI run (cron, z77-run, installer) has its own pool and cannot reach the
  * FPM pool with apcu_delete(). So every clearAllApcu() also touches a stamp
- * file on disk (lib/cache/apcu.stamp), and each process compares that
+ * file on disk (var/cache/apcu.stamp), and each process compares that
  * file's mtime with the mtime it stored in ITS pool the last time it
  * synced — a newer file means "somebody else invalidated": wipe and resync.
  * One filemtime() per request.
+ *
+ * The stamp is RELEASE-LOCAL since ADR-035, and that is correct rather than a
+ * compromise: web and cron resolve the same `ABS_BASE_PATH` (both go through
+ * the symlink, both end at `releases/<name>`), so they share the stamp that
+ * matters — while a cron running on the staging release no longer wipes
+ * production's pool. It requires the cron entry to go THROUGH `current`, which
+ * release-structure.md makes binding for other reasons already.
  */
 class DataCache
 {
