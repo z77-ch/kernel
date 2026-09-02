@@ -374,8 +374,9 @@ final class GeoIpUpdateJob implements Job
     /** @return array<string, mixed> */
     private function config(): array
     {
-        $file = rtrim(str_replace('\\', '/', ABS_BASE_PATH), '/') . '/config/geoip.inc.php';
-        if (!is_file($file)) {
+        // Client tier first, legacy flat fallback (ADR-036 config split).
+        $file = \Z77\Shared\Libraries\ConfigLocator::path('geoip.inc.php');
+        if ($file === null) {
             return [];
         }
 

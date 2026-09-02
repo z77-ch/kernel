@@ -312,7 +312,11 @@ class ModuleManager
      * A module declares them under the `reservedRoutes` config key. A prefix declared
      * by two modules is a configuration error (fail-fast — reserved routes are global).
      *
-     * @return array<string, array{module:string,group:string,controller:string,action:string}>
+     * A target MAY declare `'stateless' => true` (e.g. /api): Bootstrap then skips
+     * session, locale logic and page cache and wires the ApiKeyGuard instead of the
+     * AccessGuard — see Request::isStateless().
+     *
+     * @return array<string, array{module:string,group:string,controller:string,action:string,stateless:bool}>
      */
     public function getReservedRoutes(): array
     {
@@ -338,6 +342,7 @@ class ModuleManager
                     'group'      => $target['group']      ?? '',
                     'controller' => $target['controller'] ?? '',
                     'action'     => $target['action']     ?? '',
+                    'stateless'  => (bool) ($target['stateless'] ?? false),
                 ];
             }
         }

@@ -17,7 +17,7 @@ use Z77\Core\Controller\ControllerHandler,
     Z77\Shared\Services\AuthService
 ;
 
-class AccessGuard
+class AccessGuard implements RequestGuardInterface
 {
     /** Resolved bridge instances, built once per request on first enforce(). */
     private ?array $authBridges = null;

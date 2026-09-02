@@ -31,8 +31,9 @@ class FileFinder
             return $cached;
         }
 
-        $configFile = ABS_BASE_PATH . '/config/fileFinder.inc.php';
-        if (!file_exists($configFile)) {
+        // Split layout (ADR-036): generated → config/vendor/, legacy flat fallback.
+        $configFile = \Z77\Shared\Libraries\ConfigLocator::path('fileFinder.inc.php');
+        if ($configFile === null) {
             throw new \RuntimeException('Missing config file. Run composer run-script post-install-cmd.');
         }
 

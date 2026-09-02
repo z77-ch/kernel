@@ -28,6 +28,8 @@ class Request {
     /** Content slugs captured after a NavigationAlias match (ADR-015); empty otherwise. */
     private array $slugs = [];
     private RequestMode $mode;
+    /** True when the matched reserved route is declared `stateless` (e.g. /api). */
+    private bool $statelessRoute = false;
 
     /** Session key under which the chosen language is remembered (ADR-013). */
     private const SESSION_LANGUAGE_KEY = 'language';
@@ -60,6 +62,7 @@ class Request {
         $reserved = $this->matchReserved($this->pathSegments);
         if ($reserved !== null) {
             $this->slugs = $reserved['slugs'];
+            $this->statelessRoute = !empty($reserved['tuple']['stateless']);
             $this->assignModule($reserved['tuple']['module']);
             $this->assignGroup($reserved['tuple']['group']);
             $this->assignController($reserved['tuple']['controller']);
@@ -479,9 +482,11 @@ class Request {
             return RequestMode::Fetch;
         }
 
-        // NOTE: Accept-header fallback intentionally removed.
-        // z77 does not serve as an API backend — API access is a separate concern.
-        // Non-browser clients (Postman, mobile apps) are not supported via this routing.
+        // NOTE: Accept-header fallback intentionally removed — the mode never
+        // decides API dispatch. API clients are served via STATELESS reserved
+        // routes (see isStateless()), which are matched mode-independently;
+        // a non-browser client without Sec-Fetch-Mode simply lands in Page
+        // mode, which is irrelevant on that path.
 
         return RequestMode::Page;
     }
@@ -692,6 +697,47 @@ class Request {
     {
         $value = $_SERVER['HTTP_IF_NONE_MATCH'] ?? null;
         return ($value === null || $value === '') ? null : $value;
+    }
+
+    /**
+     * True when the matched route is a `stateless` reserved route (e.g. /api):
+     * no session, no locale/navigation logic, no page cache, JSON errors.
+     * Bootstrap::pullUp() branches on this AFTER runParsing().
+     */
+    public function isStateless(): bool
+    {
+        return $this->statelessRoute;
+    }
+
+    /**
+     * The peer's address as the web server saw it — REMOTE_ADDR, nothing else.
+     * ⚠️ Never X-Forwarded-For or Client-IP: those are headers the caller sets,
+     * and everything keyed on this value (throttles above all) would be keyed
+     * on an attacker-chosen string. Null in CLI / malformed setups.
+     */
+    public function getClientIp(): ?string
+    {
+        $ip = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+        return $ip === '' ? null : $ip;
+    }
+
+    /**
+     * Bearer value of the Authorization header, or null when absent/malformed.
+     * REDIRECT_HTTP_AUTHORIZATION covers the Apache CGI/FastCGI pass-through
+     * (`SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` — see the api
+     * envelope doc): depending on the rewrite chain the value can land in
+     * either key.
+     */
+    public function getBearerToken(): ?string
+    {
+        $header = $_SERVER['HTTP_AUTHORIZATION']
+            ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+            ?? '';
+
+        if (preg_match('/^Bearer\s+(\S+)$/i', trim($header), $m) !== 1) {
+            return null;
+        }
+        return $m[1];
     }
 
     private function removeBasePath(string $fullPath, string $basePath): string

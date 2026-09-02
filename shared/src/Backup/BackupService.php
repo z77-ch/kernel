@@ -67,11 +67,19 @@ final class BackupService
         $this->config  = $config;
     }
 
-    /** Builds the service from a project root, reading config/backup.inc.php when present. */
+    /** Builds the service from a project root, reading the backup config when present. */
     public static function fromProjectRoot(string $baseDir): self
     {
-        $configFile = rtrim(str_replace('\\', '/', $baseDir), '/') . '/config/backup.inc.php';
-        $config     = is_file($configFile) ? require $configFile : [];
+        // Path-based on purpose (single-purpose binaries pass their own root,
+        // no ABS_BASE_PATH): client tier first, legacy flat fallback (ADR-036).
+        $root   = rtrim(str_replace('\\', '/', $baseDir), '/');
+        $config = [];
+        foreach (['/config/client/backup.inc.php', '/config/backup.inc.php'] as $candidate) {
+            if (is_file($root . $candidate)) {
+                $config = require $root . $candidate;
+                break;
+            }
+        }
 
         return new self($baseDir, is_array($config) ? $config : []);
     }

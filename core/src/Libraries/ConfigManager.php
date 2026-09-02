@@ -2,7 +2,9 @@
 
 namespace Z77\Core\Libraries;
 
-use Z77\Core\Config\Config;
+use Z77\Core\Config\Config,
+    Z77\Shared\Libraries\ConfigLocator
+;
 
 class ConfigManager
 {
@@ -61,16 +63,21 @@ class ConfigManager
             return $config;
         }
 
-        $firstMatchConfig = ABS_BASE_PATH.'/'.$configName.'.inc.php';
-        if (!file_exists($firstMatchConfig)) {
-            if ($throwError) {
-                throw new \RuntimeException(sprintf(
-                    'Config "%s" not found at base path: %s',
-                    $configName,
-                    ABS_BASE_PATH
-                ));
-            }
-            $firstMatchConfig = null;
+        // Split layout (ADR-036): a `config/X` name resolves through
+        // config/vendor/ → config/client/ → config/ (legacy flat fallback).
+        if (str_starts_with($configName, 'config/')) {
+            $firstMatchConfig = ConfigLocator::path(substr($configName, 7) . '.inc.php');
+        } else {
+            $firstMatchConfig = ABS_BASE_PATH . '/' . $configName . '.inc.php';
+            $firstMatchConfig = file_exists($firstMatchConfig) ? $firstMatchConfig : null;
+        }
+
+        if ($firstMatchConfig === null && $throwError) {
+            throw new \RuntimeException(sprintf(
+                'Config "%s" not found at base path: %s (searched config/vendor, config/client, config)',
+                $configName,
+                ABS_BASE_PATH
+            ));
         }
 
         return $this->loadAndCache(

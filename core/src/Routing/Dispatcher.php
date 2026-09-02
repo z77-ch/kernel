@@ -9,11 +9,12 @@ use Z77\Core\DI,
     Z77\Core\Http\RequestMode,
     Z77\Core\Http\Response\CacheMode,
     Z77\Core\Http\Response\HtmlResponse,
+    Z77\Core\Http\Response\JsonResponse,
     Z77\Core\Http\Response\RedirectResponse,
     Z77\Core\Http\Response\PageCacheStatus,
     Z77\Core\Http\Response\ResponseInterface,
     Z77\Core\Libraries\CacheManager,
-    Z77\Core\Services\AccessGuard,
+    Z77\Core\Services\RequestGuardInterface,
     Z77\Shared\Attributes\Fetch,
     Z77\Shared\Attributes\HttpMethod,
     Z77\Shared\Attributes\Page
@@ -22,17 +23,21 @@ use Z77\Core\DI,
 class Dispatcher
 {
     private CacheManager $cacheManager;
-    private PageCachePolicy $policy;
-    private AccessGuard $accessGuard;
+    /** null on the stateless path — the page cache needs the session (login check). */
+    private ?PageCachePolicy $policy;
+    private RequestGuardInterface $guard;
+    private bool $stateless;
 
     public function __construct(
         CacheManager $cacheManager,
-        PageCachePolicy $policy,
-        AccessGuard $accessGuard
+        ?PageCachePolicy $policy,
+        RequestGuardInterface $guard,
+        bool $stateless = false
     ) {
         $this->cacheManager = $cacheManager;
         $this->policy       = $policy;
-        $this->accessGuard  = $accessGuard;
+        $this->guard        = $guard;
+        $this->stateless    = $stateless;
     }
 
     public function execute(): void
@@ -43,10 +48,20 @@ class Dispatcher
         try {
             $this->enforceActionConstraints($controller, $request);
 
-            $denied = $this->accessGuard->enforce();
+            $denied = $this->guard->enforce();
 
             if ($denied !== null) {
                 $response = $denied;
+            } elseif ($this->stateless) {
+                // Stateless route (e.g. /api): no language session, no page
+                // cache, no navigation resolution — guard, action, response.
+                $response = $controller->run();
+
+                // HEAD: same status and headers as GET, body suppressed
+                // (api-envelope-v1 — monitoring tools HEAD health endpoints).
+                if ($request->isHead() && $response instanceof JsonResponse) {
+                    $response->omitBody();
+                }
             } else {
                 // The session is started by AccessGuard above. Reconcile the request
                 // language with it now — before the page-cache decision keys on the

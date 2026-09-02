@@ -11,6 +11,7 @@ use Z77\Core\DI,
     Z77\Core\Http\Security\CsrfService,
     Z77\Core\Routing\Dispatcher,
     Z77\Core\Services\AccessGuard,
+    Z77\Core\Services\ApiKeyGuard,
     Z77\Core\Services\MessageService,
     Z77\Core\Services\NavigationService,
     Z77\Core\Services\NavigationUrlResolver,
@@ -289,6 +290,30 @@ class Bootstrap
             ExceptionHandler::handle($e);
         }
 
+        // Stateless reserved route (e.g. /api — see Request::isStateless()):
+        // no session, no locale logic, no page cache. The ApiKeyGuard replaces
+        // the AccessGuard; everything session-bound stays deliberately
+        // UNREGISTERED — a stateless code path resolving SessionManager,
+        // MessageService or the page cache is a bug and must fail fast.
+        if ($request->isStateless()) {
+            $di->set('ApiKeyGuard', function($c) {
+                    return new ApiKeyGuard($c->getModuleManager());
+                }, true)
+                ->set('Dispatcher', function($c) {
+                    return new Dispatcher(
+                        $c->getCacheManager(),
+                        null,               // no PageCachePolicy — it reads the session
+                        $c->get('ApiKeyGuard'),
+                        stateless: true
+                    );
+                }, true)
+            ;
+
+            $this->loadGlobalHelpers();
+
+            return $di->getDispatcher();
+        }
+
         // Session is started after routing — see method docblock for rationale
         $di->set('SessionManager', function() {
                 return new SessionManager();
@@ -326,7 +351,14 @@ class Bootstrap
             }, true)
         ;
 
-        // Load global helpers — only after successful routing, before Dispatcher::execute()
+        $this->loadGlobalHelpers();
+
+        return $di->getDispatcher();
+    }
+
+    /** Load global helpers — only after successful routing, before Dispatcher::execute(). */
+    private function loadGlobalHelpers(): void
+    {
         $fileFinder = DI::getFileFinder();
         require_once $fileFinder->getFirstSourceMatch(
             'autoload/prod/php/Functions.php',
@@ -343,7 +375,5 @@ class Bootstrap
             );
             setOwnExceptionHandler();
         }
-
-        return $di->getDispatcher();
     }
 }

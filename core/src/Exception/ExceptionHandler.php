@@ -28,6 +28,19 @@ class ExceptionHandler
 
         http_response_code($statusCode);
 
+        // Stateless route (e.g. /api): ALWAYS the API error envelope — JSON,
+        // no-store, never a trace, never HTML (api-envelope-v1). Checked before
+        // the FileNotFound short-circuit so /api/…/x.json cannot answer HTML.
+        if (self::isStatelessRequest()) {
+            header('Content-Type: application/json; charset=utf-8');
+            header('Cache-Control: no-store');
+            echo json_encode(['error' => [
+                'code'    => $statusCode === 404 ? 'unknown_endpoint' : 'internal',
+                'message' => $statusCode >= 500 ? 'Internal error.' : $e->getMessage(),
+            ]], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
         if ($e instanceof FileNotFoundException) {
             header('Content-Type: text/html; charset=utf-8');
             echo 'Error 404: File Not Found';
@@ -71,6 +84,16 @@ class ExceptionHandler
             return $request->getMode() === RequestMode::Fetch ? 'json' : 'html';
         } catch (\Throwable) {
             return 'html';
+        }
+    }
+
+    /** False when the request is not available yet (very early bootstrap errors). */
+    private static function isStatelessRequest(): bool
+    {
+        try {
+            return DI::getRequest()->isStateless();
+        } catch (\Throwable) {
+            return false;
         }
     }
 }

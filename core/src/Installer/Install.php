@@ -152,6 +152,7 @@ class Install
             $this->seedCronEntry();
         }
 
+        $this->migrateConfigSplit();
         $this->writeBootstrapConfig();
         $this->writeModuleManagerConfig();
         $this->writeAuthConfig();
@@ -743,7 +744,7 @@ class Install
 
     private function writeBootstrapConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->vendorConfigDir();
         $name = self::BOOTSTRAP_CONFIG . '.inc.php';
 
         $this->io->write("Write Bootstrap config → {$dir}/{$name}");
@@ -760,7 +761,7 @@ class Install
 
     private function writeModuleManagerConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->vendorConfigDir();
         $name = self::MODULE_MANAGER_CONFIG . '.inc.php';
 
         $this->io->write("Write ModuleManager config → {$dir}/{$name}");
@@ -793,7 +794,7 @@ class Install
      */
     private function writeAuthConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->clientConfigDir();
         $name = self::AUTH_CONFIG . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
@@ -824,7 +825,7 @@ class Install
      */
     private function writeI18nConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->clientConfigDir();
         $name = self::I18N_CONFIG . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
@@ -853,7 +854,7 @@ class Install
      */
     private function writeBackupConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->clientConfigDir();
         $name = self::BACKUP_CONFIG . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
@@ -899,7 +900,7 @@ class Install
      */
     private function writeSystemConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->clientConfigDir();
         $name = self::SYSTEM_CONFIG . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
@@ -922,7 +923,7 @@ class Install
 
     private function writeMailConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->clientConfigDir();
         $name = self::MAIL_CONFIG . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
@@ -945,7 +946,7 @@ class Install
 
     private function writeFileFinderConfig(): void
     {
-        $dir  = $this->configDir();
+        $dir  = $this->vendorConfigDir();
         $name = self::FILE_FINDER_CONFIG;
 
         $this->io->write("Write FileFinder config → {$dir}/{$name}");
@@ -1511,6 +1512,58 @@ class Install
     private function configDir(): string
     {
         return $this->trailingSlash($this->baseDir) . 'config';
+    }
+
+    /**
+     * Installer-GENERATED configs (bootstrap, moduleManager, fileFinder) — a
+     * function of composer.json + vendor/, owned by the RELEASE (ADR-036).
+     */
+    private function vendorConfigDir(): string
+    {
+        return $this->configDir() . '/vendor';
+    }
+
+    /**
+     * Hand-maintained machine/project configs (seed-once tier) — owned by the
+     * INSTALLATION; in the release layout `config/client` is a symlink into
+     * shared/ (ADR-036).
+     */
+    private function clientConfigDir(): string
+    {
+        return $this->configDir() . '/client';
+    }
+
+    /**
+     * One-time move from the flat pre-ADR-036 layout: generated leftovers are
+     * deleted (rewritten into config/vendor/ right after), seed-once files are
+     * RENAMED into config/client/ so hand edits survive. Runs on every
+     * install; on an already-split installation it does nothing.
+     */
+    private function migrateConfigSplit(): void
+    {
+        $flat = $this->trailingSlash($this->configDir());
+
+        foreach (['bootstrap', 'moduleManager', 'fileFinder'] as $generated) {
+            $file = $flat . $generated . '.inc.php';
+            if (is_file($file)) {
+                @unlink($file);
+                $this->io->write("Migrated: removed flat config/{$generated}.inc.php (regenerated in config/vendor/, ADR-036)");
+            }
+        }
+
+        foreach (['auth', 'i18n', 'backup', 'mail', 'systemConfig', 'geoip'] as $seedOnce) {
+            $from = $flat . $seedOnce . '.inc.php';
+            $to   = $this->trailingSlash($this->clientConfigDir()) . $seedOnce . '.inc.php';
+            if (is_file($from) && !is_file($to)) {
+                if (!is_dir($this->clientConfigDir()) && !mkdir($this->clientConfigDir(), 0755, true)) {
+                    throw new \RuntimeException('Failed to create ' . $this->clientConfigDir());
+                }
+                if (!rename($from, $to)) {
+                    throw new \RuntimeException("Failed to move {$from} to config/client/");
+                }
+                $this->io->write("Migrated: config/{$seedOnce}.inc.php → config/client/ (ADR-036)");
+            }
+        }
     }
 
     private function header(string $name, string $policyNote = ''): string
