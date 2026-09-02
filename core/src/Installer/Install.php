@@ -28,10 +28,15 @@ class Install
     private const SYSTEM_CONFIG         = 'systemConfig';
     private const FILE_FINDER_CONFIG    = 'fileFinder.inc.php';
 
-    // Release-local runtime state (ADR-035). Mirrors ABS_VAR_PATH / ABS_STATE_PATH
-    // in Bootstrap — fixed structure, deliberately not read from config.
-    private const VAR_DIR               = 'var';
+    // Release-local runtime state (ADR-035). Mirrors ABS_STATE_PATH in
+    // Bootstrap — fixed structure, deliberately not read from config.
     private const STATE_DIR             = 'var/state';
+
+    // Stores that must never be web-reachable — each gets a seed-once deny
+    // .htaccess. Never a store served THROUGH public/ (a deny file inside
+    // public/media would 403 every image — same rule as .releases/deploy.php).
+    private const DENY_TEMPLATE         = __DIR__ . '/../../res/htaccess-deny';
+    private const DENY_DIRS             = ['data', 'config', 'logs'];
 
     private const AUTH_DIR              = 'data/framework/auth';
     private const BACKEND_USERS_FILE      = 'backendUsers.json';
@@ -158,6 +163,7 @@ class Install
         $this->writeDataFiles();
         $this->provisionAdmin();
         $this->writeDebugFlag();
+        $this->seedDenyFiles();
         $this->seedProjectClaudeMd();
 
         if (!empty($config)) {
@@ -1113,6 +1119,41 @@ class Install
                 }
                 $this->io->write('   Removed: debug.flag (debug=false)');
             }
+        }
+    }
+
+    /**
+     * Seeds a deny .htaccess (`Require all denied`) into every store that must
+     * never be web-reachable (DENY_DIRS). With the document root on `public/`
+     * Apache never reads these files; the day a panel misconfiguration or a
+     * project unpacked straight into htdocs puts the project root into the web,
+     * they turn `data/framework/auth/SETUP_TOKEN`, the password hashes and the
+     * mail credentials from URLs into 403s — the alarm, not the fault (same
+     * philosophy as `.releases/htaccess-deny` for the release layout, and only
+     * effective where .htaccess is honoured; the correct document root stays
+     * the primary defence). Seed-once: an existing .htaccess is never touched.
+     * A directory that does not exist is skipped — `logs/` is config-driven.
+     */
+    private function seedDenyFiles(): void
+    {
+        if (!is_readable(self::DENY_TEMPLATE)) {
+            // Template missing would be a packaging defect — report, don't break installs.
+            $this->io->writeError('   Skipped deny .htaccess seed: template not found in kernel.');
+            return;
+        }
+
+        $content = file_get_contents(self::DENY_TEMPLATE);
+        if ($content === false) {
+            throw new \RuntimeException('Failed to read deny template: ' . self::DENY_TEMPLATE);
+        }
+
+        foreach (self::DENY_DIRS as $dir) {
+            $absDir = $this->trailingSlash($this->baseDir) . $dir;
+            if (!is_dir($absDir) || file_exists($this->trailingSlash($absDir) . '.htaccess')) {
+                continue;
+            }
+            $this->writeFile($absDir, '.htaccess', $content);
+            $this->io->write("   Created: {$dir}/.htaccess (deny — must never be web-reachable)");
         }
     }
 

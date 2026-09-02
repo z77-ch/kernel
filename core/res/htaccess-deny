@@ -1,0 +1,18 @@
+# Denies every request. Seeded by the framework installer (seed-once) into the
+# stores that must NEVER be web-reachable: data/, config/, logs/. In the
+# correct layout (document root = public/) Apache never reads this file. If it
+# answers a request with 403, the document root points at the wrong place —
+# the 403 is the alarm, not the fault. Without it the same mistake serves the
+# setup token, password hashes and mail credentials as plain files.
+#
+# Twin: .releases/htaccess-deny (release layout — deploy.php/switch.php write
+# it into the shared/ stores). Keep the functional block identical. Never put
+# a deny file into a store served THROUGH public/ (public/media IS
+# shared/media — a deny file there denies every image).
+<IfModule mod_authz_core.c>
+    Require all denied
+</IfModule>
+<IfModule !mod_authz_core.c>
+    Order deny,allow
+    Deny from all
+</IfModule>
