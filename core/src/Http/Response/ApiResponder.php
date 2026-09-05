@@ -15,6 +15,11 @@ use Z77\Shared\Api\ApiRequest,
  *   error                                             → status + frozen error
  *                                                       body, Retry-After when set
  *
+ * A payload's own headers ({@see ApiResult::$headers}) ride on 200 and 304
+ * alike — the service says what it means, the responder only carries it.
+ * `Cache-Control` and `ETag` are set AFTER them, so a service can never
+ * override the two the envelope owns.
+ *
  * Every response carries `Cache-Control: no-store` — per-tenant payloads
  * behind one URL must never be cached by an intermediary.
  */
@@ -34,7 +39,8 @@ final class ApiResponder
             );
         }
 
-        $headers = ['Cache-Control' => 'no-store'];
+        $headers = $result->headers;
+        $headers['Cache-Control'] = 'no-store';
         if ($result->etag !== null) {
             $headers['ETag'] = '"' . $result->etag . '"';
 

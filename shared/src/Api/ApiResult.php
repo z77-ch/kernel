@@ -19,6 +19,8 @@ final class ApiResult
         public readonly string $errorCode,
         public readonly string $errorMessage,
         public readonly ?int $retryAfter,
+        /** @var array<string,string> service headers, passed through on 200 and 304 */
+        public readonly array $headers = [],
     ) {
     }
 
@@ -26,10 +28,19 @@ final class ApiResult
      * Success. Pass the payload's content hash as $etag (propbase: the
      * curatedHash) and conditional GET works without the service comparing
      * anything — the responder answers 304 when the client is current.
+     *
+     * $headers are the service's own wire headers (`X-Axo3-Retry-After`,
+     * `X-Axo3-Revalidate-After`, …): the responder passes them through on
+     * 200 AND on 304 — a hint that only rides on a body would be blind
+     * exactly when the client is current. The framework does not interpret
+     * them; `Cache-Control` and `ETag` stay the responder's and win on a
+     * name clash. Errors carry no service headers (the envelope owns those).
+     *
+     * @param array<string,string> $headers
      */
-    public static function payload(array $data, ?string $etag = null): self
+    public static function payload(array $data, ?string $etag = null, array $headers = []): self
     {
-        return new self($data, $etag, 200, '', '', null);
+        return new self($data, $etag, 200, '', '', null, $headers);
     }
 
     /**
