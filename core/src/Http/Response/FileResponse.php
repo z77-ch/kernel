@@ -11,7 +11,7 @@ namespace Z77\Core\Http\Response;
  * - **Disposition** — `attachment` (download) or `inline` (show in the browser).
  * - **Range requests** — PHP streams the bytes itself and answers `Range:` with `206
  *   Partial Content` (+ `Accept-Ranges`/`Content-Range`), so videos seek/resume and large
- *   files resume. Honours `If-None-Match` → `304` when an ETag is set.
+ *   files resume. Honours `If-None-Match` ({@see Etag}) → `304` when an ETag is set.
  *
  * Byte transfer is **always** the portable PHP range-stream — it runs on every target
  * (built-in server, shared hosting like cyon, Windows dev). Web-server-accelerated
@@ -51,8 +51,13 @@ class FileResponse implements ResponseInterface
         header('Cache-Control: ' . ($this->cacheControl ?? 'private, no-cache'));
 
         if ($this->etag !== null) {
-            header('ETag: "' . $this->etag . '"');
-            if (($_SERVER['HTTP_IF_NONE_MATCH'] ?? '') === '"' . $this->etag . '"') {
+            header('ETag: ' . Etag::header($this->etag));
+
+            // {@see Etag} owns the reading of the header — before it, this
+            // was the only door that compared the raw value against one
+            // quoted string, so a client echoing `W/"…"` or sending a list
+            // re-downloaded the whole file every time.
+            if (Etag::matches($_SERVER['HTTP_IF_NONE_MATCH'] ?? null, $this->etag)) {
                 http_response_code(304);
                 return;
             }

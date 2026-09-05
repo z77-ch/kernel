@@ -5,6 +5,7 @@ namespace Z77\Core\Routing;
 use Z77\Core\Config\AuthRole;
 use Z77\Core\Http\Request;
 use Z77\Core\Http\RequestMode;
+use Z77\Core\Http\Response\Etag;
 use Z77\Core\Libraries\Cache\PageCache;
 use Z77\Core\Libraries\Cache\PageIdentity;
 use Z77\Core\Services\ModuleManager;
@@ -85,42 +86,11 @@ class PageCachePolicy
         // Browser has fresh copy?
         $serverMtime = $this->pageCache->getMtime($identity);
         if ($serverMtime !== null
-            && $this->ifNoneMatchHits($request->getIfNoneMatch(), $serverMtime)
+            && Etag::matches($request->getIfNoneMatch(), $serverMtime)
         ) {
             return PageCacheDecision::fromClientCache($identity, $policy['ttl'], $serverMtime);
         }
 
         return PageCacheDecision::fromCache($identity, $policy['ttl']);
-    }
-
-    /**
-     * Returns true if the client's If-None-Match header matches the server's
-     * current ETag for this resource.
-     *
-     * RFC 7232 allows a comma-separated list and the wildcard "*" (matches any
-     * existing resource). Each tag may be strong ("v") or weak (W/"v"); for our
-     * numeric mtime-based tags both forms are equivalent.
-     */
-    private function ifNoneMatchHits(?string $raw, int $serverMtime): bool
-    {
-        if ($raw === null) {
-            return false;
-        }
-        $raw = trim($raw);
-        if ($raw === '*') {
-            return true;
-        }
-
-        foreach (explode(',', $raw) as $part) {
-            $tag = trim($part);
-            if (str_starts_with($tag, 'W/')) {
-                $tag = substr($tag, 2);
-            }
-            $tag = trim($tag, '"');
-            if (ctype_digit($tag) && (int) $tag === $serverMtime) {
-                return true;
-            }
-        }
-        return false;
     }
 }

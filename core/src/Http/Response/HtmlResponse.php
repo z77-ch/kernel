@@ -13,6 +13,11 @@ use Z77\Core\Services\LayoutManager;
  *   - Cache hit:    HtmlResponse::fromCache($html, $etag)      — page-cache path
  *   - 304 reply:    HtmlResponse::notModified($etag)           — client-cache path
  *
+ * An ETag is either a TIME (int — the page cache's entry mtime, which also
+ * yields `Last-Modified`) or an opaque HASH (string — a controller that knows
+ * what its answer depends on, e.g. the axo3 widget fragment). {@see Etag}
+ * owns both readings; nothing here interprets the value.
+ *
  * send() is the single point that emits headers and body, so all three paths
  * cannot drift apart (e.g. one sending Cache-Control while the other does not).
  *
@@ -29,7 +34,7 @@ class HtmlResponse implements ResponseInterface
     private ?string $html = null;
     private CacheMode $cacheMode = CacheMode::NoStore;
     private ?PageCacheStatus $cacheStatus = null;
-    private ?int $etag = null;
+    private int|string|null $etag = null;
     private bool $omitBody = false;
 
     /**
@@ -57,7 +62,7 @@ class HtmlResponse implements ResponseInterface
      * Builds a response around already-rendered HTML loaded from the page cache.
      * No LayoutManager is needed because nothing will be rendered.
      */
-    public static function fromCache(string $html, int $etag): self
+    public static function fromCache(string $html, int|string $etag): self
     {
         $r = new self();
         $r->html = $html;
@@ -70,7 +75,7 @@ class HtmlResponse implements ResponseInterface
      * Builds an empty 304 Not Modified response. The browser holds the body;
      * we ship only the validators (status, Cache-Control, ETag).
      */
-    public static function notModified(int $etag): self
+    public static function notModified(int|string $etag): self
     {
         $r = new self();
         $r->html = '';
@@ -120,7 +125,7 @@ class HtmlResponse implements ResponseInterface
         return $this;
     }
 
-    public function setEtag(int $etag): self
+    public function setEtag(int|string $etag): self
     {
         $this->etag = $etag;
         return $this;
@@ -204,8 +209,16 @@ class HtmlResponse implements ResponseInterface
         });
 
         if ($this->etag !== null) {
-            header('ETag: "' . $this->etag . '"');
-            header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $this->etag) . ' GMT');
+            header('ETag: ' . Etag::header($this->etag));
+
+            // ⚠️ Only a tag that IS a time may become a date. The page cache
+            // stamps an entry's mtime (int) and gets both validators; a
+            // content hash (string) gets the ETag alone — deriving a date
+            // from it would put every such response into 1970, and caches
+            // and tools do arithmetic with that header.
+            if (Etag::isTime($this->etag)) {
+                header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $this->etag) . ' GMT');
+            }
         }
 
         if ($this->cacheStatus !== null) {
