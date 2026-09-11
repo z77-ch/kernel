@@ -10,8 +10,9 @@ namespace Z77\Shared\Mail;
  *   text + html, no attachments      → `multipart/alternative`
  *   any body + attachments           → `multipart/mixed` wrapping the body part
  *
- * Bodies and attachments are base64-encoded (robust for UTF-8 + binary), lines wrapped
- * at 76 chars, CRLF throughout. Non-ASCII subjects / display names are RFC 2047 B-encoded.
+ * Text bodies are quoted-printable (readable on the wire; spam filters score base64 text
+ * parts — `MIME_BASE64_TEXT`), attachments base64, lines wrapped at 76 chars, CRLF
+ * throughout. Non-ASCII subjects / display names are RFC 2047 B-encoded.
  * The transport ({@see SmtpTransport}) is responsible for SMTP dot-stuffing of the
  * resulting data blob; this builder only produces headers + body.
  */
@@ -55,6 +56,7 @@ final class MimeMessage
         $headers[] = 'Subject: ' . $this->encodeWord($m->getSubject());
         $headers[] = 'Message-ID: <' . bin2hex(random_bytes(16)) . '@' . $this->senderDomain($m) . '>';
         $headers[] = 'MIME-Version: 1.0';
+        $headers[] = 'X-Mailer: z77'; // an absent user agent is itself a spam signal (MISSING_XM_UA)
 
         $content = $this->contentPart($m);
 
@@ -104,9 +106,20 @@ final class MimeMessage
     private function leaf(string $contentType, string $body): array
     {
         return [
-            'headers' => ['Content-Type: ' . $contentType, 'Content-Transfer-Encoding: base64'],
-            'body'    => $this->base64($body),
+            'headers' => ['Content-Type: ' . $contentType, 'Content-Transfer-Encoding: quoted-printable'],
+            'body'    => $this->quotedPrintable($body),
         ];
+    }
+
+    /**
+     * Line endings are normalised to CRLF first: PHP's encoder passes CRLF through as a
+     * line break but encodes a bare LF as `=0A`, which would fold a template body into
+     * one endless soft-wrapped line.
+     */
+    private function quotedPrintable(string $text): string
+    {
+        $text = preg_replace('/\r\n|\r|\n/', self::CRLF, $text) ?? $text;
+        return quoted_printable_encode($text);
     }
 
     /**

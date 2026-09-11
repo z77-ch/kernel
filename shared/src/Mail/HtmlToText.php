@@ -8,9 +8,13 @@ namespace Z77\Shared\Mail;
  *
  * Conversion contract with the templates: a `<tr data-str="new-line">` row, a
  * closing block element (`</p>`, `</h1>`–`</h6>`, `</li>`, `</tr>`) or a `<br>`
- * becomes a line break; `</td>` cells are separated by a space; everything else
- * is stripped. Entities are decoded and non-breaking spaces normalised so the
- * text part reads naturally in clients that prefer it.
+ * becomes a line break; `</td>` cells are separated by a space; a link whose
+ * text is not its address keeps the address in parentheses (`label (href)`),
+ * so a button link is still a link in the text part — and the text and HTML
+ * halves carry the SAME number of URLs, which spam filters compare
+ * (`URI_COUNT_ODD`); everything else is stripped. Entities are decoded and
+ * non-breaking spaces normalised so the text part reads naturally in clients
+ * that prefer it.
  *
  * Pure function object — no framework dependencies, isolated testable.
  */
@@ -45,6 +49,17 @@ final class HtmlToText
 
         // Keep table cells apart once the tags are gone.
         $text = str_replace('</td>', ' </td>', $text);
+
+        // A link's address survives only when its label does not already spell
+        // it out (the "open this address" fallback); attribute values are still
+        // entity-encoded here and are decoded together with the rest below.
+        $text = preg_replace_callback(
+            '/<a\b[^>]*\bhref=(["\'])(.*?)\1[^>]*>(.*?)<\/a>/is',
+            static fn (array $m): string => trim($m[3]) === trim($m[2])
+                ? $m[3] . ' '
+                : $m[3] . ' (' . $m[2] . ') ',
+            $text
+        ) ?? $text;
 
         // Closing block elements break the line; inline links end with a space.
         $text = str_replace(
