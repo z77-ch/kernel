@@ -298,8 +298,8 @@ class TranslationCatalog
 
     /**
      * The slug-table invariants (mirrors {@see SlugTranslator::validate}): localized
-     * targets are 1:1 unique, and no localized value shadows a DIFFERENT canonical
-     * key. Returns a message on the first violation, or null when clean.
+     * targets are 1:1 unique, no localized value shadows a DIFFERENT canonical key,
+     * and none equals a module key. Returns a message on the first violation, or null when clean.
      *
      * @param array<string, string> $table canonical → localized
      */
@@ -311,9 +311,15 @@ class TranslationCatalog
             return $language . ': lokalisierter Slug nicht eindeutig (1:1 verletzt): ' . implode(', ', $duplicates);
         }
 
+        $moduleKeys = \Z77\Core\DI::getModuleManager()->getModuleKeys();
         foreach ($table as $canonical => $loc) {
             if ($canonical !== $loc && array_key_exists($loc, $table)) {
                 return $language . ': lokalisierter Slug «' . $loc . '» verdeckt einen anderen kanonischen Slug.';
+            }
+            // A localized word equal to a module key would make `/{lang}/{module}` read
+            // as the alias `/{canonical}` — the module root would be unreachable.
+            if ($canonical !== $loc && in_array($loc, $moduleKeys, true)) {
+                return $language . ': lokalisierter Slug «' . $loc . '» ist der Name eines Moduls.';
             }
         }
         return null;

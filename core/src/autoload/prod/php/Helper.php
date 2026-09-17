@@ -91,13 +91,21 @@ function t(string $key, array $params = [], ?string $language = null): string
 
 /**
  * Localizes a canonical (default-language) internal URL for a target language
- * (ADR-014): each path segment is mapped canonical → localized via SlugTranslator,
- * and the language prefix is prepended for non-default languages. The default
- * language keeps canonical, prefix-less URLs.
+ * (ADR-014, amended 2026-09-17): an ALIAS path is mapped canonical → localized via
+ * the slug table; everything else — a technical path (module/group/controller/
+ * action), the content-slug remainder behind a slug-accepting alias — is written as
+ * it is resolved, untouched. The language prefix is prepended for non-default
+ * languages; the default language keeps canonical, prefix-less URLs. Query string
+ * and fragment are carried over verbatim.
  *
- *   localizedUrl('/privacy', 'fr')  → '/fr/confidentialite'
- *   localizedUrl('/privacy', 'de')  → '/privacy'        (default = canonical)
- *   localizedUrl('/', 'fr')         → '/fr'
+ *   localizedUrl('/privacy', 'fr')              → '/fr/confidentialite'   (alias)
+ *   localizedUrl('/privacy', 'de')              → '/privacy'              (default = canonical)
+ *   localizedUrl('/frontend/main/x/y', 'fr')    → '/fr/frontend/main/x/y' (technical)
+ *   localizedUrl('/', 'fr')                     → '/fr'
+ *
+ * The decision "alias or not" is {@see \Z77\Core\Routing\AliasPathResolver} — the
+ * same class that reads URLs inbound, so every URL emitted here resolves back to
+ * the same page.
  *
  * $language defaults to the current request language. External/anchor URLs
  * (not starting with '/') are returned unchanged.
@@ -110,16 +118,19 @@ function localizedUrl(string $canonicalUrl, ?string $language = null): string
 
     $language ??= \Z77\Core\DI::getRequest()->getLanguage();
     $default    = \Z77\Core\DI::getI18n()->getDefaultLanguage();
-    $slug       = \Z77\Core\DI::getSlugTranslator();
 
-    $segments = array_values(array_filter(explode('/', $canonicalUrl), fn($s) => $s !== ''));
-    $localized = array_map(fn($s) => $slug->toLocalized($s, $language), $segments);
-    $path = $localized === [] ? '' : '/' . implode('/', $localized);
+    // Split off ?query / #fragment first — they are not path segments.
+    $cut    = strcspn($canonicalUrl, '?#');
+    $suffix = substr($canonicalUrl, $cut);
+
+    $segments  = array_values(array_filter(explode('/', substr($canonicalUrl, 0, $cut)), fn($s) => $s !== ''));
+    $localized = \Z77\Core\DI::getAliasPathResolver()->toLocalized($segments, $language);
+    $path      = $localized === [] ? '' : '/' . implode('/', $localized);
 
     if ($language === $default) {
-        return $path === '' ? '/' : $path;
+        return ($path === '' ? '/' : $path) . $suffix;
     }
-    return '/' . $language . $path;
+    return '/' . $language . $path . $suffix;
 }
 
 /**

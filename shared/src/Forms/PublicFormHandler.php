@@ -13,7 +13,7 @@ use Z77\Shared\GeoIp\CountryLookup;
  *
  *   $form = PublicFormHandler::create(new ContactFormDefinition());
  *   if ($form->process()) {
- *       return $this->redirect(localizedUrl('/kontakt/danke'));   // PRG
+ *       return $this->redirect(localizedUrl('/danke'));   // PRG — an alias of its own
  *   }
  *   return $this->html(['pageTitle' => 'Kontakt'] + $form->viewContext());
  *
@@ -43,7 +43,7 @@ use Z77\Shared\GeoIp\CountryLookup;
  *
  *   if ($form->process()) {
  *       $this->messageService->pushFlashAfterRedirect('success', t('form.flash.sent'));
- *       return $this->redirect(localizedUrl('/kontakt/danke'));
+ *       return $this->redirect(localizedUrl('/danke'));
  *   }
  *
  * Its cross-request effects are the FormGuard session state (bot defence, not

@@ -70,9 +70,9 @@ class Request {
             return;
         }
 
-        $requestedSegments = $this->pathSegments;   // localized form, as requested
-        $this->translateSlugsToCanonical();
-
+        // Fetch addresses module/group/controller/action directly — it never meets
+        // the alias layer and is therefore never translated (ADR-014 amendment
+        // 2026-09-17): the segments are resolved as written.
         if ($this->mode === RequestMode::Fetch) {
             $this->parsePathSegments();
             return;
@@ -81,19 +81,20 @@ class Request {
         $hasNavigationSegment = !empty($this->pathSegments);
 
         if ($hasNavigationSegment) {
-            // Precedence: NavigationAlias → static navigation → convention (ADR-015).
-            // The alias match captures trailing content slugs; the navigation entry
-            // it resolves to supplies the routing target (4-tuple).
-            $aliasMatch = DI::getRouter()->matchAlias($this->pathSegments);
+            // FIRST question: is this an alias URL? (ADR-015, amended 2026-09-17.)
+            // Slug translation lives entirely inside that question — a non-default
+            // language is translated to look the alias up, and only an alias hit
+            // adopts the translated form. Precedence after a miss: static navigation
+            // → convention, both on the segments AS REQUESTED.
+            $aliasMatch = DI::getAliasPathResolver()->resolve($this->pathSegments, $this->language);
 
             if ($aliasMatch !== null) {
                 $entry = $aliasMatch['navigation'];
-                $this->slugs = $aliasMatch['slugs'];
-                // Still required: enforces the single localized form for alias paths too
-                // (e.g. /fr/schweiz/stadt 301 → /fr/suisse/ville). Localizes every matched
-                // canonical segment; content slugs without a translation pass through
-                // unchanged (entity-slug localization is Phase 5 / ADR-015 D3).
-                $this->enforceLocalizedSlug($requestedSegments);
+                // The single indexable form: /fr/kontakt → 301 /fr/contact. Only the
+                // alias part is ever localized; the slugs pass through as requested.
+                $this->enforceLocalizedForm($this->pathSegments, $aliasMatch['localized']);
+                $this->slugs        = $aliasMatch['slugs'];
+                $this->pathSegments = $aliasMatch['canonical'];
                 $this->assignModule($entry->getModule());
                 $this->assignGroup($entry->getGroup());
                 $this->assignController($entry->getController());
@@ -101,11 +102,13 @@ class Request {
                 return;
             }
 
+            // Not an alias: a technical path. No translation, hence no localized form
+            // to redirect to — the technical URL of an aliased page is consolidated by
+            // rel=canonical, not by a 301.
             $path  = '/' . implode('/', $this->pathSegments);
             $entry = DI::getRouter()->match($path, $_GET);
 
             if ($entry !== null) {
-                $this->enforceLocalizedSlug($requestedSegments);
                 $this->assignModule($entry->getModule());
                 $this->assignGroup($entry->getGroup());
                 $this->assignController($entry->getController());
@@ -214,63 +217,36 @@ class Request {
     }
 
     /**
-     * Translates localized URL path segments back to their canonical (default-
-     * language) form (ADR-014), so the router and the whole resolution chain only
-     * ever see canonical segments. Default language = canonical → no translation.
-     * A non-translatable segment stays unchanged: already-canonical resolves,
-     * genuine garbage 404s downstream (no matching controller/action).
-     */
-    private function translateSlugsToCanonical(): void
-    {
-        if (empty($this->pathSegments)
-            || $this->language === DI::getI18n()->getDefaultLanguage()) {
-            return;
-        }
-
-        $slugTranslator = DI::getSlugTranslator();
-        $this->pathSegments = array_map(
-            fn(string $segment): string => $slugTranslator->toCanonical($segment, $this->language),
-            $this->pathSegments
-        );
-    }
-
-    /**
      * SEO single-form enforcement (ADR-014, 301): in a non-default language the
-     * localized slug is the one URL that should be indexed. If the page was reached
-     * through any other form — its canonical slug, a partially-localized or a
-     * wrong-language slug — permanently redirect to the localized form.
+     * localized alias path is the one URL that should be indexed. If the page was
+     * reached through any other spelling — its canonical slug (`/fr/kontakt`), a
+     * partially localized one — permanently redirect to the localized form.
      *
-     * Runs only after a successful route match, so the redirect target — built from
-     * the matched canonical segments via the validated 1:1 slug table — is guaranteed
-     * to canonicalize back to this very page (never a redirect into a 404). When the
-     * requested form already IS the localized form, nothing happens. Read methods
-     * only (GET/HEAD) — a POST is never 301'd (would drop the body).
+     * Alias URLs only (amendment 2026-09-17): a technical path has no localized form.
+     * The target comes from {@see \Z77\Core\Routing\AliasPathResolver::resolve()} —
+     * the same class that emits URLs — so it resolves back to this very page (never a
+     * redirect into a 404). Read methods only (GET/HEAD): a POST is never 301'd
+     * (would drop the body).
      *
-     * @param list<string> $requestedSegments the path segments (language prefix
-     *                                         already stripped) exactly as requested
+     * @param list<string> $requested the path segments (language prefix already
+     *                                stripped) exactly as requested
+     * @param list<string> $localized the single indexable form of the same URL
      * @throws LocalizedRedirectException when a 301 to the localized form is due
      */
-    private function enforceLocalizedSlug(array $requestedSegments): void
+    private function enforceLocalizedForm(array $requested, array $localized): void
     {
         // The default language IS canonical: it has no slug table and no localized
         // form, so it is never redirected. Only non-default languages own localized
         // URLs — this is the deliberate SEO choice (canonical = default language).
         if (!$this->isReadMethod()
-            || $this->language === DI::getI18n()->getDefaultLanguage()) {
+            || $this->language === DI::getI18n()->getDefaultLanguage()
+            || $localized === $requested) {
             return;
         }
 
-        $slugTranslator = DI::getSlugTranslator();
-        $localized = array_map(
-            fn(string $segment): string => $slugTranslator->toLocalized($segment, $this->language),
-            $this->pathSegments   // canonical (already translated)
-        );
-
-        if ($localized === $requestedSegments) {
-            return;   // already the localized form (or nothing to localize)
-        }
-
-        $target = '/' . $this->language . '/' . implode('/', $localized);
+        // The segments are percent-DECODED (setRawRequestUri) and the remainder of a
+        // slug-accepting alias is entity content — spaces, umlauts. Encode per segment.
+        $target = '/' . $this->language . '/' . implode('/', array_map('rawurlencode', $localized));
         // Carry the original query verbatim — $_SERVER['QUERY_STRING'] is already
         // encoded and preserves repeated keys (?tag=a&tag=b) that $_GET would collapse.
         $query = $_SERVER['QUERY_STRING'] ?? '';
@@ -320,9 +296,11 @@ class Request {
     }
 
     /**
-     * The current request path with the language prefix removed (e.g. `/about`
-     * for both `/about` and `/fr/about`, `/` for the home root). Used to build
-     * language-switch links that re-prefix the same page.
+     * The current request path with the language prefix removed, in its canonical
+     * (default-language) spelling: the alias path plus content slugs after an alias
+     * hit (`/kontakt` for both `/kontakt` and `/fr/contact`), the path as requested
+     * for a technical URL, `/` for the home root. Used to build language-switch
+     * links that re-prefix the same page.
      */
     public function getPathWithoutLanguage(): string
     {
@@ -466,7 +444,12 @@ class Request {
         $parts = $this->parseUrl();
         $pathString = $parts['path'] ?? '';
         $pathString = $this->removeBasePath($pathString, REL_INDEX_PATH);
-        $this->pathSegments = array_merge(array_filter(explode('/', $pathString)));
+        // Drop EMPTY segments only. A bare array_filter() also drops "0" — and "0" is a
+        // legitimate content slug behind a slug-accepting alias (`/referenzen/0`).
+        $this->pathSegments = array_values(array_filter(
+            explode('/', $pathString),
+            static fn(string $segment): bool => $segment !== ''
+        ));
     }
 
     public function getMode(): RequestMode
@@ -671,7 +654,8 @@ class Request {
 
     /**
      * Positional content slugs captured after a NavigationAlias match (ADR-015) —
-     * the path remainder beyond the matched alias, in canonical form. Empty for
+     * the path remainder beyond a slug-accepting alias, RAW as requested (never run
+     * through the slug table — entity content, not URL structure). Empty for
      * routes without a dynamic remainder, in Fetch mode, and on convention routes.
      * The action resolves its entity from these (e.g. `getSlugs()[0]` = `basel`).
      *

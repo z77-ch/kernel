@@ -49,6 +49,16 @@ class NavigationAliasValidator extends EntityValidator
         $ownId  = $entity->getId();
         $norm   = $entity->getPath();   // normalized (leading slash, no trailing)
 
+        // The first segment must not be a module key: `/frontend/…` IS the technical
+        // address space (module/group/controller/action). An alias there — a
+        // slug-accepting one above all — would swallow technical URLs, because the
+        // alias question is asked first (ADR-015 amendment 2026-09-17).
+        $first = explode('/', ltrim($norm, '/'))[0];
+        if (in_array($first, \Z77\Core\DI::getModuleManager()->getModuleKeys(), true)) {
+            $this->addFieldError('path', 'Der Pfad darf nicht mit dem Modulnamen «' . $first . '» beginnen.');
+            return;
+        }
+
         foreach ($this->repo->findAll() as $other) {
             if ($other->getId() === $ownId) continue;
             if ($other->getPath() === $norm) {
@@ -78,6 +88,33 @@ class NavigationAliasValidator extends EntityValidator
                 $this->addFieldError(
                     'is_canonical',
                     'Es gibt bereits einen canonical Alias für diesen Navigationseintrag.'
+                );
+                return;
+            }
+        }
+    }
+
+    /**
+     * `accepts_slugs` must be identical on all aliases of one navigation: the canonical
+     * URL of a slug page is built from the CANONICAL alias plus the slugs
+     * (`currentCanonicalPath()`), so a slug-accepting side alias beside an exact-only
+     * canonical alias would emit a canonical link that answers 404.
+     */
+    public function validateAcceptsSlugs(mixed $acceptsSlugs): void
+    {
+        /** @var NavigationAlias $entity */
+        $entity = $this->entity;
+        $navId  = $entity->getNavigationId();
+        if ($this->repo === null || $navId === null) {
+            return;
+        }
+
+        foreach ($this->repo->findAll() as $other) {
+            if ($other->getId() === $entity->getId()) continue;
+            if ($other->getNavigationId() === $navId && $other->acceptsSlugs() !== $entity->acceptsSlugs()) {
+                $this->addFieldError(
+                    'accepts_slugs',
+                    'Alle Aliase eines Navigationseintrags müssen gleich eingestellt sein (Alias ' . $other->getPath() . ' weicht ab).'
                 );
                 return;
             }

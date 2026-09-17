@@ -61,6 +61,15 @@ class PageCachePolicy
             return PageCacheDecision::newPage();
         }
 
+        // Content slugs (remainder behind a slug-accepting alias or a reserved route)
+        // select WHICH content the action renders, but the PageIdentity has no slug
+        // dimension: `/referenzen/a` and `/referenzen/b` would share one cache entry.
+        // Until the identity is keyed by URL (ADR-015 D2, deferred) such a page is
+        // never cached.
+        if ($request->getSlugs() !== []) {
+            return PageCacheDecision::newPage();
+        }
+
         if ($request->getMode() === RequestMode::Fetch) {
             return PageCacheDecision::newPage();
         }

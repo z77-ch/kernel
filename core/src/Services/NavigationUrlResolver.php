@@ -96,27 +96,49 @@ class NavigationUrlResolver
     }
 
     /**
-     * Longest-prefix alias match (ADR-015 inbound flow). Tries the full canonical
-     * path, then each shorter prefix, against the alias table; the first (longest)
-     * hit wins. Segments beyond the matched alias are returned as content slugs.
+     * Alias match (ADR-015, amended 2026-09-17). An alias matches its EXACT path;
+     * only an alias with `acceptsSlugs` also matches as a prefix. Tried longest
+     * first: the full path, then each shorter prefix. A shorter prefix can only be
+     * a slug-accepting alias — an exact-only alias found there is skipped, so
+     * `/kontakt/anything` is a miss, while `/referenzen/archiv/x` still reaches a
+     * slug-accepting `/referenzen` past an exact-only `/referenzen/archiv`.
+     *
+     * `$alternative` is a second spelling of the SAME request (the raw segments
+     * beside the translated ones, same length): per length the primary spelling is
+     * tried first, then the alternative. That keeps an alias reachable whose own
+     * path happens to be a localized word (alias `/contact`, table
+     * `kontakt → contact`) — without it the emitted URL would not resolve.
      *
      * Returns the matched navigationId — the caller resolves it to a Navigation
-     * (the navigation cache lives in NavigationService, not here).
+     * (the navigation cache lives in NavigationService, not here). `length` is the
+     * number of segments the alias path covers; the caller takes the remainder
+     * (the content slugs) from the spelling it wants — always the raw one.
      *
-     * @param list<string> $segments canonical path segments (language stripped + translated)
-     * @return array{navigationId: int, slugs: list<string>}|null
+     * @param list<string>      $segments    canonical path segments
+     * @param list<string>|null $alternative same request, other spelling (optional)
+     * @return array{navigationId: int, path: string, length: int}|null
      */
-    public function matchAlias(array $segments): ?array
+    public function matchAlias(array $segments, ?array $alternative = null): ?array
     {
-        for ($i = count($segments); $i >= 1; $i--) {
-            $candidate = '/' . implode('/', array_slice($segments, 0, $i));
-            $alias = $this->findByAliasPath($candidate);
-            if ($alias === null) continue;
+        $total = count($segments);
+        if ($alternative !== null && ($alternative === $segments || count($alternative) !== $total)) {
+            $alternative = null;
+        }
 
-            return [
-                'navigationId' => $alias->getNavigationId(),
-                'slugs'        => array_values(array_slice($segments, $i)),
-            ];
+        for ($i = $total; $i >= 1; $i--) {
+            foreach ([$segments, $alternative] as $spelling) {
+                if ($spelling === null) continue;
+
+                $alias = $this->findByAliasPath('/' . implode('/', array_slice($spelling, 0, $i)));
+                if ($alias === null) continue;
+                if ($i < $total && !$alias->acceptsSlugs()) continue;
+
+                return [
+                    'navigationId' => $alias->getNavigationId(),
+                    'path'         => $alias->getPath(),
+                    'length'       => $i,
+                ];
+            }
         }
         return null;
     }

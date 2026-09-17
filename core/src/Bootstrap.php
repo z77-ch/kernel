@@ -18,6 +18,7 @@ use Z77\Core\DI,
     Z77\Shared\Entities\Navigation,
     Z77\Shared\Entities\NavigationAlias,
     Z77\Shared\Entities\MetaData,
+    Z77\Core\Routing\AliasPathResolver,
     Z77\Core\Routing\PageCachePolicy,
     Z77\Core\Routing\Router,
     Z77\Core\Session\SessionManager,
@@ -192,6 +193,41 @@ class Bootstrap
             ->set('UnifiedEntityManager', function($c) {
                 return new UnifiedEntityManager($c->get('DataSourceResolver'));
             }, true)
+            // The navigation/alias read side lives HERE, not in pullUp(): it is data
+            // lookup, not routing state — none of these touches the Request — and
+            // `localizedUrl()` needs it to tell an alias path from a technical one
+            // (AliasPathResolver). A job or a mail template calls that helper without
+            // a request; registered only in pullUp() it would throw there.
+            ->set('NavigationUrlResolver', function($c) {
+                $uem = $c->get('UnifiedEntityManager');
+                return new NavigationUrlResolver(
+                    $uem->getRepository(NavigationAlias::class),
+                    $c->getCacheManager()
+                );
+            }, true)
+            ->set('NavigationService', function($c) {
+                $uem = $c->get('UnifiedEntityManager');
+                return new NavigationService(
+                    $uem->getRepository(Navigation::class),
+                    $uem->getRepository(MetaData::class),
+                    $c->getModuleManager(),
+                    $c->get('NavigationUrlResolver'),
+                    $c->getCacheManager()
+                );
+            }, true)
+            ->set('Router', function($c) {
+                return new Router(
+                    $c->get('NavigationService'),
+                    $c->get('NavigationUrlResolver')
+                );
+            }, true)
+            ->set('AliasPathResolver', function($c) {
+                return new AliasPathResolver(
+                    $c->get('Router'),
+                    $c->get('SlugTranslator'),
+                    $c->get('I18n')
+                );
+            }, true)
             // Mail is HTTP-free by design: a job sends without a request, and
             // absolute links come from CANONICAL_BASE_URL, never from the Host
             // header (ADR-030, SEC-005).
@@ -229,29 +265,6 @@ class Bootstrap
                 return new ControllerHandler($c->getModuleManager());
             }, true)
             ->set('Request', 'Z77\\Core\\Http\\Request', true)
-            ->set('NavigationUrlResolver', function($c) {
-                $uem = $c->get('UnifiedEntityManager');
-                return new NavigationUrlResolver(
-                    $uem->getRepository(NavigationAlias::class),
-                    $c->getCacheManager()
-                );
-            }, true)
-            ->set('NavigationService', function($c) {
-                $uem = $c->get('UnifiedEntityManager');
-                return new NavigationService(
-                    $uem->getRepository(Navigation::class),
-                    $uem->getRepository(MetaData::class),
-                    $c->getModuleManager(),
-                    $c->get('NavigationUrlResolver'),
-                    $c->getCacheManager()
-                );
-            }, true)
-            ->set('Router', function($c) {
-                return new Router(
-                    $c->get('NavigationService'),
-                    $c->get('NavigationUrlResolver')
-                );
-            }, true)
             ->set('PageCachePolicy', function($c) {
                 // Lazy factory: first resolved via the Dispatcher factory, at
                 // which point AuthService (registered after routing) exists.

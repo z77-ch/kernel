@@ -8,9 +8,11 @@ namespace Z77\Core\Services;
  * navigation/code; only non-default languages carry a table
  * (`data/framework/i18n/route-slugs.{lang}.json`, canonical → localized).
  *
- * Inbound (Request, before routing): localized → canonical, so the router and the
- * whole resolution chain only ever see canonical segments. Outbound (link building):
- * canonical → localized, to render localized URLs.
+ * The table translates ALIAS PATH segments and nothing else (amendment 2026-09-17):
+ * the one caller is {@see \Z77\Core\Routing\AliasPathResolver}, which translates
+ * inbound only to look an alias up and outbound only what resolved to one. A
+ * technical path (module/group/controller/action) and the content slugs behind an
+ * alias never pass through here — table keys are alias path segments.
  *
  * A segment with no table entry is returned unchanged: an already-canonical segment
  * still resolves; genuine garbage stays garbage and 404s downstream (no controller).
@@ -102,6 +104,21 @@ class SlugTranslator
         if ($collisions !== []) {
             throw new \RuntimeException(
                 "❌ route-slugs.{$language}: localized slug shadows a different canonical slug: " . implode(', ', $collisions)
+            );
+        }
+
+        // A localized word equal to a module key would make `/{lang}/{module}` read as
+        // the alias `/{canonical}` (AliasPathResolver translates before the lookup).
+        $moduleKeys = \Z77\Core\DI::getModuleManager()->getModuleKeys();
+        $modules    = [];
+        foreach ($table as $canonical => $loc) {
+            if ($canonical !== $loc && in_array($loc, $moduleKeys, true)) {
+                $modules[] = $loc;
+            }
+        }
+        if ($modules !== []) {
+            throw new \RuntimeException(
+                "❌ route-slugs.{$language}: localized slug equals a module key: " . implode(', ', $modules)
             );
         }
     }
