@@ -30,6 +30,8 @@ class Request {
     private RequestMode $mode;
     /** True when the matched reserved route is declared `stateless` (e.g. /api). */
     private bool $statelessRoute = false;
+    /** True when a reserved route (e.g. /media) resolved this request. */
+    private bool $reservedRoute = false;
 
     /** Session key under which the chosen language is remembered (ADR-013). */
     private const SESSION_LANGUAGE_KEY = 'language';
@@ -62,6 +64,7 @@ class Request {
         $reserved = $this->matchReserved($this->pathSegments);
         if ($reserved !== null) {
             $this->slugs = $reserved['slugs'];
+            $this->reservedRoute  = true;
             $this->statelessRoute = !empty($reserved['tuple']['stateless']);
             $this->assignModule($reserved['tuple']['module']);
             $this->assignGroup($reserved['tuple']['group']);
@@ -272,6 +275,15 @@ class Request {
      * prefix-less page (e.g. `/home`) renders the default language and is never
      * redirected — it is the stable canonical form.
      *
+     * What is remembered is the language of the last PAGE the visitor looked at: a
+     * prefix sets it, and a prefix-less page — the default language has no prefix —
+     * resets it (I18N-SWITCH-DEFAULT-001, 2026-09-17). Without that reset the switch
+     * to the default language was never remembered: `/fr` → «Deutsch» (`/home`) → logo
+     * (`/`) redirected back to `/fr`. Only a real page view resets: a GET/HEAD in Page
+     * mode that is not a reserved route. A Fetch call (a form's blur check posts
+     * prefix-less from a French page), a POST, or a file opened from `/media` in a new
+     * tab says nothing about the visitor's language and must not reset it.
+     *
      * @return string|null target URL when the bare root must redirect, else null
      */
     public function applyLanguageSession(SessionManager $session): ?string
@@ -282,11 +294,23 @@ class Request {
             return null;
         }
 
-        // No prefix: render the default language (never the session's). Only the bare
-        // root honors the remembered preference, via a redirect to the localized root.
         $remembered = $session->get(self::SESSION_LANGUAGE_KEY);
-        if ($this->pathSegments === []
-            && is_string($remembered)
+
+        // A prefix-less page = a default-language page = the visitor's choice now.
+        if ($this->pathSegments !== []) {
+            if ($remembered !== null
+                && $this->mode === RequestMode::Page
+                && $this->isReadMethod()
+                && !$this->reservedRoute
+            ) {
+                $session->remove(self::SESSION_LANGUAGE_KEY);
+            }
+            return null;
+        }
+
+        // The bare root: the one prefix-less URL that honors the remembered preference,
+        // via a redirect to the localized root. It renders the default language itself.
+        if (is_string($remembered)
             && $remembered !== DI::getI18n()->getDefaultLanguage()
             && DI::getI18n()->isValidLanguage($remembered)
         ) {
