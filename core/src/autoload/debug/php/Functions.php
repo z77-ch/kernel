@@ -158,6 +158,22 @@ function setOwnExceptionHandler()
 
     // Exceptions abfangen
     set_exception_handler(function(\Throwable $e) use ($renderError) {
+        // Status first, before the box is printed: without it the request went out
+        // as HTTP 200 (a user handler takes the error away from PHP's own 500).
+        \Z77\Core\Exception\ExceptionHandler::markFailed();
+
+        // A stateless route (/api) keeps its contract in DEBUG too: the JSON
+        // error envelope, never this HTML box (api-envelope-v1).
+        try {
+            $stateless = \Z77\Core\DI::getRequest()->isStateless();
+        } catch (\Throwable) {
+            $stateless = false;   // very early error: no Request yet
+        }
+        if ($stateless) {
+            \Z77\Core\Exception\ExceptionHandler::handleUncaught($e);
+            return;
+        }
+
         $renderError(E_ERROR, $e->getMessage(), $e->getFile(), $e->getLine(), $e->getTraceAsString());
     });
 

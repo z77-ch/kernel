@@ -15,6 +15,7 @@ use Z77\Core\Services\LayoutManager,
     Z77\Core\Http\RequestMode,
     Z77\Core\Exception\NotFoundException,
     Z77\Core\DI,
+    Z77\Core\Libraries\Seo\SeoLinks,
     Z77\Core\Libraries\Seo\SiteIdentity
 ;
 
@@ -106,7 +107,10 @@ abstract class AbstractBaseController
         $context['navigation']        = $navigation;
         $context['language']          = $language;
         $context['languageSwitch']    = $this->buildLanguageSwitch($language);
-        $context['seo']               = $this->buildSeoLinks($language);
+        // Deferred to the first read (SeoLinks): only layouts that print the
+        // canonical need the configured origin, so the backend and the setup
+        // stay reachable on an installation without canonicalBaseUrl (SEC-005).
+        $context['seo']               = new SeoLinks(fn() => $this->buildSeoLinks($language));
         $context['metaData']          = $navigation
             ? $navigationService->findMetaData($navigation->getId(), $language)
             : null;

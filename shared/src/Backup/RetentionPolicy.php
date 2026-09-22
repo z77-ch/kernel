@@ -6,7 +6,7 @@ namespace Z77\Shared\Backup;
  * Decides which archives a retention setting keeps — pure name-in, name-out,
  * no filesystem (the harness drives it with crafted timelines).
  *
- * Two forms, per backup type (`config/backup.inc.php`, `retention`):
+ * Two forms, per backup type (`config/client/backup.inc.php`, `retention`):
  *
  *   'data' => 10                                        keep the newest 10
  *   'data' => ['last' => 2, 'daily' => 7,

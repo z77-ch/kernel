@@ -11,7 +11,7 @@ use Z77\Shared\Entities\EmailFormSetting;
  * Renders an {@see EmailMessage} (body template inside the shared
  * `emails/layout`, both override-first via FileFinder), derives the plain-text
  * alternative ({@see HtmlToText}), maps onto the hardened {@see Message} VO and
- * sends via {@see Mailer} (transport per `config/mail.inc.php`: mail() or SMTP).
+ * sends via {@see Mailer} (transport per `config/client/mail.inc.php`: mail() or SMTP).
  *
  * Error contract (agreed in the requirements handoff):
  * - Programmer/config-structure errors THROW: unknown form key, missing template.

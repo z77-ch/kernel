@@ -1,6 +1,6 @@
 <?php
 // Default Backup Config — installation-wide backup policy (docs/topics/backup.md).
-// Seed-once: written to config/backup.inc.php on the first install and never
+// Seed-once: written to config/client/backup.inc.php on the first install and never
 // overwritten — adapt retention / excludes / dump per installation there.
 return [
     // Backup root, relative to the project root. MUST stay outside the web root

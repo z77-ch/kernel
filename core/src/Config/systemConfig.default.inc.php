@@ -2,7 +2,7 @@
 // Default System Config (ADR-030)
 //
 // Settings that describe THIS installation — not the project's code, not a
-// user's preference. Seeded once into config/systemConfig.inc.php and never
+// user's preference. Seeded once into config/client/systemConfig.inc.php and never
 // overwritten, so a value set on the server survives `composer install`.
 //
 // Bootstrap publishes these as constants, which makes them readable from a web

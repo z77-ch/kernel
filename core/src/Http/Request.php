@@ -522,7 +522,7 @@ class Request {
         // (ADR-030, point 4): a cron aborts instead of mailing links that point
         // nowhere, and a page that never builds an absolute URL is unaffected.
         throw new \RuntimeException(
-            "This installation has no canonicalBaseUrl. Set it in config/systemConfig.inc.php "
+            "This installation has no canonicalBaseUrl. Set it in config/client/systemConfig.inc.php "
             . "(e.g. 'https://kunde.ch') — it is the origin of every mail link and of the SEO "
             . "canonical, and it cannot be derived from the request: the Host header is the "
             . "client's to choose (SEC-005)."

@@ -1,7 +1,7 @@
 <?php
 // Default Auth Config — installation-wide authentication policy.
 // Override per installation via composer.json extra `core-auth`; the installer
-// merges it and writes the runtime file to config/auth.inc.php.
+// merges it and writes the runtime file to config/client/auth.inc.php.
 return [
     // Password strength tier. Allowed values + their min length and block/nag
     // behaviour are defined ENTIRELY in Z77\Shared\Auth\PasswordTier (the single

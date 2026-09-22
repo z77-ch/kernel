@@ -7,7 +7,7 @@ use Z77\Shared\Libraries\ConfigLocator;
 /**
  * Installation-wide backup orchestration — deliberately HTTP-free so the
  * backend UI and the CLI entry (`vendor/bin/z77-backup`, ADR-028) share one
- * implementation. Reads its settings from `config/backup.inc.php` (seed-once,
+ * implementation. Reads its settings from `config/client/backup.inc.php` (seed-once,
  * see docs/topics/backup.md) and the database connection from
  * `config/client/database.inc.php` — the one connection config, shared with
  * the Doctrine driver (ADR-039 decision 4); every failure throws \RuntimeException.
@@ -67,7 +67,7 @@ final class BackupService
     private array  $database;
 
     /**
-     * @param array $config   the backup policy (`config/backup.inc.php`)
+     * @param array $config   the backup policy (`config/client/backup.inc.php`)
      * @param array $database the connection (`config/client/database.inc.php`): host, port, name, user, password
      */
     public function __construct(
@@ -236,7 +236,7 @@ final class BackupService
         // Only the `db` type cares; data and full backups run regardless.
         if (is_array($this->config['database'] ?? null)) {
             throw new \RuntimeException(
-                "config/backup.inc.php still carries a 'database' block — the connection lives in "
+                "config/client/backup.inc.php still carries a 'database' block — the connection lives in "
                 . "config/client/database.inc.php now (ADR-039); keep only 'dump' (mysqldump binary, "
                 . "optional backup user) in the backup config."
             );

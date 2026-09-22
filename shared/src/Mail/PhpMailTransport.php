@@ -5,7 +5,7 @@ namespace Z77\Shared\Mail;
 /**
  * {@see MailTransport} implementation over PHP's `mail()` — for shared hosting
  * (cyon) where a local sendmail is provided and no SMTP credentials exist.
- * Selected via `config/mail.inc.php` `transport = 'mail'`.
+ * Selected via `config/client/mail.inc.php` `transport = 'mail'`.
  *
  * `mail()` insists on receiving the To and Subject separately (it writes those
  * headers itself), so the ready-built RFC 5322 blob from {@see MimeMessage} is

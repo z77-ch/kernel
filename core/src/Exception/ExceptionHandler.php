@@ -74,6 +74,99 @@ class ExceptionHandler
     }
 
     /**
+     * Last resort for a Throwable nobody caught — registered by Bootstrap as
+     * the process exception handler, so it covers the whole request, early
+     * boot included.
+     *
+     * Why it exists: PHP answers an uncaught error with 500 only while
+     * `display_errors` is off and no user handler took the error. In DEBUG
+     * both are the other way round, so a fatal went out as HTTP 200 (P2 exit
+     * check 2026-09-22: the first setup page died with status 200). The
+     * status is set here, in one place, before anything is printed.
+     *
+     * `display_errors` off (production): the half-built page is dropped, the
+     * error is logged, the client gets a generic 500 without internals.
+     * `display_errors` on: message and trace, as PHP itself would show them.
+     * A stateless route (/api) keeps its JSON envelope (handle()).
+     */
+    public static function handleUncaught(\Throwable $e): void
+    {
+        self::markFailed();
+        error_log('Uncaught ' . $e);
+
+        if (self::isStatelessRequest()) {
+            self::handle($e);   // JSON envelope, never a trace; exits
+        }
+
+        $display = (bool)ini_get('display_errors');
+        if (!$display) {
+            // Drop what the request rendered so far — a half page must not go
+            // out ahead of the error. Kept when displaying: in DEBUG that output
+            // may be the developer's own debug() calls.
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+        }
+
+        if (self::resolveFormatFromRequest() === 'json') {
+            if (!headers_sent()) {
+                header('Content-Type: application/json; charset=utf-8');
+            }
+            echo json_encode([
+                'error' => $display ? $e->getMessage() : 'Internal error.',
+                'code'  => 500,
+            ], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+
+        if (!headers_sent()) {
+            header('Content-Type: text/html; charset=utf-8');
+        }
+        echo '<h1>500</h1>';
+        if ($display) {
+            echo '<p>' . htmlspecialchars($e->getMessage()) . '</p>';
+            echo '<pre>' . htmlspecialchars($e->getTraceAsString()) . '</pre>';
+        }
+    }
+
+    /**
+     * Shutdown check for a real fatal (E_ERROR, parse/compile errors) — those
+     * bypass every exception handler. Registered by Bootstrap next to
+     * handleUncaught(); best effort: once PHP has printed the message, the
+     * headers may already be out.
+     */
+    public static function handleShutdown(): void
+    {
+        $error = error_get_last();
+        if ($error === null || !in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+            return;
+        }
+        self::markFailed();
+
+        // `display_errors` off: PHP printed nothing, so the body would be the
+        // half-rendered page (or empty). Same generic body as handleUncaught().
+        if (!ini_get('display_errors') && !headers_sent()) {
+            while (ob_get_level() > 0) {
+                ob_end_clean();
+            }
+            header('Content-Type: text/html; charset=utf-8');
+            echo '<h1>500</h1>';
+        }
+    }
+
+    /**
+     * Sets 500 on a response whose headers are still open — the one place the
+     * «request failed» status is set for uncaught errors. Also called by the
+     * DEBUG handlers (setOwnExceptionHandler), which render their own box.
+     */
+    public static function markFailed(): void
+    {
+        if (!headers_sent()) {
+            http_response_code(500);
+        }
+    }
+
+    /**
      * Determines render format from RequestMode. Falls back to 'html' if the
      * request is not yet available (very early bootstrap errors).
      */

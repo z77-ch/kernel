@@ -7,7 +7,7 @@
 // (first FileFinder sourcePaths match wins — no merging).
 //
 // Transport, enabled flag and sender identity (fromAddress/fromName) live in
-// the project's config/mail.inc.php — NOT here (single config source, Rule 2).
+// the project's config/client/mail.inc.php — NOT here (single config source, Rule 2).
 //
 // 'forms' maps a form key (EmailService::sendForm) to its mail settings.
 // This config is the SEED/FALLBACK: a backend-edited EmailFormSetting record

@@ -5,7 +5,7 @@ namespace Z77\Shared\Mail;
 use Z77\Core\DI;
 
 /**
- * The mail façade (DMS Phase 6, ADR-016 / OPEN-5). Reads `config/mail.inc.php`, builds the
+ * The mail façade (DMS Phase 6, ADR-016 / OPEN-5). Reads `config/client/mail.inc.php`, builds the
  * configured transport (`transport`: 'smtp' → {@see SmtpTransport}, 'mail' →
  * {@see PhpMailTransport}, 'file' → {@see FileTransport}, development only),
  * holds the installation's default sender, and sends a
@@ -70,7 +70,7 @@ final class Mailer
     public function send(Message $message): void
     {
         if ($this->transport === null) {
-            throw new \RuntimeException('Mail is not configured (config/mail.inc.php missing or enabled = false).');
+            throw new \RuntimeException('Mail is not configured (config/client/mail.inc.php missing or enabled = false).');
         }
 
         if ($message->getFromAddress() === '' && $this->fromAddress !== '') {

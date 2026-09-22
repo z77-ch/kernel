@@ -93,7 +93,7 @@ class FileFinder
             if ($throwError) {
                 throw new \RuntimeException(
                     "Namespace '{$ns}' has no registered {$resourceType} paths. " .
-                    "Check config/fileFinder.inc.php."
+                    "Check config/vendor/fileFinder.inc.php."
                 );
             }
             return null;

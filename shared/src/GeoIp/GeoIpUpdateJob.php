@@ -29,7 +29,7 @@ use Z77\Shared\Jobs\JobResult;
  * error page, and an edition that does not parse, all with one test, and it
  * tests exactly the property that matters: can we read it afterwards.
  *
- * Configuration lives in `config/geoip.inc.php` (machine-local, never in git
+ * Configuration lives in `config/client/geoip.inc.php` (machine-local, never in git
  * and never deployed). Two ways to supply the key, and a key in the config
  * wins over MaxMind's ready-made `GeoIP.conf` in the database directory.
  *
@@ -69,7 +69,7 @@ final class GeoIpUpdateJob implements Job
             // Not a failure: an installation may deliberately run without a
             // country map. Saying so once per pass is the whole report.
             return JobResult::done(
-                'kein Lizenzschluessel (config/geoip.inc.php oder GeoIP.conf) — Datenbank bleibt, wie sie ist'
+                'kein Lizenzschluessel (config/client/geoip.inc.php oder GeoIP.conf) — Datenbank bleibt, wie sie ist'
             );
         }
 
@@ -336,7 +336,7 @@ final class GeoIpUpdateJob implements Job
     }
 
     /**
-     * The key from `config/geoip.inc.php`, or MaxMind's `GeoIP.conf` in the
+     * The key from `config/client/geoip.inc.php`, or MaxMind's `GeoIP.conf` in the
      * database directory as the fallback — so whoever downloads their config
      * from MaxMind can drop it in unchanged.
      */

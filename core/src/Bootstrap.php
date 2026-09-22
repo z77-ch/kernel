@@ -56,6 +56,7 @@ class Bootstrap
      * Wires infrastructure services and configures the runtime environment.
      *
      * Sequence:
+     *   0. Register the uncaught-error handlers (status 500)
      *   1. Register CacheManager, FileFinder, ConfigManager in DI
      *   2. Load bootstrap config
      *   3. Define DEBUG constant and configure error reporting
@@ -65,6 +66,17 @@ class Bootstrap
      */
     public function __construct()
     {
+        // 0. An uncaught error answers 500 — from the first line on, before any
+        // config is read (a missing config is one of the errors it must cover).
+        // DEBUG replaces the exception handler later (setOwnExceptionHandler),
+        // which sets the status through the same ExceptionHandler::markFailed().
+        // Not on the CLI (member-cleanup and other binaries boot this too): there
+        // is no status to set, and PHP's own report + exit code 255 is the answer.
+        if (PHP_SAPI !== 'cli') {
+            set_exception_handler([ExceptionHandler::class, 'handleUncaught']);
+            register_shutdown_function([ExceptionHandler::class, 'handleShutdown']);
+        }
+
         // 1. Register infrastructure services
         DI::getInstance(true)
             ->set('CacheManager', CacheManager::class, true)
@@ -108,7 +120,7 @@ class Bootstrap
         // the backend shows a persistent Störer. Distinct from per-page MetaData.
         define('SEO_NOINDEX', file_exists(ABS_STATE_PATH . '/noindex.flag'));
 
-        // Installation identity (ADR-030), seed-once in config/systemConfig.inc.php.
+        // Installation identity (ADR-030), seed-once in config/client/systemConfig.inc.php.
         // Published as a constant so a web request and a cron entry that boots the
         // framework read the same value. Loading TOLERATES an empty or absent value —
         // a fatal here would take the backend down too, i.e. the surface an operator

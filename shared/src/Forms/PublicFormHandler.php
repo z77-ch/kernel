@@ -147,7 +147,7 @@ final class PublicFormHandler
      *
      * ⚠️ THE COUNTRY DATA DOES NOT COME WITH THIS SWITCH. The GeoLite
      * database is fetched per installation and by hand: a MaxMind account,
-     * the licence key in `config/geoip.inc.php` (machine-local, gitignored,
+     * the licence key in `config/client/geoip.inc.php` (machine-local, gitignored,
      * NOT deployed — it must exist on every server), and the `geoip-update`
      * job active, which also performs the initial download. Without that,
      * this guard runs but every country reads as unknown — the rule is

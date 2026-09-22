@@ -49,8 +49,20 @@ class TemplateRenderer
     private function renderIsolated(string $z77TplPath, array $z77TplContext): string
     {
         extract($z77TplContext, EXTR_SKIP);
+        $z77TplLevel = ob_get_level();
         ob_start();
-        require $z77TplPath;
+        try {
+            require $z77TplPath;
+        } catch (\Throwable $z77TplError) {
+            // Drop the half-rendered template: left open, this buffer (one per
+            // nested partial) is flushed at shutdown and the broken page goes
+            // out in front of the error page. Down to the level found on entry —
+            // a template that opened buffers of its own leaves none behind.
+            while (ob_get_level() > $z77TplLevel) {
+                ob_end_clean();
+            }
+            throw $z77TplError;
+        }
 
         return ob_get_clean();
     }

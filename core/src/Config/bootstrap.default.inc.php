@@ -9,7 +9,7 @@ return [
     // are part of the release-structure contract, not a project setting: a
     // configurable path could be pointed back into a shared store, which is the
     // defect ADR-035 removes. A leftover 'cacheDir' key in an installed
-    // config/bootstrap.inc.php is ignored — see docs/01-handbook/release-structure.md.
+    // config/vendor/bootstrap.inc.php is ignored — see docs/01-handbook/release-structure.md.
     'apcuCachePrefix' => 'z77',
     'overrideDir' => 'override',
     'moduleDir' => 'module',

@@ -12,6 +12,13 @@
 // Engine: MariaDB 10.6 or newer, InnoDB (ADR-039 decision 17). The charset and
 // collation are not configurable — utf8mb4 / utf8mb4_unicode_ci throughout,
 // set by the driver on every connection (decision 18).
+//
+// Host: 'localhost' on purpose. On Unix, PDO_MYSQL and mysqldump treat it as
+// «use the Unix socket», which is how a Linux hoster usually serves MariaDB.
+// On Windows, against a MariaDB bound to 127.0.0.1, it measured ~2 s per
+// request (127.0.0.1: 1 ms; likely the ::1 attempt first, not confirmed); set
+// '127.0.0.1' in the installation's own file there
+// (persistence-doctrine.md DOCTRINE-HOST-001).
 return [
     'host'     => 'localhost',
     'port'     => null,          // null = the server default (3306)

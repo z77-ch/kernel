@@ -4,7 +4,7 @@ namespace Z77\Shared\Auth;
 
 /**
  * Installation-wide password strength tier (config key `passwordTier` in
- * `config/auth.inc.php`). The tier is INPUT to {@see PasswordPolicy}: it sets the
+ * `config/client/auth.inc.php`). The tier is INPUT to {@see PasswordPolicy}: it sets the
  * minimum length the policy evaluates against. It lives next to the policy (shared
  * domain), NOT in core — unlike {@see \Z77\Core\Config\AuthRole}, which the engine
  * itself checks, the tier is only consumed by the shared password policy.
@@ -58,7 +58,7 @@ enum PasswordTier: string
             return self::Strong;
         }
         return self::tryFrom($name) ?? throw new \ValueError(sprintf(
-            'Invalid passwordTier "%s" (config/auth.inc.php) — must be one of: %s. '
+            'Invalid passwordTier "%s" (config/client/auth.inc.php) — must be one of: %s. '
             . 'Refusing to fall back silently on a security setting.',
             $name,
             implode(', ', array_column(self::cases(), 'value'))

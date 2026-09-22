@@ -4,7 +4,7 @@ namespace Z77\Shared\Mail;
 
 /**
  * {@see MailTransport} implementation that DELIVERS TO DISK — the development
- * box's answer to «no local MTA». Selected via `config/mail.inc.php`
+ * box's answer to «no local MTA». Selected via `config/client/mail.inc.php`
  * `transport = 'file'`.
  *
  * A dev machine has no sendmail, so every mail took the graceful failure path
@@ -22,7 +22,7 @@ namespace Z77\Shared\Mail;
  * ⚠️ This is a development transport. It never delivers, and it writes plain
  * text — including whatever a mail carries in the clear (a magic-link token
  * IS a credential until it is redeemed). Belongs in a machine-specific
- * `config/mail.inc.php`, never on a server.
+ * `config/client/mail.inc.php`, never on a server.
  */
 final class FileTransport implements MailTransport
 {

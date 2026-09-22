@@ -1,6 +1,6 @@
 <?php
 //
-// Installer defaults for config/mail.inc.php (seed-once — see Install::writeMailConfig()).
+// Installer defaults for config/client/mail.inc.php (seed-once — see Install::writeMailConfig()).
 // Overridable via composer.json extra key "core-mail".
 //
 // transport 'mail' = PHP mail() over the local MTA (shared hosting, no credentials

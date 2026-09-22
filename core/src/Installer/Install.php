@@ -176,6 +176,8 @@ class Install
             $this->io->write('Z77 composer.json extra was empty — only default config written.');
         }
 
+        $this->reportMissingCanonicalBaseUrl();
+
         // Last thing shown, so the developer can't miss it: a single coloured notice
         // listing the framework assets that differ from public/ (ADR-025), followed by
         // an opt-in per-file deploy prompt (interactive only, default No — ADR-024 amend).
@@ -905,6 +907,43 @@ class Install
     private function writeSystemConfig(): void
     {
         $this->writeSeedOnceConfig(self::SYSTEM_CONFIG, $this->systemConfig, 'System');
+    }
+
+    /**
+     * The one hand edit a fresh installation still needs: without
+     * `canonicalBaseUrl` the setup and the backend run, but public pages and
+     * mail links answer 500 (SEC-005, INST-FRESH-001). Printed after the
+     * install log so it is not lost in it; the seed-once file is only read.
+     */
+    private function reportMissingCanonicalBaseUrl(): void
+    {
+        $notice = self::canonicalBaseUrlNotice(
+            $this->trailingSlash($this->clientConfigDir()) . self::SYSTEM_CONFIG . '.inc.php'
+        );
+        if ($notice !== null) {
+            $this->io->write('<bg=yellow;fg=black> ' . $notice . ' </>');
+        }
+    }
+
+    /**
+     * The notice line for an installed systemConfig file, or null when the
+     * value is set (or the file is absent — nothing to point at). Static and
+     * Composer-free so `tests/fresh-install-setup.php` can call it directly.
+     */
+    public static function canonicalBaseUrlNotice(string $systemConfigFile): ?string
+    {
+        if (!is_file($systemConfigFile)) {
+            return null;
+        }
+        $values = require $systemConfigFile;
+        $url    = is_array($values) ? trim((string)($values['canonicalBaseUrl'] ?? '')) : '';
+        if ($url !== '') {
+            return null;
+        }
+
+        return "Action needed: set 'canonicalBaseUrl' in config/client/systemConfig.inc.php "
+            . "(e.g. 'https://kunde.ch'). Setup and backend work without it; public pages "
+            . "and mail links answer 500 until it is set.";
     }
 
     /**
