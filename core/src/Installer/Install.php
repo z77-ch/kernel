@@ -33,6 +33,19 @@ class Install
     // Bootstrap — fixed structure, deliberately not read from config.
     private const STATE_DIR             = 'var/state';
 
+    // Publication record for public assets (INST-ASSET-DIFF-001): project-relative
+    // path → sha1 the file had WHEN THE INSTALLER WROTE IT. It is what lets an update
+    // tell "untouched since we published it" (refresh silently) from "edited here"
+    // (never overwrite without consent). Release-local runtime state like the flags
+    // above (ADR-035): a fixed path, not configurable, gitignored, never deployed.
+    private const PUBLISHED_ASSETS_FILE = self::STATE_DIR . '/published-assets.json';
+
+    // The public ENTRY files the record covers: framework-owned code that must not go
+    // stale silently. The branding files that share that directory (favicons,
+    // site.webmanifest) are deliberately NOT listed — nearly every project replaces them,
+    // so they would stand in every install log forever (INST-ASSET-ENTRY-001).
+    private const RECORDED_ENTRY_FILES  = ['index.php', '.htaccess'];
+
     // Stores that must never be web-reachable — each gets a seed-once deny
     // .htaccess. Never a store served THROUGH public/ (a deny file inside
     // public/media would 403 every image — same rule as .releases/deploy.php).
@@ -83,13 +96,33 @@ class Install
     private array  $publicAssetPaths    = [];
     private array  $z77Modules          = [];
 
-    // Collected asset-drift entries (update only). Each entry is
-    // ['display' => …, 'src' => absolute vendor path, 'dst' => absolute public path].
-    // Rendered as one coloured notice at the end of execute(), then offered for an
-    // opt-in per-file deploy (interactive only) — see renderAssetDriftNotice() /
-    // promptAssetDeploy(). Never printed line-by-line mid-run.
+    // Collected drift entries (update only). Each entry is ['display' => …,
+    // 'src' => absolute vendor path, 'dst' => absolute public path]; entries in
+    // $assetDriftChanged also carry 'reason' => 'edited' | 'unrecorded'. The four lists
+    // are what classifyPublishedFile() sorts every shipped file into:
+    //
+    //   $assetRefreshed    — present, differs from vendor, but IDENTICAL to the publication
+    //                        record: we wrote it, nobody touched it → rewritten, no prompt.
+    //   $assetPublishedNew — absent AND unrecorded: never published here, so nobody can have
+    //                        edited it → written, no prompt.
+    //   $assetRemovedHere  — absent but RECORDED: we published it, the project deleted it.
+    //                        Republishing would undo a deliberate act → reported only.
+    //   $assetDriftChanged — present and differs from the record ('edited') or has no record
+    //                        ('unrecorded') → never written without an explicit yes.
+    //
+    // Nothing is printed line-by-line mid-run: renderAssetWriteNotice() /
+    // renderAssetDriftNotice() report at the end, then promptAssetDeploy() asks.
     private array  $assetDriftChanged   = [];
-    private array  $assetDriftAdded     = [];
+    private array  $assetRefreshed      = [];
+    private array  $assetPublishedNew   = [];
+    private array  $assetRemovedHere    = [];
+
+    // The publication record itself: project-relative path → sha1 at publication time.
+    // It only ever GROWS — an entry for a file the framework no longer ships is dead
+    // weight, not a defect, and is deliberately not pruned (a sha1 per path costs bytes,
+    // while deciding "no longer shipped" would mean trusting one run's view of vendor/).
+    private array  $publishedAssets     = [];
+    private bool   $publishedAssetsDirty = false;
 
     // -------------------------------------------------------------------------
     // Composer entry point
@@ -134,20 +167,30 @@ class Install
             $targetDir = $this->trailingSlash($this->baseDir) . $publicDir;
 
             // public/ belongs to the developer (ADR-024). Seed the framework baseline on the
-            // FIRST install only — once public/ exists the installer never touches it again.
-            // New / updated framework assets then stay in vendor and it is the developer's job
-            // (with Claude's help) to deploy them into public. No overwrite, no force command.
+            // FIRST install only. Afterwards the installer writes there only where it can PROVE
+            // nothing of the project's is at stake: a file byte-identical to the copy it
+            // published itself, and a file public/ never had (ADR-046, INST-ASSET-DIFF-001).
+            // Everything else needs an explicit yes (ADR-026). No blanket overwrite, no force.
             $firstInstall = !is_dir($targetDir);
 
+            $this->loadPublishedAssets();
+
+            $entrySourceDir = __DIR__ . '/../../' . $publicDir;
+
             if ($firstInstall) {
-                $sourceDir = __DIR__ . '/../../' . $publicDir;
-                $this->copyFiles($sourceDir, $targetDir);
+                $this->copyFiles($entrySourceDir, $targetDir);
+                $this->recordEntryFiles($targetDir);
             } else {
                 $this->io->write(
-                    'public/ exists — left untouched (developer-owned, ADR-024). '
-                    . 'New framework assets stay in vendor; deploy them into public yourself.'
+                    'public/ exists — developer-owned (ADR-024). Only files still identical to '
+                    . 'the copy the installer published are refreshed; everything else stays.'
                 );
                 $this->reportAssetDrift();
+                $this->reportEntryFileDrift($entrySourceDir, $targetDir);
+                // The automatic writes into an existing public/ (INST-ASSET-DIFF-001): files
+                // the project never touched since we published them, and files it never had.
+                // A stale copy of an unedited framework file is a bug, not developer ownership.
+                $this->deployUndisputedAssets();
             }
 
             $this->createDirectories($config['directories'] ?? [], $firstInstall);
@@ -178,11 +221,14 @@ class Install
 
         $this->reportMissingCanonicalBaseUrl();
 
-        // Last thing shown, so the developer can't miss it: a single coloured notice
-        // listing the framework assets that differ from public/ (ADR-025), followed by
-        // an opt-in per-file deploy prompt (interactive only, default No — ADR-024 amend).
+        // Last thing shown, so the developer can't miss it: what was refreshed silently,
+        // then a single coloured notice listing the framework assets that differ from
+        // public/ and need a decision (ADR-025), followed by an opt-in per-file deploy
+        // prompt (interactive) or a named stale list (non-interactive, ADR-024 amend).
+        $this->renderAssetWriteNotice();
         $this->renderAssetDriftNotice();
         $this->promptAssetDeploy();
+        $this->savePublishedAssets();
 
         // After everything else so the answer can trigger a nested `composer require`
         // without interleaving the install log.
@@ -309,7 +355,14 @@ class Install
     // File copying
     // -------------------------------------------------------------------------
 
-    private function copyFiles(string $source, string $target): void
+    /**
+     * @param bool $record  true for the public ASSET trees: every file actually written is
+     *                      entered into the publication record (INST-ASSET-DIFF-001), so a
+     *                      later install can tell an untouched copy from a project edit.
+     *                      false for the entry files (index.php, .htaccess, favicons) —
+     *                      they are outside the drift/refresh mechanism (see installer.md).
+     */
+    private function copyFiles(string $source, string $target, bool $record = false): void
     {
         $this->io->write("Copying files from {$source}");
 
@@ -330,7 +383,7 @@ class Install
             $dst = $this->trailingSlash($target) . $item;
 
             if (is_dir($src)) {
-                $this->copyFiles($src, $dst);
+                $this->copyFiles($src, $dst, $record);
                 continue;
             }
 
@@ -343,6 +396,10 @@ class Install
 
             if (!copy($src, $dst)) {
                 throw new \RuntimeException("Failed to copy file: {$src} → {$dst}");
+            }
+
+            if ($record) {
+                $this->recordPublishedAsset($dst);
             }
 
             $this->io->write('   Copied: ' . basename($dst));
@@ -406,7 +463,9 @@ class Install
      *   1. Create the `publicAssetTree` subdirectories with `<*module*>` replaced by
      *      the derived asset dir name.
      *   2. Copy `vendor/{package}/res/assets/` recursively into
-     *      `public/{assetDir}/{name}/`.
+     *      `public/{assetDir}/{name}/` and enter every written file into the publication
+     *      record (`var/state/published-assets.json`, INST-ASSET-DIFF-001) — that record
+     *      is what lets the NEXT install refresh an untouched copy without asking.
      *
      * Packages without a `res/assets/` directory are silently skipped (so adding
      * assets to any future framework package needs no installer changes).
@@ -457,21 +516,19 @@ class Install
                     . $this->trailingSlash($publicDir) . "{$assetDir}/{$assetName}";
 
             foreach ($existingSources as $source) {
-                $this->copyFiles($source, $target);
+                // record = true: the first install is what creates the publication record
+                // every later install compares against (INST-ASSET-DIFF-001).
+                $this->copyFiles($source, $target, true);
             }
         }
     }
 
     /**
-     * On an update (public/ present) the installer never writes into public/ (ADR-024).
-     * Instead it reports — read-only — which framework assets in vendor differ from what
-     * is deployed in public/, so the developer can decide what to adopt (ADR-025,
-     * INST-ASSET-DIFF-001). It hashes each shipped `res/assets` file against its public
-     * counterpart and COLLECTS the ones that are new or changed into $assetDriftChanged /
-     * $assetDriftAdded. It does NOT print here — {@see renderAssetDriftNotice()} shows the
-     * collected entries as one coloured notice at the very end of the run. It CANNOT tell a
-     * framework change from a developer edit — it collects every file whose deployed copy
-     * differs from the shipped one; the developer knows which they customized. Writes nothing.
+     * On an update (public/ present) the installer walks every shipped `res/assets` file and
+     * hands it to {@see classifyPublishedFile()}, which sorts it into the four lists declared
+     * at the top of this class (ADR-025 + INST-ASSET-DIFF-001). Collects only — the notices
+     * print at the very end of the run, after {@see deployUndisputedAssets()} has written
+     * what needs no decision.
      */
     private function reportAssetDrift(): void
     {
@@ -499,43 +556,96 @@ class Install
             foreach ($vendorPaths as $vendorPath) {
                 $source = $this->trailingSlash($this->baseDir) . "{$vendorPath}/res/assets";
                 if (is_dir($source)) {
-                    $this->collectAssetDrift(
-                        $source,
-                        $target,
-                        $assetName,
-                        $this->assetDriftChanged,
-                        $this->assetDriftAdded
-                    );
+                    $this->collectAssetDrift($source, $target, $assetName);
                 }
             }
         }
     }
 
     /**
-     * Renders the collected asset drift (ADR-025) as ONE coloured notice at the end of
-     * the run — a solid yellow block so it stands out from the plain install log. The
-     * action line depends on the mode: interactive → "you'll be asked per file below";
-     * non-interactive (CI / deploy) → "deploy yourself" (nothing is written there).
-     * Prints nothing when public/ matches the shipped assets.
+     * Writes the files no one can dispute (INST-ASSET-DIFF-001): the deployed copy is still
+     * byte-identical to what the installer published while the shipped file changed, or the
+     * file was never published here at all. No prompt, in every run mode — the developer's
+     * own work cannot be at stake in either case. This is the fix for the silent staleness
+     * ADR-024/025/026 left behind: a non-interactive `composer install` answered "No" to
+     * every prompt, so a stale copy of an untouched framework asset survived every install
+     * and the browser kept serving it. Reported afterwards by
+     * {@see renderAssetWriteNotice()} — silent means no question, not invisible.
+     */
+    private function deployUndisputedAssets(): void
+    {
+        try {
+            foreach ($this->assetRefreshed as $entry) {
+                $this->deployAsset($entry['src'], $entry['dst']);
+            }
+            foreach ($this->assetPublishedNew as $entry) {
+                $this->deployAsset($entry['src'], $entry['dst']);
+            }
+        } finally {
+            // finally, not "after the loop": a copy failure mid-way must still leave the
+            // record describing the files already written. A record entry that lags behind
+            // the file on disk is the one way this mechanism turns against itself — the
+            // next install would read a file WE wrote as "your edit" and stop refreshing it.
+            $this->savePublishedAssets();
+        }
+    }
+
+    /**
+     * One plain block naming every file written without asking — so an operator reading a
+     * deploy log sees what changed under public/ and why it needed no decision.
+     */
+    private function renderAssetWriteNotice(): void
+    {
+        if (empty($this->assetRefreshed) && empty($this->assetPublishedNew)) {
+            return;
+        }
+
+        $count = count($this->assetRefreshed) + count($this->assetPublishedNew);
+        $this->io->write('');
+        $this->io->write(
+            "Asset write: {$count} file(s) in public/ needed no decision — either still "
+            . 'identical to the copy the installer published, or never published here before:'
+        );
+        foreach ($this->assetRefreshed as $entry) {
+            $this->io->write('  ↻ refreshed: ' . $entry['display']);
+        }
+        foreach ($this->assetPublishedNew as $entry) {
+            $this->io->write('  + published: ' . $entry['display']);
+        }
+    }
+
+    /**
+     * Renders the files that need a DECISION (ADR-025) as ONE coloured notice at the end of
+     * the run — a solid yellow block so it stands out from the plain install log. This is the
+     * ONLY list of them: the interactive run asks about them right after, the non-interactive
+     * run adds one guidance line and ends. Files written without a question are not here.
+     * Prints nothing when public/ needs no decision.
      */
     private function renderAssetDriftNotice(): void
     {
-        if (empty($this->assetDriftChanged) && empty($this->assetDriftAdded)) {
+        if (empty($this->assetDriftChanged) && empty($this->assetRemovedHere)) {
             return;
         }
 
         $lines = [
-            'Framework assets differ from your public/.',
+            'Framework files in public/ that the installer did NOT write by itself:',
             $this->io->isInteractive()
-                ? 'You will be asked per file below whether to deploy it (default: No).'
-                : 'Review and deploy the ones you want into public/ yourself:',
+                ? 'You will be asked per file below (default: No).'
+                : 'Nothing was written — they keep their current state.',
             '',
         ];
-        foreach ($this->assetDriftAdded as $entry) {
-            $lines[] = '  + new:     ' . $entry['display'];
-        }
         foreach ($this->assetDriftChanged as $entry) {
-            $lines[] = '  ~ changed: ' . $entry['display'];
+            $lines[] = '  ~ kept (project-owned or unrecorded): ' . $entry['display'];
+            $lines[] = '      ' . $this->driftReasonLabel($entry);
+        }
+        foreach ($this->assetRemovedHere as $entry) {
+            $lines[] = '  − removed here: ' . $entry['display'];
+            $lines[] = '      (the installer published it once and it is gone — deleted in this project)';
+        }
+        if (!$this->io->isInteractive()) {
+            $lines[] = '';
+            $lines[] = '  → run `composer install` interactively to decide per file,';
+            $lines[] = '    or copy the file from vendor into public/ by hand.';
         }
 
         // Pad every line to a uniform width so the background colour forms a solid block.
@@ -551,59 +661,83 @@ class Install
     }
 
     /**
-     * Opt-in, interactive-only deploy of drifted framework assets into public/ (ADR-024
-     * amendment). Runs after the drift notice. NEVER runs non-interactively (CI / deploy):
-     * there the notice stays a pure read-only report and public/ is never written. Every
-     * prompt defaults to NO, so a blind Enter never overwrites anything.
+     * Opt-in, interactive-only deploy of the files that need a DECISION (ADR-024 amendment).
+     * Runs after the drift notice, which already NAMED them — in a non-interactive run
+     * (CI / deploy) that notice is the whole report and this method does nothing, so no file
+     * is listed twice. Every prompt defaults to NO, so a blind Enter never writes anything.
+     * Undisputed files never reach this method: they were written without a question
+     * ({@see deployUndisputedAssets()}).
      *
-     *   + new     → copying is risk-free (the file is absent in public/): "Deploy? [y/N]".
-     *   ~ changed → the deployed copy may be YOUR edit or a build artefact (compiled CSS/JS
-     *               from override/scss). Overwriting it with the framework version can wipe
-     *               your work — the exact INST-ASSET-002 footgun. Warn loudly, then ask.
+     *   ~ kept        → the deployed copy may be YOUR edit or a build artefact (compiled
+     *                   CSS/JS from override/scss). Overwriting it with the framework version
+     *                   can wipe your work — the exact INST-ASSET-002 footgun. Warn, then ask.
+     *   − removed here → NOT a risk-free copy: the file was published here and deleted since.
+     *                   Restoring it undoes that deletion, so it is asked, never assumed.
      */
     private function promptAssetDeploy(): void
     {
         if (!$this->io->isInteractive()) {
             return;
         }
-        if (empty($this->assetDriftChanged) && empty($this->assetDriftAdded)) {
+        if (empty($this->assetDriftChanged) && empty($this->assetRemovedHere)) {
             return;
         }
 
         $deployed = 0;
 
-        foreach ($this->assetDriftAdded as $entry) {
-            $this->io->write('');
-            $this->io->write('+ new: ' . $entry['display']);
-            if ($this->io->askConfirmation('   Deploy into public/? [y/N] ', false)) {
-                $this->deployAsset($entry['src'], $entry['dst']);
-                $this->io->write('   ✓ deployed');
-                $deployed++;
+        try {
+            foreach ($this->assetDriftChanged as $entry) {
+                $this->io->write('');
+                $this->io->write('<bg=yellow;fg=black> ~ ' . $entry['display'] . ' </>');
+                $this->io->write('   ' . $this->driftReasonLabel($entry));
+                $this->io->write('   ⚠ This may be YOUR own edit or a compiled build artefact (from override/scss).');
+                $this->io->write('   ⚠ Overwriting replaces it with the framework version — your changes are lost.');
+                if ($this->io->askConfirmation('   Overwrite public/ file? [y/N] ', false)) {
+                    $this->deployAsset($entry['src'], $entry['dst']);
+                    $this->io->write('   ✓ overwritten');
+                    $deployed++;
+                }
             }
-        }
 
-        foreach ($this->assetDriftChanged as $entry) {
-            $this->io->write('');
-            $this->io->write('<bg=yellow;fg=black> ~ changed: ' . $entry['display'] . ' </>');
-            $this->io->write('   ⚠ This may be YOUR own edit or a compiled build artefact (from override/scss).');
-            $this->io->write('   ⚠ Overwriting replaces it with the framework version — your changes are lost.');
-            if ($this->io->askConfirmation('   Overwrite public/ file? [y/N] ', false)) {
-                $this->deployAsset($entry['src'], $entry['dst']);
-                $this->io->write('   ✓ overwritten');
-                $deployed++;
+            foreach ($this->assetRemovedHere as $entry) {
+                $this->io->write('');
+                $this->io->write('− removed here: ' . $entry['display']);
+                $this->io->write('   ⚠ The installer published this file once; it is gone now — someone deleted it here.');
+                $this->io->write('   ⚠ Restoring it undoes that deletion.');
+                if ($this->io->askConfirmation('   Restore into public/? [y/N] ', false)) {
+                    $this->deployAsset($entry['src'], $entry['dst']);
+                    $this->io->write('   ✓ restored');
+                    $deployed++;
+                }
             }
+        } finally {
+            // Same reason as in deployUndisputedAssets(): every file we wrote must be in the
+            // record before this run can end, however it ends.
+            $this->savePublishedAssets();
         }
 
         $this->io->write('');
         $this->io->write($deployed > 0
             ? "Asset deploy: {$deployed} file(s) written to public/."
-            : 'Asset deploy: nothing written — public/ unchanged.');
+            : 'Asset deploy: nothing written on request — public/ keeps its own files.');
     }
 
     /**
-     * Copies one drifted asset from vendor into public/ (opt-in, see promptAssetDeploy()).
-     * Creates missing parent dirs and overwrites an existing target (intended for
-     * ~ changed). Throws on failure — no silent errors.
+     * Why a drifted file was not refreshed on its own — the publication record's verdict.
+     */
+    private function driftReasonLabel(array $entry): string
+    {
+        return ($entry['reason'] ?? 'unrecorded') === 'edited'
+            ? '(differs from the copy we published — your edit or a build artefact)'
+            : '(no publication record — provenance unknown)';
+    }
+
+    /**
+     * Copies one drifted asset from vendor into public/ (opt-in, see promptAssetDeploy();
+     * also the automatic writes, see deployUndisputedAssets()). Creates missing parent
+     * dirs, overwrites an existing target and enters the written file into the publication
+     * record, so the NEXT install knows this copy came from us. Throws on failure — no
+     * silent errors.
      */
     private function deployAsset(string $src, string $dst): void
     {
@@ -614,16 +748,111 @@ class Install
         if (!copy($src, $dst)) {
             throw new \RuntimeException("Failed to deploy asset: {$src} → {$dst}");
         }
+
+        $this->recordPublishedAsset($dst);
+    }
+
+    // -------------------------------------------------------------------------
+    // Publication record (INST-ASSET-DIFF-001)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Reads `var/state/published-assets.json` — project-relative path → sha1 at publication.
+     * A missing, unreadable or malformed record is NOT an error: it simply means "we know
+     * nothing about these files", and every drifted file is then treated as 'unrecorded'
+     * (kept, reported) — exactly the behaviour before this record existed.
+     */
+    private function loadPublishedAssets(): void
+    {
+        $file = $this->trailingSlash($this->baseDir) . self::PUBLISHED_ASSETS_FILE;
+        if (!is_file($file)) {
+            return;
+        }
+
+        $decoded = json_decode((string) @file_get_contents($file), true);
+        if (!is_array($decoded)) {
+            return;
+        }
+
+        foreach ($decoded as $path => $hash) {
+            if (is_string($path) && is_string($hash)) {
+                $this->publishedAssets[$path] = $hash;
+            }
+        }
     }
 
     /**
-     * Recursively hashes every file under $source against its counterpart under $target
-     * (same relative path). Fills $changed / $added with entries
-     * ['display' => prefixed rel path, 'src' => abs vendor path, 'dst' => abs public path] —
-     * src/dst let the opt-in deploy (promptAssetDeploy()) copy the file. Read-only — never
-     * writes. (ADR-025)
+     * Notes the hash a just-written public file has, so a later install can recognise it
+     * as "ours, untouched". Called from every path that writes into public/assets.
      */
-    private function collectAssetDrift(string $source, string $target, string $displayPrefix, array &$changed, array &$added): void
+    private function recordPublishedAsset(string $dst): void
+    {
+        $hash = hash_file('sha1', $dst);
+        if ($hash === false) {
+            return;
+        }
+
+        $this->publishedAssets[$this->publishedKey($dst)] = $hash;
+        $this->publishedAssetsDirty = true;
+    }
+
+    /**
+     * Writes the record back, once, at the end of the run — only when something was
+     * published. Throws on failure like every other installer write (no silent errors);
+     * the record is state the next install depends on.
+     */
+    private function savePublishedAssets(): void
+    {
+        if (!$this->publishedAssetsDirty) {
+            return;
+        }
+
+        $file = $this->trailingSlash($this->baseDir) . self::PUBLISHED_ASSETS_FILE;
+        $dir  = dirname($file);
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Failed to create directory: {$dir}");
+        }
+
+        ksort($this->publishedAssets);
+        $json = json_encode($this->publishedAssets, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            throw new \RuntimeException("Failed to encode asset publication record: {$file}");
+        }
+
+        // Write-then-rename, never in place: an interrupted write would otherwise leave a
+        // truncated record. That reads back as "no entry" for every file below the cut —
+        // and a missing entry means "provenance unknown", i.e. those files would stop being
+        // refreshed until someone answered a prompt. rename() is atomic on both platforms
+        // (Windows replaces an existing target since PHP 5.3).
+        $tmp = $file . '.tmp';
+        if (file_put_contents($tmp, $json . "\n") === false) {
+            throw new \RuntimeException("Failed to write asset publication record: {$tmp}");
+        }
+        if (!rename($tmp, $file)) {
+            @unlink($tmp);
+            throw new \RuntimeException("Failed to replace asset publication record: {$file}");
+        }
+
+        $this->publishedAssetsDirty = false;
+    }
+
+    /**
+     * The record's key: the path relative to the project root, forward slashes — readable
+     * in the file and independent of where the project lives on disk.
+     */
+    private function publishedKey(string $absPath): string
+    {
+        $base = $this->trailingSlash(str_replace('\\', '/', $this->baseDir));
+        $path = str_replace('\\', '/', $absPath);
+
+        return str_starts_with($path, $base) ? substr($path, strlen($base)) : $path;
+    }
+
+    /**
+     * Recursively walks $source and hands every file to {@see classifyPublishedFile()}.
+     * Read-only — the writing happens later, from the collected lists. (ADR-025)
+     */
+    private function collectAssetDrift(string $source, string $target, string $displayPrefix): void
     {
         foreach (scandir($source) ?: [] as $item) {
             if ($item === '.' || $item === '..') {
@@ -635,17 +864,100 @@ class Install
             $rel = $displayPrefix . '/' . $item;
 
             if (is_dir($src)) {
-                $this->collectAssetDrift($src, $dst, $rel, $changed, $added);
+                $this->collectAssetDrift($src, $dst, $rel);
                 continue;
             }
 
-            if (!file_exists($dst)) {
-                $added[] = ['display' => $rel, 'src' => $src, 'dst' => $dst];
+            $this->classifyPublishedFile($src, $dst, $rel);
+        }
+    }
+
+    /**
+     * Decides what may happen to ONE published file, by comparing three values: the shipped
+     * file, the deployed copy, and what the publication record says WE last wrote there
+     * (INST-ASSET-DIFF-001). Collects into the four lists declared at the top of this class;
+     * the only thing it writes is the record itself (the adoption below), never public/.
+     */
+    private function classifyPublishedFile(string $src, string $dst, string $display): void
+    {
+        $entry     = ['display' => $display, 'src' => $src, 'dst' => $dst];
+        $published = $this->publishedAssets[$this->publishedKey($dst)] ?? null;
+
+        if (!file_exists($dst)) {
+            if ($published === null) {
+                // Never published here, so nobody can have edited it and nothing can be
+                // lost by writing it: genuinely new (a new module, a new asset file).
+                $this->assetPublishedNew[] = $entry;
+            } else {
+                // We published it and it is gone: someone deleted it in THIS project.
+                // Re-creating it would silently undo that — report it, never write it.
+                $this->assetRemovedHere[] = $entry;
+            }
+            return;
+        }
+
+        $deployedHash = hash_file('sha1', $dst);
+
+        if (hash_file('sha1', $src) === $deployedHash) {
+            // In sync. Record it whenever the record does not already say so — a MISSING
+            // entry (an installation older than the record) and a STALE one (an aborted run,
+            // a file hand-copied from vendor as the installer itself advises) are the same
+            // case: both sides agree RIGHT NOW, and that is a statement about the present,
+            // not a guess about the past. Without this a wrong hash would never heal: the
+            // file would count as "edited" at the next framework change and never be
+            // refreshed again. Writes nothing into public/.
+            if ($published !== $deployedHash) {
+                $this->recordPublishedAsset($dst);
+            }
+            return;
+        }
+
+        if ($published !== null && $published === $deployedHash) {
+            // Byte-identical to what we wrote → nobody edited it here, the shipped file
+            // moved. Refreshing destroys nothing; asking would only teach the developer to
+            // answer prompts blindly.
+            $this->assetRefreshed[] = $entry;
+            return;
+        }
+
+        // 'edited'     → differs from what we published: a project edit or a build artefact
+        //                — the INST-ASSET-002 footgun, never written without an explicit yes.
+        // 'unrecorded' → no record: an installation from before the record existed, or a
+        //                file that arrived some other way. Provenance unknown → same care.
+        $entry['reason'] = $published === null ? 'unrecorded' : 'edited';
+        $this->assetDriftChanged[] = $entry;
+    }
+
+    /**
+     * The public ENTRY files under the record (INST-ASSET-ENTRY-001): `index.php` and
+     * `.htaccess` are framework-owned code in a developer-owned directory, and before this
+     * they were copied on the first install and never looked at again — a changed
+     * `index.php` reached no existing project and nobody was told. They now run through the
+     * same classifier as the assets. The favicons and `site.webmanifest` beside them stay
+     * out: nearly every project replaces those, so they would appear in every install log
+     * forever.
+     */
+    private function reportEntryFileDrift(string $sourceDir, string $targetDir): void
+    {
+        foreach (self::RECORDED_ENTRY_FILES as $name) {
+            $src = $this->trailingSlash($sourceDir) . $name;
+            if (!is_file($src)) {
                 continue;
             }
+            $this->classifyPublishedFile($src, $this->trailingSlash($targetDir) . $name, $name);
+        }
+    }
 
-            if (hash_file('sha1', $src) !== hash_file('sha1', $dst)) {
-                $changed[] = ['display' => $rel, 'src' => $src, 'dst' => $dst];
+    /**
+     * First install: note the entry files we just wrote, so the next run can recognise them.
+     * {@see reportEntryFileDrift()} for why only these two.
+     */
+    private function recordEntryFiles(string $targetDir): void
+    {
+        foreach (self::RECORDED_ENTRY_FILES as $name) {
+            $dst = $this->trailingSlash($targetDir) . $name;
+            if (is_file($dst)) {
+                $this->recordPublishedAsset($dst);
             }
         }
     }
