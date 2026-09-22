@@ -62,6 +62,20 @@ class Content
      */
     private array $blocks = [];
 
+    /**
+     * Who wrote the state this document holds (username) and when (ISO-8601),
+     * ADR-045 §3. Stamped by ContentVariantService on every live write and
+     * carried unchanged into the version that archives it — so a version says
+     * whose text it is, not who replaced it. '' = unknown (a document from
+     * before ADR-045, or a variant: variant saves are not stamped).
+     *
+     * Server-controlled: never taken from a request body — the backend editor
+     * forces the stored values back after hydration, like the identity.
+     */
+    private string $changedBy = '';
+
+    private string $changedAt = '';
+
     public function getSlug(): string { return $this->slug; }
     public function getLanguage(): string { return $this->language; }
     public function getVariant(): string { return $this->variant; }
@@ -69,6 +83,11 @@ class Content
     public function getTitle(): string { return $this->title; }
     public function isActive(): bool { return $this->active; }
     public function getBlocks(): array { return $this->blocks; }
+    public function getChangedBy(): string { return $this->changedBy; }
+    public function getChangedAt(): string { return $this->changedAt; }
+
+    /** A version: the archived former live copy (key 'v-YYYYMMDD-HHMMSS', ADR-045). */
+    public function isVersion(): bool { return \Z77\Shared\Content\ContentPreview::isVersionKey($this->variant); }
 
     // ── bespoke-template access (designer owns the markup) ──────────────────
     // The stream path uses getBlocks() + ContentRenderer; these expose the same
@@ -131,6 +150,8 @@ class Content
     public function setVariant(string $variant): void { $this->variant = \Z77\Shared\Content\ContentPreview::normalize($variant); }
     public function setTitle(string $title): void { $this->title = $title; }
     public function setActive(bool $active): void { $this->active = $active; }
+    public function setChangedBy(string $changedBy): void { $this->changedBy = $changedBy; }
+    public function setChangedAt(string $changedAt): void { $this->changedAt = $changedAt; }
 
     /**
      * Accepts an array (from the JSON file) or a JSON-encoded string (from the

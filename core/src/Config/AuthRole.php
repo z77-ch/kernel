@@ -5,6 +5,9 @@ class AuthRole
 {
     public const SUPER_USER = 'superUser';
     public const ADMIN = 'admin';
+    /** Writes website text (content editor, dashboard), nothing else of the
+     *  backend — which screens that is, is the modules' access config (ADR-045). */
+    public const EDITOR = 'editor';
     public const CRON_JOB = 'cronJob';
     public const MEMBER = 'member';
     /** Self-registered external account (module-member) — below MEMBER so that
@@ -21,6 +24,7 @@ class AuthRole
             self::CUSTOMER   => 15,
             self::MEMBER     => 20,
             self::CRON_JOB   => 30,
+            self::EDITOR     => 50,
             self::ADMIN      => 80,
             self::SUPER_USER => 100,
         ];

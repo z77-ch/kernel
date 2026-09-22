@@ -8,7 +8,7 @@ use Z77\Shared\Services\ContentService;
 /**
  * The content document of a page, for the current request — the entry point a
  * frontend controller (or a service it calls) uses for designed pages
- * (ADR-044). It adds the three things every such page needs and that are easy
+ * (ADR-044). It adds the things every such page needs and that are easy
  * to forget when ContentService::view() is called directly:
  *
  *   - the request language (with ContentService's default-language fallback);
@@ -18,7 +18,12 @@ use Z77\Shared\Services\ContentService;
  *   - a loud failure: a page whose document is missing or inactive throws. A
  *     designed page without its text is a deploy error (the documents go to
  *     the shared data/content/ BEFORE the release), and an exception says so
- *     where an empty page would hide it.
+ *     where an empty page would hide it;
+ *   - the page editor (ADR-045 §4): when PageEditing::active() says so (a
+ *     user with at least `editor`, a full page, the switch «Seite bearbeiten»
+ *     on) the view marks its slots — ContentView::editAttribute() then returns
+ *     the marker, otherwise ''. The same decision adds content-edit.js
+ *     (AbstractFrontendController).
  *
  * ContentService stays request-free; this class is where the request is read.
  * Each call builds its own ContentService (ADR-012: consumer-built, not DI).
@@ -34,11 +39,14 @@ final class PageContent
     public static function view(string $slug): ContentView
     {
         $language = DI::getRequest()->getLanguage();
-        $view     = ContentService::create()->view($slug, $language, ContentPreview::key());
+        $preview  = ContentPreview::key();
+        $view     = ContentService::create()->view($slug, $language, $preview);
         if ($view === null) {
             throw new \RuntimeException("Content document '{$slug}' ({$language}) is missing or inactive in data/content/.");
         }
 
-        return $view;
+        return PageEditing::active()
+            ? $view->forEditor(ContentExtensions::assemble()->blueprint($slug), $preview)
+            : $view;
     }
 }

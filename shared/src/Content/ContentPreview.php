@@ -40,13 +40,33 @@ final class ContentPreview
 
     /**
      * A new variant key from a readable name: '<name>-<6 hex>'. The name part is
-     * normalized and shortened; an empty name gives just 'v-<6 hex>'.
+     * normalized and shortened; an empty name gives just 'satz-<6 hex>' (never close to a version key v-YYYYMMDD-HHMMSS).
      */
     public static function newKey(string $name): string
     {
         $name = substr(self::normalize($name), 0, 40);
 
-        return ($name !== '' ? $name : 'v') . '-' . bin2hex(random_bytes(3));
+        return ($name !== '' ? $name : 'satz') . '-' . bin2hex(random_bytes(3));
+    }
+
+    /**
+     * The key a version gets when a live save archives the previous live copy
+     * (ADR-045): 'v-YYYYMMDD-HHMMSS', the time of the archiving save; $n > 1
+     * appends '-<n>' for a collision. A version is an ordinary one-document
+     * variant — previewable and publishable like any other.
+     */
+    public static function versionKey(\DateTimeImmutable $at, int $n = 1): string
+    {
+        return 'v-' . $at->format('Ymd-His') . ($n > 1 ? '-' . $n : '');
+    }
+
+    /**
+     * True for a key made by {@see versionKey()}. newKey() cannot produce one:
+     * its tail is six hex characters, a collision suffix has at most three digits.
+     */
+    public static function isVersionKey(string $key): bool
+    {
+        return (bool)preg_match('/^v-\d{8}-\d{6}(-\d{1,3})?$/', $key);
     }
 
     /**

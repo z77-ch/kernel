@@ -310,13 +310,19 @@ class NavigationService
      * Resolves the first descendant that produces a navigable link — either a
      * regular entry with a non-empty URL, or a ref entry (caller must rewrite
      * the href to target URL + `?via=<refId>`). Skips inactive descendants.
+     *
+     * $allows (optional) is asked for every navigable candidate; a candidate it
+     * refuses is skipped. The backend menu passes its access check here
+     * (ADR-045), so a section links to the first page the user may open.
+     *
+     * @param (callable(Navigation): bool)|null $allows
      */
-    public function resolveFirstNavigable(Navigation $entry): ?Navigation
+    public function resolveFirstNavigable(Navigation $entry, ?callable $allows = null): ?Navigation
     {
         foreach ($this->iterateTree($entry) as $node) {
             $child = $node['entry'];
-            if ($child->getRef() !== null) return $child;
-            if ($child->getUrl() !== '')   return $child;
+            if ($child->getRef() === null && $child->getUrl() === '') continue;
+            if ($allows === null || $allows($child)) return $child;
         }
         return null;
     }
@@ -350,21 +356,50 @@ class NavigationService
     // view area the module of the current routing entry.
 
     /**
+     * May a user open the page this entry leads to? The access half of the menu
+     * rule (ADR-045 §2), pure — the lookups come in as callables, so the backend
+     * menu, the frontend admin overlay and tests/backend-access.php ask the same
+     * question: a ref asks for its target entry (a ref to a ref is not followed —
+     * the subnav does not either), an entry without a target leads nowhere.
+     *
+     * @param callable(int): ?Navigation                    $findById
+     * @param callable(string, string, string, string): bool $reachable
+     *        (module, group, controller, action) as the entry stores them —
+     *        typically AuthService::canReach() for one user
+     */
+    public static function entryAllowedIn(Navigation $entry, callable $findById, callable $reachable): bool
+    {
+        if ($entry->getRef() !== null) {
+            $target = $findById($entry->getRef());
+            return $target !== null && $target->getRef() === null
+                && self::entryAllowedIn($target, $findById, $reachable);
+        }
+        if ($entry->getModule() === '') {
+            return false;
+        }
+        return $reachable($entry->getModule(), $entry->getGroup(), $entry->getController(), $entry->getAction());
+    }
+
+    /**
      * View areas for a switcher: every view-area module (ModuleManager) that has at
      * least one reachable navigable entry (a module with no reachable page would be a
      * dead switch and is skipped). Ordered by module registration.
      *
-     * Note: visibility here is reachability-based, not role-based. The backend topbar
-     * (sole consumer today) is already auth-gated, so per-role gating is deferred.
+     * Visibility is reachability-based. Role-based only when the caller passes
+     * $allows (asked for every navigable candidate, see resolveFirstNavigable()):
+     * the backend menu and the frontend admin overlay do (ADR-045, both via
+     * {@see entryAllowedIn()}), so an editor's «Backend» entry leads to a page
+     * he may open.
      *
+     * @param (callable(Navigation): bool)|null $allows
      * @return list<array{key: string, label: string, url: string, active: bool}>
      */
-    public function getViewAreas(): array
+    public function getViewAreas(?callable $allows = null): array
     {
         $currentName = $this->getCurrentViewAreaName();
         $areas = [];
         foreach ($this->moduleManager->getViewAreaKeys() as $moduleKey) {
-            $url = $this->resolveViewAreaUrl($moduleKey);
+            $url = $this->resolveViewAreaUrl($moduleKey, $allows);
             if ($url === '') continue;
             $areas[] = [
                 'key'    => $moduleKey,
@@ -392,11 +427,11 @@ class NavigationService
      * its render-slots (config order), then the tree-roots within each slot. Ref
      * entries resolve to target URL + `?via=<refId>`. Empty string = none.
      */
-    private function resolveViewAreaUrl(string $moduleKey): string
+    private function resolveViewAreaUrl(string $moduleKey, ?callable $allows): string
     {
         foreach (array_keys($this->moduleManager->getNavSlots($moduleKey)) as $slot) {
             foreach ($this->getBySlot($slot) as $root) {
-                $nav = $this->firstNavigableInclusive($root);
+                $nav = $this->firstNavigableInclusive($root, $allows);
                 if ($nav === null) continue;
                 if ($nav->getRef() !== null) {
                     $target = $this->findById($nav->getRef());
@@ -414,10 +449,12 @@ class NavigationService
      * Like resolveFirstNavigable but considers the entry itself first — a flat
      * tree-root (e.g. a frontend page) is navigable on its own, with no children.
      */
-    private function firstNavigableInclusive(Navigation $root): ?Navigation
+    private function firstNavigableInclusive(Navigation $root, ?callable $allows): ?Navigation
     {
-        if ($root->getRef() !== null || $root->getUrl() !== '') return $root;
-        return $this->resolveFirstNavigable($root);
+        if (($root->getRef() !== null || $root->getUrl() !== '') && ($allows === null || $allows($root))) {
+            return $root;
+        }
+        return $this->resolveFirstNavigable($root, $allows);
     }
 
     public function findMetaData(int $navigationId, string $language): ?MetaData

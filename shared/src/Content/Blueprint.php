@@ -113,6 +113,28 @@ final class Blueprint
         return $out;
     }
 
+    /**
+     * The blocks to save when ONE slot was edited (the page editor, ADR-045 §4):
+     * {@see enforce()} with only the posted block of $key taken from the post.
+     * Every other slot and every orphan comes from the STORED blocks, so a
+     * crafted body carrying other slots changes nothing but $key.
+     *
+     * @param array<int, mixed>                          $posted
+     * @param array<int, mixed>                          $stored
+     * @param array<string, list<array<string, mixed>>>  $schemas
+     * @return list<array<string, mixed>>
+     * @throws \InvalidArgumentException if $key is not a slot of this blueprint
+     */
+    public function enforceSlot(string $key, array $posted, array $stored, array $schemas): array
+    {
+        if ($this->slot($key) === null) {
+            throw new \InvalidArgumentException("Blueprint '{$this->slug}': no slot '{$key}'.");
+        }
+        $block = self::byKey($posted, $key);
+
+        return $this->enforce($block !== null ? [$block] : [], $stored, $schemas);
+    }
+
     /** The stored block bound to $slot: same key AND same type. */
     private function matching(array $blocks, array $slot): ?array
     {

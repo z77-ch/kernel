@@ -568,6 +568,16 @@ _Z77.core.fetch = (function () {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     registerCommand('reload', function () { window.location.reload(); });
+    /* Tells the window that shows this page in an iframe: {action: 'post-message',
+     * message: {type: '…', …}} → window.parent.postMessage(message, own origin).
+     * Same origin only (targetOrigin = this page's origin), so the message never
+     * reaches a foreign parent; the receiver checks event.origin and the type.
+     * Not framed (parent === window) → nothing. First user: the page editor
+     * (ContentController::slotAction → content-edit.js, ADR-045 §4). */
+    registerCommand('post-message', function (p) {
+        if (window.parent === window || !p.message) return;
+        window.parent.postMessage(p.message, window.location.origin);
+    });
 
     /* ── popup commands ────────────────────────────────────────────────── */
     registerCommand('close-modal', function () { _Z77.core.popup.close(); });

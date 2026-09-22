@@ -8,36 +8,47 @@ use Z77\Shared\Entities\Content;
 use Z77\Shared\Repositories\ContentRepository;
 
 /**
- * Creating and publishing content variants (ADR-044 addendum "Variants").
+ * Variants, publishing and versions of content documents (ADR-044 addendum
+ * "Variants", ADR-045 §3) — and the ONE place a live copy is written.
  *
  * A variant is a copy of a live document under a set key; all documents with
  * the same key form one SET (typically one writer delivery, every language).
  * {@see ContentPreview} shows a set on the website; publish() makes it live.
  *
- * Publishing a set, per document of the set:
- *   1. the current live copy (if any) is stored as a variant of ONE archive set
- *      for the whole run, `alt-YYYYMMDD-HHMM` (`-2`, `-3` … if that key exists);
- *   2. the variant's title, active flag and blocks become the live copy;
- *   3. the variant document is deleted.
- * The archive is an ordinary set — rolling back is publishing the archive set.
+ * The version rule (ADR-045): every write of a live copy — the backend editor
+ * (save, add, active switch), publishing a set, restoring a version, the
+ * frontend editor — goes through {@see writeLive()}:
+ *   1. the stored live copy (if any) is archived as a one-document variant
+ *      with the key `v-YYYYMMDD-HHMMSS` (`-2`, `-3` … if that document already
+ *      has a variant with that key), keeping ITS changedBy/changedAt — a
+ *      version says whose text it is;
+ *   2. the new live copy is written, stamped with the saving user and time.
+ * Saving a VARIANT writes no version and no stamp. Rollback = {@see restore()}
+ * of a version, which itself archives the current live copy first. Versions
+ * stay until an admin deletes them (the backend's delete is ADMIN-only).
+ *
+ * Publishing a set runs the rule once per document of the set, with one key for
+ * the whole run (free for every document of it), so the versions of one publish
+ * are recognisable as one run. The former `alt-YYYYMMDD-HHMM` archive SET is
+ * gone — one rule for every live write. Existing `alt-…` sets are ordinary sets
+ * and can still be published.
  *
  * Limits, stated rather than hidden:
  *   - NOT atomic across files. Each file write is atomic (FileStorage), a run is
  *     not: if it breaks in the middle, the documents handled so far are live and
  *     their variants gone, the rest is still a variant. Running publish() again
- *     finishes the set (under a new archive key).
- *   - A document that had NO live copy before the publish is not in the archive,
- *     so publishing the archive back does not remove it; delete it by hand.
+ *     finishes the set.
+ *   - A document that had NO live copy before the publish gets no version, so
+ *     nothing restores the state "absent"; delete it by hand.
  *
- * Backend only. Errors a user can cause (unknown set, document already in the
- * set) are thrown as \DomainException with a German message meant for the flash.
+ * Backend (and frontend editor) only. Errors a user can cause (unknown set,
+ * document already in the set) are thrown as \DomainException with a German
+ * message meant for the flash.
  *
  * NOT a DI singleton — built on demand like {@see ContentService}.
  */
 final class ContentVariantService
 {
-    public const ARCHIVE_PREFIX = 'alt-';
-
     /**
      * @param object $em the unified entity manager (persist / flush / remove) —
      *        typed loosely so the service can be exercised without DI
@@ -55,7 +66,8 @@ final class ContentVariantService
     }
 
     /**
-     * Copies a live document into the set $key and writes the copy.
+     * Copies a live document into the set $key and writes the copy. The copy
+     * carries no changedBy/changedAt: variant saves are not stamped.
      *
      * @throws \DomainException if $live is not a live copy, $key is empty after
      *         normalization, or the set already contains this slug + language
@@ -75,7 +87,7 @@ final class ContentVariantService
             );
         }
 
-        $variant = $this->copy($live, $key);
+        $variant = $this->copy($live, $key, false);
         $this->em->persist($variant);
         $this->em->flush();
 
@@ -83,14 +95,60 @@ final class ContentVariantService
     }
 
     /**
+     * Writes $new as the live copy of its slug + language (the version rule,
+     * see the class comment). $new may be the loaded document the caller
+     * changed, or a fresh object — the stored state is re-read from the store.
+     *
+     * @return string the key of the version the previous live copy became,
+     *         '' when there was no previous live copy
+     * @throws \LogicException if $new is not a live copy (a programming error)
+     */
+    public function saveLive(Content $new, string $username, ?\DateTimeImmutable $now = null): string
+    {
+        if (!$new->isLive()) {
+            throw new \LogicException('saveLive() writes only the live copy; save a variant with persist().');
+        }
+        $now ??= new \DateTimeImmutable();
+        $key   = $this->versionKey([$new], $now);
+
+        return $this->writeLive($new, $username, $now, $key) ? $key : '';
+    }
+
+    /**
+     * Makes the version $version the live copy again and removes it — the
+     * current live copy becomes a new version first, so a restore is undone
+     * by restoring that one. One document only; the other versions of the same
+     * publish run stay as they are.
+     *
+     * @return string the key of the version the replaced live copy became ('' if none)
+     * @throws \DomainException if $version is not a version
+     */
+    public function restore(Content $version, string $username, ?\DateTimeImmutable $now = null): string
+    {
+        if (!$version->isVersion()) {
+            throw new \DomainException('Nur eine Version kann wiederhergestellt werden.');
+        }
+        $now ??= new \DateTimeImmutable();
+        $key   = $this->versionKey([$version], $now);
+
+        $archived = $this->writeLive($this->copy($version, '', false), $username, $now, $key);
+        // Live (+ its version) are written before the restored version goes:
+        // a break in between leaves the version in place, never a lost text.
+        $this->em->remove($version);
+
+        return $archived ? $key : '';
+    }
+
+    /**
      * Publishes every document of the set $key (all languages); see the class
      * comment for the steps and their limits.
      *
      * @return array{archive: string, published: list<array{slug: string, language: string, archived: bool}>}
-     *         archive = the archive set's key, '' when no live copy had to be archived
+     *         archive = the version key the previous live copies got, '' when
+     *         none had to be archived
      * @throws \DomainException if the set is empty or unknown
      */
-    public function publish(string $key, ?\DateTimeImmutable $now = null): array
+    public function publish(string $key, string $username, ?\DateTimeImmutable $now = null): array
     {
         $key       = ContentPreview::normalize($key);
         $documents = $this->repository->findByVariant($key);
@@ -100,57 +158,78 @@ final class ContentVariantService
         usort($documents, fn(Content $a, Content $b) =>
             [$a->getSlug(), $a->getLanguage()] <=> [$b->getSlug(), $b->getLanguage()]);
 
-        $archiveKey = $this->archiveKey($now ?? new \DateTimeImmutable());
-        $archived   = false;
-        $published  = [];
+        $now        ??= new \DateTimeImmutable();
+        $versionKey   = $this->versionKey($documents, $now);
+        $anyArchived  = false;
+        $published    = [];
 
         foreach ($documents as $variant) {
-            $live    = $this->repository->findBySlug($variant->getSlug(), $variant->getLanguage());
-            $hadLive = $live !== null;
+            $archived    = $this->writeLive($this->copy($variant, '', false), $username, $now, $versionKey);
+            $anyArchived = $anyArchived || $archived;
 
-            if ($hadLive) {
-                // The archive copy is a separate object: persist() is deferred
-                // until flush(), and $live is changed below.
-                $this->em->persist($this->copy($live, $archiveKey));
-                $archived = true;
-            } else {
-                $live = $this->copy($variant, '');
-            }
-            $live->setTitle($variant->getTitle());
-            $live->setActive($variant->isActive());
-            $live->setBlocks($variant->getBlocks());
-            $this->em->persist($live);
-
-            // Live + archive are written before the variant goes: a break in
+            // Live + version are written before the variant goes: a break in
             // between leaves the variant in place, never a lost text.
-            $this->em->flush();
             $this->em->remove($variant);
 
             $published[] = [
                 'slug'     => $variant->getSlug(),
                 'language' => $variant->getLanguage(),
-                'archived' => $hadLive,
+                'archived' => $archived,
             ];
         }
 
-        return ['archive' => $archived ? $archiveKey : '', 'published' => $published];
+        return ['archive' => $anyArchived ? $versionKey : '', 'published' => $published];
     }
 
-    /** `alt-YYYYMMDD-HHMM`, with `-2`, `-3` … appended while that set exists. */
-    private function archiveKey(\DateTimeImmutable $now): string
+    /**
+     * THE live write: archive the stored live copy under $versionKey, stamp and
+     * write $new. Every public live write above ends here.
+     *
+     * @return bool whether a previous live copy was archived
+     */
+    private function writeLive(Content $new, string $username, \DateTimeImmutable $now, string $versionKey): bool
     {
-        $base     = self::ARCHIVE_PREFIX . $now->format('Ymd-Hi');
-        $existing = $this->repository->variantKeys();
-
-        $key = $base;
-        for ($n = 2; in_array($key, $existing, true); $n++) {
-            $key = $base . '-' . $n;
+        $stored = $this->repository->findBySlug($new->getSlug(), $new->getLanguage());
+        if ($stored !== null) {
+            // A separate object read from the store: $new may be the very
+            // document the caller loaded and changed.
+            $this->em->persist($this->copy($stored, $versionKey, true));
         }
 
-        return $key;
+        $new->setVariant('');
+        $new->setChangedBy($username);
+        $new->setChangedAt($now->format(\DATE_ATOM));
+        $this->em->persist($new);
+        $this->em->flush();
+
+        return $stored !== null;
     }
 
-    private function copy(Content $source, string $variant): Content
+    /**
+     * `v-YYYYMMDD-HHMMSS`, with `-2`, `-3` … while any of $documents already
+     * has a variant with that key (same second, or restoring that very version).
+     *
+     * @param Content[] $documents
+     */
+    private function versionKey(array $documents, \DateTimeImmutable $now): string
+    {
+        for ($n = 1; ; $n++) {
+            $key   = ContentPreview::versionKey($now, $n);
+            $taken = false;
+            foreach ($documents as $doc) {
+                if ($this->repository->findBySlug($doc->getSlug(), $doc->getLanguage(), $key) !== null) {
+                    $taken = true;
+                    break;
+                }
+            }
+            if (!$taken) {
+                return $key;
+            }
+        }
+    }
+
+    /** $keepStamps: true for a version (it keeps whose text it is), false otherwise. */
+    private function copy(Content $source, string $variant, bool $keepStamps): Content
     {
         $copy = new Content();
         $copy->setSlug($source->getSlug());
@@ -159,6 +238,10 @@ final class ContentVariantService
         $copy->setTitle($source->getTitle());
         $copy->setActive($source->isActive());
         $copy->setBlocks($source->getBlocks());
+        if ($keepStamps) {
+            $copy->setChangedBy($source->getChangedBy());
+            $copy->setChangedAt($source->getChangedAt());
+        }
 
         return $copy;
     }

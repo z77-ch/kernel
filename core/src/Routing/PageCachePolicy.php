@@ -15,7 +15,7 @@ use Z77\Shared\Services\AuthService;
  * PageCachePolicy
  *
  * Single source of truth for the page-cache decision. Returns one of three modes:
- *   - NewPage             — render fresh, do not cache (debug, admin session,
+ *   - NewPage             — render fresh, do not cache (debug, editor/admin session,
  *                           POST, query string, fetch mode, or module config
  *                           disabled)
  *   - PageFromCache       — server has a fresh entry, send it with ETag
@@ -42,13 +42,15 @@ class PageCachePolicy
             return PageCacheDecision::newPage();
         }
 
-        // A role >= ADMIN session renders admin-only chrome (frontend admin
-        // overlay, dev tools) into the page. The PageIdentity has no user
-        // dimension, so an admin's render must never enter the shared cache —
-        // and an admin must never be served the cached guest version
-        // (CACHE-ADMIN-001). Requires the session to be started before this
-        // runs (AccessGuard::enforce() precedes decide() in the Dispatcher).
-        if ($this->authService->getCurrentUser()->hasAtLeast(AuthRole::ADMIN)) {
+        // A role >= EDITOR session renders session-only chrome into the page:
+        // the frontend editing buttons for editors (ADR-045), plus the admin
+        // overlay and dev tools for admins. The PageIdentity has no user
+        // dimension, so such a render must never enter the shared cache — and
+        // an editor/admin must never be served the cached guest version
+        // (CACHE-ADMIN-001, widened to EDITOR by ADR-045). Requires the session
+        // to be started before this runs (AccessGuard::enforce() precedes
+        // decide() in the Dispatcher).
+        if ($this->authService->getCurrentUser()->hasAtLeast(AuthRole::EDITOR)) {
             return PageCacheDecision::newPage();
         }
 

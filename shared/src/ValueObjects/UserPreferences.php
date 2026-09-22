@@ -10,6 +10,12 @@ final class UserPreferences
     /** @var array<string, bool> partial-label overlay per view area (absent = off) */
     private array $partialLabels = [];
 
+    /**
+     * @var array<string, bool> page editor switch per view area (absent = off,
+     * ADR-045 §4 addendum): markers and pencils on the page only when on
+     */
+    private array $contentEdit = [];
+
     public function __construct(array $data = [])
     {
         $this->palette   = $data['palette']    ?? 'werkbank';
@@ -20,6 +26,9 @@ final class UserPreferences
         foreach ((array) ($data['partial_labels'] ?? []) as $viewArea => $on) {
             $this->partialLabels[(string) $viewArea] = (bool) $on;
         }
+        foreach ((array) ($data['content_edit'] ?? []) as $viewArea => $on) {
+            $this->contentEdit[(string) $viewArea] = (bool) $on;
+        }
     }
 
     public function getPalette(): string  { return $this->palette; }
@@ -29,6 +38,11 @@ final class UserPreferences
     public function isPartialLabelsEnabled(string $viewArea): bool
     {
         return $this->partialLabels[$viewArea] ?? false;
+    }
+
+    public function isContentEditEnabled(string $viewArea): bool
+    {
+        return $this->contentEdit[$viewArea] ?? false;
     }
 
     public function setPalette(string $palette): void  { $this->palette   = $palette; }
@@ -45,6 +59,16 @@ final class UserPreferences
         }
     }
 
+    public function setContentEditEnabled(string $viewArea, bool $on): void
+    {
+        if ($on) {
+            $this->contentEdit[$viewArea] = true;
+        } else {
+            // Deviation-only storage, like partial labels.
+            unset($this->contentEdit[$viewArea]);
+        }
+    }
+
     public function toArray(): array
     {
         $data = [
@@ -54,6 +78,9 @@ final class UserPreferences
         ];
         if ($this->partialLabels !== []) {
             $data['partial_labels'] = $this->partialLabels;
+        }
+        if ($this->contentEdit !== []) {
+            $data['content_edit'] = $this->contentEdit;
         }
         return $data;
     }
