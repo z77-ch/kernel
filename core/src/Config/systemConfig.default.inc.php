@@ -20,4 +20,11 @@ return [
     // Deriving it from the Host header instead is what SEC-005 was about: the
     // client sends that header, and the page cache keys on path only.
     'canonicalBaseUrl' => '',
+
+    // ISO 4217 code of the currency this installation keeps its books in. The
+    // database stores amounts without a currency (ADR-042 decision 4: the
+    // ledger is base-currency only), so every DECIMAL money column is read in
+    // this one. Obvious default (ADR-030, point 4): every installation books
+    // in CHF; an installation whose seed-once file predates the key gets it.
+    'baseCurrency'     => 'CHF',
 ];

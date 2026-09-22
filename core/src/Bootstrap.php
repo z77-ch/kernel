@@ -187,8 +187,14 @@ class Bootstrap
                     $c->getCacheManager()
                 );
             }, true)
+            // Driver map: `#[Entity('<key>')]` → `Z77\Persistence\<Driver>\Bootstrap`.
+            // A name here is no dependency (ADR-039): the Doctrine driver lives in
+            // the separate package z77/persistence-doctrine and is booted only by
+            // the first Doctrine entity; without the package that boot fails with
+            // a message naming it, and an installation that touches only file
+            // entities never loads it.
             ->set('DataSourceResolver', function() {
-                return new DataSourceResolver(['file' => 'File']);
+                return new DataSourceResolver(['file' => 'File', 'doctrine' => 'Doctrine']);
             }, true)
             ->set('UnifiedEntityManager', function($c) {
                 return new UnifiedEntityManager($c->get('DataSourceResolver'));

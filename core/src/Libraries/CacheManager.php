@@ -3,6 +3,7 @@
 namespace Z77\Core\Libraries;
 
 use Z77\Core\Libraries\Cache\DataCache,
+    Z77\Core\Libraries\Cache\GeneratedPhpCache,
     Z77\Core\Libraries\Cache\PageCache
 ;
 
@@ -16,6 +17,8 @@ use Z77\Core\Libraries\Cache\DataCache,
  * Pools:
  *   - data() — two-tier (local → APCu) for structured data
  *   - page() — file-only with per-entry TTL for fully rendered HTML
+ *   - generatedPhp() — directories of compiled PHP files that are include()d
+ *     (Doctrine metadata/query cache); cleared with OPcache invalidation
  *
  * Add new pools here when a new use case has different storage requirements
  * (e.g. binary asset cache, distributed shared cache). Do not extend the
@@ -25,12 +28,14 @@ class CacheManager
 {
     private DataCache $data;
     private PageCache $page;
+    private GeneratedPhpCache $generatedPhp;
     private string $absCacheDir = '';
 
     public function __construct()
     {
-        $this->data = new DataCache();
-        $this->page = new PageCache();
+        $this->data         = new DataCache();
+        $this->page         = new PageCache();
+        $this->generatedPhp = new GeneratedPhpCache();
     }
 
     public function data(): DataCache
@@ -41,6 +46,11 @@ class CacheManager
     public function page(): PageCache
     {
         return $this->page;
+    }
+
+    public function generatedPhp(): GeneratedPhpCache
+    {
+        return $this->generatedPhp;
     }
 
     /**
@@ -72,6 +82,7 @@ class CacheManager
 
         $this->absCacheDir = $absCacheDir;
         $this->page->setCacheDir($absCacheDir);
+        $this->generatedPhp->setCacheDir($absCacheDir);
         $this->data->setStampPath($absCacheDir . '/apcu.stamp');
     }
 

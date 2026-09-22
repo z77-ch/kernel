@@ -10,6 +10,7 @@ use Z77\Shared\Libraries\Convention\Naming;
  *
  * The filename is the entity's key fields (#[Entity(keyBy: [...])]) joined by '.',
  * relative to the entity's directory: keyBy ['slug', 'language'] → '<dir>/<slug>.<language>.json'.
+ * Empty optional keys are left out (see fromValues()).
  *
  * Single source of truth so FileEntityManager (write path) and DocumentRepository
  * (read path) can never diverge on how a record maps to a file.
@@ -21,21 +22,40 @@ final class DocumentPath
     /** Build the path from an entity instance (uses getters on the key fields). */
     public static function forEntity(EntityAttr $attr, object $entity): string
     {
-        $parts = [];
+        $values = [];
         foreach ($attr->keyBy as $field) {
-            $getter  = Naming::toGetter($field);
-            $parts[] = self::part((string)$entity->$getter());
+            $getter         = Naming::toGetter($field);
+            $values[$field] = (string)$entity->$getter();
         }
 
-        return self::build($attr->getPath(), $parts);
+        return self::fromValues($attr, $values);
     }
 
     /** Build the path from a findBy() criteria array (snake_case keys). */
     public static function forCriteria(EntityAttr $attr, array $criteria): string
     {
-        $parts = [];
+        $values = [];
         foreach ($attr->keyBy as $field) {
-            $parts[] = self::part((string)($criteria[$field] ?? ''));
+            $values[$field] = (string)($criteria[$field] ?? '');
+        }
+
+        return self::fromValues($attr, $values);
+    }
+
+    /**
+     * An optional key (#[Entity(optionalKeys: [...])]) that is empty is left out of
+     * the name, so adding an optional key to an entity does not rename the files
+     * that already exist. Every other key part must be non-empty.
+     */
+    private static function fromValues(EntityAttr $attr, array $values): string
+    {
+        $parts = [];
+        foreach ($values as $field => $value) {
+            if (in_array($field, $attr->optionalKeys, true)
+                && preg_replace('/[^a-z0-9_-]+/', '', strtolower($value)) === '') {
+                continue;
+            }
+            $parts[] = self::part($value);
         }
 
         return self::build($attr->getPath(), $parts);

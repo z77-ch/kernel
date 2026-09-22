@@ -17,13 +17,20 @@ class Entity
      * @param array  $keyBy            snake_case property names whose values build
      *                                 the per-record filename (e.g. ['slug', 'language']
      *                                 → '<slug>.<language>.json'). Required when $perRecord
+     * @param array  $optionalKeys     subset of $keyBy that may be empty; an empty
+     *                                 optional part is left out of the filename
+     *                                 (['slug','language','variant'] + optional
+     *                                 'variant' → '<slug>.<language>.json' when the
+     *                                 variant is '', '<slug>.<language>.<variant>.json'
+     *                                 otherwise)
      */
     public function __construct(
         public readonly string $driverName,
         public readonly string $path = '',
         public readonly bool $invalidatesCache = false,
         public readonly bool $perRecord = false,
-        public readonly array $keyBy = []
+        public readonly array $keyBy = [],
+        public readonly array $optionalKeys = []
     ) {}
 
     public function getDriverName(): string

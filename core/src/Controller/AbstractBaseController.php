@@ -14,7 +14,8 @@ use Z77\Core\Services\LayoutManager,
     Z77\Core\Http\Response\NoContentResponse,
     Z77\Core\Http\RequestMode,
     Z77\Core\Exception\NotFoundException,
-    Z77\Core\DI
+    Z77\Core\DI,
+    Z77\Core\Libraries\Seo\SiteIdentity
 ;
 
 /**
@@ -109,6 +110,7 @@ abstract class AbstractBaseController
         $context['metaData']          = $navigation
             ? $navigationService->findMetaData($navigation->getId(), $language)
             : null;
+        $context['site']              = $this->buildSiteIdentity($language);
         $context['csrfToken']         = DI::getCsrfService()->getToken();
         $context['clientI18n']        = DI::getTranslator()->clientDictionary($language);
 
@@ -201,6 +203,21 @@ abstract class AbstractBaseController
      *
      * @return array{canonical: string, alternates: list<array{hreflang: string, url: string}>}
      */
+    /**
+     * The requested module's `site` config block (name, author, og:locale, preview
+     * image) resolved for the request language — the head partials print it as
+     * `$site`. No block → SiteIdentity::empty(), and the tags that need it stay out.
+     */
+    private function buildSiteIdentity(string $language): SiteIdentity
+    {
+        $request = DI::getRequest();
+        $config  = DI::getModuleManager()->getModuleConfig($request->getModule())?->get('site', []);
+
+        return is_array($config) && $config !== []
+            ? SiteIdentity::fromConfig($config, $language, $request->getBaseUrl())
+            : SiteIdentity::empty();
+    }
+
     private function buildSeoLinks(string $current): array
     {
         $request = DI::getRequest();

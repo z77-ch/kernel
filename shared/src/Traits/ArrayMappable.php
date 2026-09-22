@@ -21,7 +21,6 @@ trait ArrayMappable
         $ref = new \ReflectionClass($this);
         $result = [];
         foreach ($ref->getProperties() as $prop) {
-            $prop->setAccessible(true);
             $result[Naming::toSnakeCase($prop->getName())] = $prop->getValue($this);
         }
         return $result;

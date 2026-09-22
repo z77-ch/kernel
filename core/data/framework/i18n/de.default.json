@@ -21,6 +21,7 @@
     "form.field.phone": "Telefon",
     "form.field.message": "Nachricht",
     "form.field.privacy": "Datenschutzerklärung",
+    "form.field.language": "Sprache",
     "form.note.required": "Bitte alle Felder ausfüllen",
     "form.value.yes": "ja",
     "form.value.no": "nein",

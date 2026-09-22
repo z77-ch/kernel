@@ -6,11 +6,13 @@ use Z77\Core\Libraries\CacheManager,
     Z77\Shared\Attributes\Entity as EntityAttr,
     Z77\Persistence\Interface\EntityManagerInterface,
     Z77\Persistence\Interface\RepositoryInterface,
+    Z77\Persistence\Interface\TransactionInterface,
     Z77\Persistence\File\Repository\FileRepository,
     Z77\Persistence\File\Storage\CollectionStore,
     Z77\Persistence\File\Storage\DocumentStore,
     Z77\Persistence\File\Storage\FileStorage,
-    Z77\Persistence\File\Storage\RecordStore
+    Z77\Persistence\File\Storage\RecordStore,
+    Z77\Persistence\Resolver\RepositoryConvention
 ;
 
 class FileEntityManager implements EntityManagerInterface
@@ -95,6 +97,19 @@ class FileEntityManager implements EntityManagerInterface
         }
     }
 
+    /**
+     * Refused, honestly (ARCH-A003, ADR-039 decision 10): a JSON file has no
+     * rollback, and a port that pretended otherwise would lie to the caller.
+     */
+    public function getTransaction(): TransactionInterface
+    {
+        throw new \LogicException(
+            'The File driver has no transaction — a JSON file cannot roll back (ARCH-A003). '
+            . 'A use case that must be atomic writes to Doctrine entities only and obtains the port '
+            . 'through UnifiedEntityManager::getTransaction() with one of THEIR classes (ADR-039 decision 10).'
+        );
+    }
+
     private function resolveStore(EntityAttr $attr): RecordStore
     {
         return $attr->perRecord
@@ -113,19 +128,8 @@ class FileEntityManager implements EntityManagerInterface
 
     private function resolveSpecific(string $entityClass, RecordStore $store): ?RepositoryInterface
     {
-        $pos = strrpos($entityClass, '\\Entities\\');
-        if ($pos === false) {
-            return null;
-        }
+        $repoClass = RepositoryConvention::specificRepository($entityClass);
 
-        $ns        = substr($entityClass, 0, $pos);
-        $name      = basename(str_replace('\\', '/', $entityClass));
-        $repoClass = $ns . '\\Repositories\\' . $name . 'Repository';
-
-        if (class_exists($repoClass)) {
-            return new $repoClass($entityClass, $store);
-        }
-
-        return null;
+        return $repoClass === null ? null : new $repoClass($entityClass, $store);
     }
 }

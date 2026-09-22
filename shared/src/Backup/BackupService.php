@@ -2,11 +2,15 @@
 
 namespace Z77\Shared\Backup;
 
+use Z77\Shared\Libraries\ConfigLocator;
+
 /**
  * Installation-wide backup orchestration — deliberately HTTP-free so the
  * backend UI and the CLI entry (`vendor/bin/z77-backup`, ADR-028) share one
  * implementation. Reads its settings from `config/backup.inc.php` (seed-once,
- * see docs/topics/backup.md); every failure throws \RuntimeException.
+ * see docs/topics/backup.md) and the database connection from
+ * `config/client/database.inc.php` — the one connection config, shared with
+ * the Doctrine driver (ADR-039 decision 4); every failure throws \RuntimeException.
  *
  * Types: data (the data/ tree), db (SQL dump, only when a database is
  * configured), full (project root minus the configured excludes).
@@ -60,33 +64,49 @@ final class BackupService
 
     private string $baseDir;
     private array  $config;
+    private array  $database;
 
-    public function __construct(string $baseDir, array $config = [], private ?DbDumperInterface $dbDumper = null)
-    {
-        $this->baseDir = rtrim(str_replace('\\', '/', $baseDir), '/');
-        $this->config  = $config;
+    /**
+     * @param array $config   the backup policy (`config/backup.inc.php`)
+     * @param array $database the connection (`config/client/database.inc.php`): host, port, name, user, password
+     */
+    public function __construct(
+        string $baseDir,
+        array $config = [],
+        #[\SensitiveParameter] array $database = [],
+        private ?DbDumperInterface $dbDumper = null
+    ) {
+        $this->baseDir  = rtrim(str_replace('\\', '/', $baseDir), '/');
+        $this->config   = $config;
+        $this->database = $database;
     }
 
-    /** Builds the service from a project root, reading the backup config when present. */
+    /** Builds the service from a project root, reading the backup and database configs when present. */
     public static function fromProjectRoot(string $baseDir): self
     {
-        // Path-based on purpose (single-purpose binaries pass their own root,
-        // no ABS_BASE_PATH): client tier first, legacy flat fallback (ADR-036).
-        $root   = rtrim(str_replace('\\', '/', $baseDir), '/');
-        $config = [];
-        foreach (['/config/client/backup.inc.php', '/config/backup.inc.php'] as $candidate) {
-            if (is_file($root . $candidate)) {
-                $config = require $root . $candidate;
-                break;
-            }
-        }
-
-        return new self($baseDir, is_array($config) ? $config : []);
+        return new self($baseDir, self::readConfig($baseDir, 'backup'), self::readConfig($baseDir, 'database'));
     }
 
+    /**
+     * The split lookup every reader uses (ADR-036: config/vendor → config/client
+     * → legacy flat), with the root passed explicitly — single-purpose binaries
+     * hand over their own root and have no ABS_BASE_PATH.
+     */
+    private static function readConfig(string $baseDir, string $name): array
+    {
+        $file = ConfigLocator::path("{$name}.inc.php", $baseDir);
+        if ($file === null) {
+            return [];
+        }
+        $config = require $file;
+
+        return is_array($config) ? $config : [];
+    }
+
+    /** An empty database name in config/client/database.inc.php means: no database. */
     public function isDatabaseConfigured(): bool
     {
-        return is_array($this->config['database'] ?? null) && $this->config['database'] !== [];
+        return trim((string)($this->database['name'] ?? '')) !== '';
     }
 
     public function history(): BackupHistory
@@ -186,7 +206,7 @@ final class BackupService
     {
         if (!$this->isDatabaseConfigured()) {
             throw new \RuntimeException(
-                'No database configured — set the "database" block in config/backup.inc.php first.'
+                'No database configured — set "name" (and the credentials) in config/client/database.inc.php first.'
             );
         }
 
@@ -194,11 +214,44 @@ final class BackupService
         $sqlFile = $zipPath . '.sql';
 
         try {
-            $dumper->dump((array)$this->config['database'], $sqlFile);
+            $dumper->dump($this->dumpConfig(), $sqlFile);
             return (new ZipArchiver())->zipFile($sqlFile, $zipPath, basename($zipPath, '.zip') . '.sql');
         } finally {
             @unlink($sqlFile);
         }
+    }
+
+    /**
+     * The connection as the dumper sees it: host, port, name and the
+     * application user from config/client/database.inc.php, the `dump` block
+     * of the backup config on top — its binary, and its read-only backup user
+     * when one is configured (the one deviation the backup config may record;
+     * host and database name are never repeated there).
+     */
+    private function dumpConfig(): array
+    {
+        // The connection moved out of the backup config (ADR-039 decision 4).
+        // A block left behind would silently dump a database nobody maintains
+        // there any more — refuse instead of guessing which copy is current.
+        // Only the `db` type cares; data and full backups run regardless.
+        if (is_array($this->config['database'] ?? null)) {
+            throw new \RuntimeException(
+                "config/backup.inc.php still carries a 'database' block — the connection lives in "
+                . "config/client/database.inc.php now (ADR-039); keep only 'dump' (mysqldump binary, "
+                . "optional backup user) in the backup config."
+            );
+        }
+
+        $dump     = is_array($this->config['dump'] ?? null) ? $this->config['dump'] : [];
+        $dbConfig = $this->database;
+
+        if (trim((string)($dump['user'] ?? '')) !== '') {
+            $dbConfig['user']     = (string)$dump['user'];
+            $dbConfig['password'] = (string)($dump['password'] ?? '');
+        }
+        $dbConfig['mysqldump'] = $dump['mysqldump'] ?? 'mysqldump';
+
+        return $dbConfig;
     }
 
     /**

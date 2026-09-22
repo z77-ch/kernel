@@ -1,7 +1,7 @@
 <?php
 // Default Backup Config — installation-wide backup policy (docs/topics/backup.md).
 // Seed-once: written to config/backup.inc.php on the first install and never
-// overwritten — adapt retention / excludes / database per installation there.
+// overwritten — adapt retention / excludes / dump per installation there.
 return [
     // Backup root, relative to the project root. MUST stay outside the web root
     // (htmlRoot) — archives contain data/framework/auth/backendUsers.json.
@@ -42,16 +42,16 @@ return [
     // and must be edited by hand, otherwise its full archive carries all of var/.
     'fullExcludes' => ['vendor', 'node_modules', 'backup', 'var'],
 
-    // Database for the `db` backup type — null = no database (the default;
-    // the framework itself is file-based). To enable:
-    // 'database' => [
-    //     'driver'    => 'mysql',
-    //     'host'      => 'localhost',
-    //     'port'      => null,          // optional
-    //     'name'      => 'my_database',
-    //     'user'      => 'backup_user',
-    //     'pass'      => 'secret',
-    //     'mysqldump' => 'mysqldump',   // binary, override when not on PATH
-    // ],
-    'database'     => null,
+    // The `db` backup type dumps the database of config/client/database.inc.php
+    // — the ONE connection config (ADR-039 decision 4); host and database name
+    // are never repeated here. This block holds only what belongs to the dump
+    // itself: the mysqldump binary, and — as a deviation from the application
+    // user — an optional read-only backup user. null = dump as the application
+    // user. Whether a `db` backup runs at all is decided by database.inc.php
+    // (an empty 'name' there = no database).
+    'dump'         => [
+        'mysqldump' => 'mysqldump',   // binary, override when not on PATH
+        'user'      => null,
+        'password'  => null,
+    ],
 ];

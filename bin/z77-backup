@@ -71,7 +71,7 @@ try {
     $service = BackupService::fromProjectRoot($projectRoot);
 
     if ($type === BackupType::Db && !$service->isDatabaseConfigured()) {
-        echo "z77-backup: db skipped — no database configured (config/backup.inc.php).\n";
+        echo "z77-backup: db skipped — no database configured (config/client/database.inc.php).\n";
         exit(0);
     }
 

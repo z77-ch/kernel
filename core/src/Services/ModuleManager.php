@@ -24,6 +24,7 @@ class ModuleManager
     /** Memoized job registry (job key → definition); built once per request. */
     private ?array $jobs = null;
     private ?array $importEntities = null;
+    private ?array $doctrineEntities = null;
 
     public function __construct(ConfigManager $configManager)
     {
@@ -425,7 +426,8 @@ class ModuleManager
      * whitelist the backend data import works on. A module declares them under
      * the `importEntities` config key; the union is deduplicated. Like the job
      * registry this is what keeps the import a fixed menu — the screen never
-     * accepts an entity class from a request.
+     * accepts an entity class from a request. A project adds its own classes
+     * through `App/Config/importEntitiesConfig.inc.php` (see collectEntityClasses()).
      *
      * ```php
      * 'importEntities' => [Navigation::class, NavigationAlias::class, MetaData::class],
@@ -435,27 +437,107 @@ class ModuleManager
      */
     public function getImportEntities(): array
     {
-        if ($this->importEntities !== null) {
-            return $this->importEntities;
-        }
+        return $this->importEntities ??= $this->collectEntityClasses('importEntities');
+    }
 
+    /**
+     * Doctrine entity classes aggregated across all modules (ADR-039 decision 5):
+     * the explicit list the Doctrine driver's metadata driver and the migrations
+     * work on — no directory scanning. Declared exactly like `importEntities`;
+     * a non-existent class fails loudly.
+     *
+     * ```php
+     * 'doctrineEntities' => [JournalEntry::class, JournalLine::class],
+     * ```
+     *
+     * A project announces an entity of its own WITHOUT copying the module config
+     * (Rule 2): `override/z77/module/{module}/src/App/Config/doctrineEntitiesConfig.inc.php`
+     * returning a plain list of classes — see collectEntityClasses().
+     *
+     * @return list<class-string>
+     */
+    public function getDoctrineEntities(): array
+    {
+        return $this->doctrineEntities ??= $this->collectEntityClasses('doctrineEntities');
+    }
+
+    /**
+     * Union of the class lists every module declares under $configKey,
+     * deduplicated, each class verified to exist.
+     *
+     * Two sources per module, both additive:
+     *   1. the `$configKey` entry of the module config (first source match — an
+     *      override config replaces the package config as a whole, as always);
+     *   2. every extension file `App/Config/{$configKey}Config.inc.php` of the
+     *      module (see getConfigExtensions()), each returning a plain list of
+     *      classes. This is how a project announces a class of its own without
+     *      copying the module config (Rule 2). Still an explicit list — nothing
+     *      is scanned.
+     *
+     * @return list<class-string>
+     */
+    private function collectEntityClasses(string $configKey): array
+    {
         $classes = [];
         foreach ($this->getModuleKeys() as $moduleKey) {
-            $declared = $this->getModuleConfig($moduleKey)?->get('importEntities', []);
-            if (!is_array($declared)) {
-                continue;
-            }
-            foreach ($declared as $class) {
-                if (!is_string($class) || !class_exists($class)) {
-                    throw new \RuntimeException(
-                        "❌ importEntities of module '{$moduleKey}' names a non-existent class: " . var_export($class, true)
-                    );
+            $declared = $this->getModuleConfig($moduleKey)?->get($configKey, []);
+            $sources  = is_array($declared)
+                ? ["{$configKey} of module '{$moduleKey}'" => $declared]
+                : [];
+
+            foreach ($this->getConfigExtensions($moduleKey, $configKey) as $origin => $listed) {
+                if (!array_is_list($listed)) {
+                    throw new \RuntimeException("❌ {$origin} must return a list of classes.");
                 }
-                $classes[$class] = true;
+                $sources[$origin] = $listed;
+            }
+
+            foreach ($sources as $origin => $list) {
+                foreach ($list as $class) {
+                    if (!is_string($class) || !class_exists($class)) {
+                        throw new \RuntimeException(
+                            "❌ {$origin} names a non-existent class: " . var_export($class, true)
+                        );
+                    }
+                    $classes[$class] = true;
+                }
             }
         }
 
-        return $this->importEntities = array_keys($classes);
+        return array_keys($classes);
+    }
+
+    /**
+     * The additive extension files of one module for $configKey: every
+     * `App/Config/{$configKey}Config.inc.php` under ANY of the module's source
+     * paths (override and package), in lookup order. This is how a project adds
+     * to a registry key WITHOUT copying the module config (Rule 2) — the file
+     * records only the addition. Each file must return an array; the shape
+     * inside is the caller's to check (a list for `doctrineEntities`, scope =>
+     * list for `openWorkChecks`).
+     *
+     * Keyed by an origin label naming key, module and file, ready for the
+     * caller's error messages. Not memoized: callers memoize their result.
+     *
+     * @return array<string, array> origin label => the array the file returned
+     */
+    public function getConfigExtensions(string $moduleKey, string $configKey): array
+    {
+        $extensions = [];
+        $files      = DI::getFileFinder()->getAllSourceMatches(
+            fileName: "App/Config/{$configKey}Config.inc.php",
+            nameSpace: $this->getNamespacePrefix($moduleKey)
+        );
+        foreach ($files as $file) {
+            $origin   = "{$configKey} extension of module '{$moduleKey}' ({$file})";
+            $returned = require $file;
+            if (!is_array($returned)) {
+                throw new \RuntimeException("❌ {$origin} must return an array, got " . get_debug_type($returned) . '.');
+            }
+            $extensions[$origin] = $returned;
+        }
+
+        return $extensions;
     }
 
     public function getModuleParameter(string $moduleKey, string $parameter): string | array

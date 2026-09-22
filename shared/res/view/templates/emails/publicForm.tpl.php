@@ -9,11 +9,25 @@
  * alternative is derived from this HTML, which is why every value line is a
  * `<tr data-str="new-line">` (HtmlToText contract, docs/topics/mail.md).
  *
+ * Optional `$language` (a language code, passed by the controller with the form):
+ * the first line then names the language the visitor wrote in, so the answer
+ * can come in that language. Label and name follow the same rule as every
+ * other label here — the request language (a French submit reads
+ * "Langue: Français").
+ *
  * @var \Z77\Shared\Forms\PublicForm $form
+ * @var ?string $language  request language code of the submit (optional)
  */
 $isLong = static fn (array $spec): bool => $spec['type'] === 'textarea';
+$language = isset($language) && is_string($language) ? $language : '';
 ?>
 <table>
+    <?php if ($language !== ''): ?>
+    <tr data-str="new-line">
+        <td><?= e(t('form.field.language')) ?></td>
+        <td><?= e(t('lang.' . $language)) ?></td>
+    </tr>
+    <?php endif; ?>
     <?php foreach ($form->fields() as $name => $spec): ?>
         <?php if ($isLong($spec)) { continue; } ?>
     <tr data-str="new-line">

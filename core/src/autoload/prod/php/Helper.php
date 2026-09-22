@@ -109,6 +109,10 @@ function t(string $key, array $params = [], ?string $language = null): string
  *
  * $language defaults to the current request language. External/anchor URLs
  * (not starting with '/') are returned unchanged.
+ *
+ * A content preview (`?preview=<key>` on the current request, ADR-044 addendum)
+ * is carried into every URL built here, so a preview stays a preview from page
+ * to page. It is read from the request's own query string — no session state.
  */
 function localizedUrl(string $canonicalUrl, ?string $language = null): string
 {
@@ -127,10 +131,11 @@ function localizedUrl(string $canonicalUrl, ?string $language = null): string
     $localized = \Z77\Core\DI::getAliasPathResolver()->toLocalized($segments, $language);
     $path      = $localized === [] ? '' : '/' . implode('/', $localized);
 
-    if ($language === $default) {
-        return ($path === '' ? '/' : $path) . $suffix;
-    }
-    return '/' . $language . $path . $suffix;
+    $url = $language === $default
+        ? ($path === '' ? '/' : $path) . $suffix
+        : '/' . $language . $path . $suffix;
+
+    return \Z77\Shared\Content\ContentPreview::carry($url, \Z77\Shared\Content\ContentPreview::key());
 }
 
 /**

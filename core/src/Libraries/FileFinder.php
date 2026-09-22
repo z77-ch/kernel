@@ -149,6 +149,28 @@ class FileFinder
         );
     }
 
+    /**
+     * Every match of $fileName under the namespace's source paths, in lookup order
+     * (override first, package last) — for ADDITIVE configs where each source
+     * contributes (e.g. `App/Config/doctrineEntitiesConfig.inc.php`, see
+     * ModuleManager::collectEntityClasses()), unlike getFirstSourceMatch(), where
+     * the first match replaces the rest. Not cached: callers memoize the result.
+     *
+     * @return list<string> absolute file paths
+     */
+    public function getAllSourceMatches(string $fileName, string $nameSpace): array
+    {
+        $sourceDir = $this->resolveConfig()->getResourceDir()['sourceDir'];
+        $matches   = [];
+        foreach ($this->getBasePaths($nameSpace, 'sourcePaths') as $p) {
+            $fullPath = rtrim($p, '/') . "/{$sourceDir}/{$fileName}";
+            if (is_file($fullPath)) {
+                $matches[] = $fullPath;
+            }
+        }
+        return $matches;
+    }
+
     public function getFirstTplMatch(
         string $fileName,
         string $nameSpace,

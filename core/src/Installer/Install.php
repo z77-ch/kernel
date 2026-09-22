@@ -26,6 +26,7 @@ class Install
     private const BACKUP_CONFIG         = 'backup';
     private const MAIL_CONFIG           = 'mail';
     private const SYSTEM_CONFIG         = 'systemConfig';
+    private const DATABASE_CONFIG       = 'database';
     private const FILE_FINDER_CONFIG    = 'fileFinder.inc.php';
 
     // Release-local runtime state (ADR-035). Mirrors ABS_STATE_PATH in
@@ -74,6 +75,7 @@ class Install
     private array  $backupConfig        = [];
     private array  $mailConfig          = [];
     private array  $systemConfig        = [];
+    private array  $databaseConfig      = [];
     private string $frameworkPrefix     = '';
     private string $modulePrefix        = '';
     private array  $additionalPsr4Paths = [];
@@ -160,6 +162,7 @@ class Install
         $this->writeBackupConfig();
         $this->writeMailConfig();
         $this->writeSystemConfig();
+        $this->writeDatabaseConfig();
         $this->writeFileFinderConfig();
         $this->writeDataFiles();
         $this->provisionAdmin();
@@ -848,9 +851,10 @@ class Install
 
     /**
      * Seed-once (INST-CONFIG-001): backup.inc.php holds the installation-wide
-     * backup policy (retention, full-backup excludes, optional database block)
-     * that the developer adapts after install — same class as auth/i18n. Once
-     * it exists the installer never overwrites it. See docs/topics/backup.md.
+     * backup policy (retention, full-backup excludes, dump settings) that the
+     * developer adapts after install — same class as auth/i18n. Once it exists
+     * the installer never overwrites it. See docs/topics/backup.md. The
+     * database connection itself is NOT here — database.inc.php (ADR-039).
      */
     private function writeBackupConfig(): void
     {
@@ -900,8 +904,29 @@ class Install
      */
     private function writeSystemConfig(): void
     {
+        $this->writeSeedOnceConfig(self::SYSTEM_CONFIG, $this->systemConfig, 'System');
+    }
+
+    /**
+     * The relational connection (ADR-039 decision 4) — seed-once like the
+     * system config, and like it NOT fed from composer.json: credentials are a
+     * property of the single installation. Read by the Doctrine driver and by
+     * the `db` backup; an installation without a database leaves 'name' empty.
+     */
+    private function writeDatabaseConfig(): void
+    {
+        $this->writeSeedOnceConfig(self::DATABASE_CONFIG, $this->databaseConfig, 'Database');
+    }
+
+    /**
+     * Seed-once writer for a plain key → value config in config/client/:
+     * written when absent, never overwritten, no per-key comments. (The
+     * backup config keeps its own writer for the retention comment.)
+     */
+    private function writeSeedOnceConfig(string $configName, array $values, string $label): void
+    {
         $dir  = $this->clientConfigDir();
-        $name = self::SYSTEM_CONFIG . '.inc.php';
+        $name = $configName . '.inc.php';
 
         $target = $this->trailingSlash($dir) . $name;
         if (file_exists($target)) {
@@ -909,11 +934,11 @@ class Install
             return;
         }
 
-        $this->io->write("Write System config → {$dir}/{$name}");
+        $this->io->write("Write {$label} config → {$dir}/{$name}");
 
         $content  = $this->header($name, self::NOTE_SEED_ONCE);
         $content .= "return [\n";
-        foreach ($this->systemConfig as $key => $value) {
+        foreach ($values as $key => $value) {
             $content .= "    '{$key}' => " . $this->exportPhpValue($value) . ",\n";
         }
         $content .= "];\n";
@@ -1453,6 +1478,8 @@ class Install
         // `extra`. composer.json is committed, so staging and production would
         // share one value; these belong to the single installation.
         $this->systemConfig    = require $dir . self::SYSTEM_CONFIG . '.default.inc.php';
+        // Same reasoning for the database credentials (ADR-039 decision 4).
+        $this->databaseConfig  = require $dir . self::DATABASE_CONFIG . '.default.inc.php';
 
         return $config;
     }
@@ -1551,7 +1578,7 @@ class Install
             }
         }
 
-        foreach (['auth', 'i18n', 'backup', 'mail', 'systemConfig', 'geoip'] as $seedOnce) {
+        foreach (['auth', 'i18n', 'backup', 'mail', 'systemConfig', 'database', 'geoip'] as $seedOnce) {
             $from = $flat . $seedOnce . '.inc.php';
             $to   = $this->trailingSlash($this->clientConfigDir()) . $seedOnce . '.inc.php';
             if (is_file($from) && !is_file($to)) {

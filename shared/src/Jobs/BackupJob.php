@@ -38,7 +38,7 @@ final class BackupJob implements Job
         $service = BackupService::fromProjectRoot(ABS_BASE_PATH);
 
         if ($type === BackupType::Db && !$service->isDatabaseConfigured()) {
-            return JobResult::done('db skipped — no database configured (config/backup.inc.php)');
+            return JobResult::done('db skipped — no database configured (config/client/database.inc.php)');
         }
 
         // The archive cannot be interrupted, so the PHP limit must not cut it

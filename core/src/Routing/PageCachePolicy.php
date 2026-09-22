@@ -61,6 +61,12 @@ class PageCachePolicy
             return PageCacheDecision::newPage();
         }
 
+        // A content preview renders variant text that visitors must never get —
+        // stated on its own, not left to the query-string rule above.
+        if (\Z77\Shared\Content\ContentPreview::key() !== null) {
+            return PageCacheDecision::newPage();
+        }
+
         // Content slugs (remainder behind a slug-accepting alias or a reserved route)
         // select WHICH content the action renders, but the PageIdentity has no slug
         // dimension: `/referenzen/a` and `/referenzen/b` would share one cache entry.

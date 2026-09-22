@@ -21,10 +21,16 @@ namespace Z77\Shared\Libraries;
  */
 final class ConfigLocator
 {
-    /** First existing path for the file, or null. */
-    public static function path(string $fileName): ?string
+    /**
+     * First existing path for the file, or null.
+     *
+     * @param string|null $baseDir project root for a caller without ABS_BASE_PATH
+     *                             (single-purpose binaries such as z77-backup pass
+     *                             their own root); default: the booted installation
+     */
+    public static function path(string $fileName, ?string $baseDir = null): ?string
     {
-        $base = rtrim(str_replace('\\', '/', ABS_BASE_PATH), '/') . '/config/';
+        $base = rtrim(str_replace('\\', '/', $baseDir ?? ABS_BASE_PATH), '/') . '/config/';
         foreach (['vendor/', 'client/', ''] as $tier) {
             $candidate = $base . $tier . $fileName;
             if (file_exists($candidate)) {

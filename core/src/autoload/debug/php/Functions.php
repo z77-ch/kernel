@@ -17,7 +17,6 @@ function getAllPropertiesRecursive(object $obj, int $depth = 0, int $maxDepth = 
     $refClass = new \ReflectionClass($obj);
 
     foreach ($refClass->getProperties() as $property) {
-        $property->setAccessible(true);
         $propName = $property->getName();
 
         // Prüfen, ob Property initialisiert ist

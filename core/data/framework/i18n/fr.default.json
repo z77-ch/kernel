@@ -21,6 +21,7 @@
     "form.field.phone": "Téléphone",
     "form.field.message": "Message",
     "form.field.privacy": "Politique de confidentialité",
+    "form.field.language": "Langue",
     "form.note.required": "Merci de remplir tous les champs",
     "form.value.yes": "oui",
     "form.value.no": "non",

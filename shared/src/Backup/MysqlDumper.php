@@ -9,7 +9,7 @@ namespace Z77\Shared\Backup;
  */
 final class MysqlDumper implements DbDumperInterface
 {
-    public function dump(array $dbConfig, string $targetSqlFile): void
+    public function dump(#[\SensitiveParameter] array $dbConfig, string $targetSqlFile): void
     {
         if (!function_exists('exec')) {
             throw new \RuntimeException(
@@ -19,7 +19,7 @@ final class MysqlDumper implements DbDumperInterface
 
         $name = trim((string)($dbConfig['name'] ?? ''));
         if ($name === '') {
-            throw new \RuntimeException("Database backup: config key 'database.name' is missing.");
+            throw new \RuntimeException("Database backup: 'name' is missing in config/client/database.inc.php.");
         }
 
         $binary = trim((string)($dbConfig['mysqldump'] ?? 'mysqldump'));
@@ -51,7 +51,7 @@ final class MysqlDumper implements DbDumperInterface
     }
 
     /** Writes host/user/password as a mysql defaults file (0600) and returns its path. */
-    private function writeCredentialsFile(array $dbConfig): string
+    private function writeCredentialsFile(#[\SensitiveParameter] array $dbConfig): string
     {
         $lines = ["[client]"];
         $lines[] = 'host=' . (string)($dbConfig['host'] ?? 'localhost');
@@ -59,7 +59,7 @@ final class MysqlDumper implements DbDumperInterface
             $lines[] = 'port=' . (int)$dbConfig['port'];
         }
         $lines[] = 'user=' . (string)($dbConfig['user'] ?? '');
-        $lines[] = 'password="' . str_replace('"', '\"', (string)($dbConfig['pass'] ?? '')) . '"';
+        $lines[] = 'password="' . str_replace('"', '\"', (string)($dbConfig['password'] ?? '')) . '"';
 
         $file = tempnam(sys_get_temp_dir(), 'z77db');
         if ($file === false

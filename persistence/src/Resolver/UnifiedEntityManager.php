@@ -4,6 +4,7 @@ namespace Z77\Persistence\Resolver;
 
 use Z77\Persistence\Interface\EntityManagerInterface,
     Z77\Persistence\Interface\RepositoryInterface,
+    Z77\Persistence\Interface\TransactionInterface,
     Z77\Persistence\Resolver\DataSourceResolver,
     Z77\Shared\Libraries\Convention\Naming
 ;
@@ -49,6 +50,17 @@ final class UnifiedEntityManager
         $this->resolveManager($entities[0]::class)->reorder($entities, $attr);
     }
 
+    /**
+     * The transaction port of the driver that stores $className (ADR-039
+     * decision 10): resolved from an entity class so the backend stays a
+     * property of `#[Entity]`. The File driver refuses it — a use case that
+     * must be atomic writes to one driver only (ARCH-A007).
+     */
+    public function getTransaction(string $className): TransactionInterface
+    {
+        return $this->resolveManager($className)->getTransaction();
+    }
+
     private function resolveManager(string $className): EntityManagerInterface
     {
         $driver = $this->resolver->resolveEntity($className)->driver;
@@ -65,6 +77,17 @@ final class UnifiedEntityManager
         $bootstrapClass = Naming::toNamespaceString(
             ['Z77', 'Persistence', $driver]
         ).'Bootstrap';
+
+        // A driver named in the map need not be installed (ADR-039 decision 2):
+        // the Doctrine driver is its own package. Fail here, at the first entity
+        // of that driver, with the package named — not with a bare "class not
+        // found" from somewhere inside the resolver.
+        if (!class_exists($bootstrapClass)) {
+            throw new \RuntimeException(
+                "Persistence driver '{$driver}' is not installed: {$bootstrapClass} not found — "
+                . "require the package that provides it (z77/persistence-doctrine for the Doctrine driver)."
+            );
+        }
 
         return (new $bootstrapClass())->getEntityManager();
     }

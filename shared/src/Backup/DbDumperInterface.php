@@ -11,8 +11,11 @@ namespace Z77\Shared\Backup;
 interface DbDumperInterface
 {
     /**
-     * @param array  $dbConfig      the `database` block from config/backup.inc.php
+     * @param array  $dbConfig      host, port, name, user, password as in
+     *                              config/client/database.inc.php (the backup user
+     *                              substituted when the backup config names
+     *                              one) plus `mysqldump`, the binary
      * @param string $targetSqlFile absolute path the dump is written to
      */
-    public function dump(array $dbConfig, string $targetSqlFile): void;
+    public function dump(#[\SensitiveParameter] array $dbConfig, string $targetSqlFile): void;
 }
