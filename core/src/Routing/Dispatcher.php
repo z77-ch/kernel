@@ -2,7 +2,8 @@
 
 namespace Z77\Core\Routing;
 
-use Z77\Core\DI,
+use Z77\Core\Config\AuthRole,
+    Z77\Core\DI,
     Z77\Core\Exception\ExceptionHandler,
     Z77\Core\Exception\NotFoundException,
     Z77\Core\Http\Request,
@@ -17,7 +18,8 @@ use Z77\Core\DI,
     Z77\Core\Services\RequestGuardInterface,
     Z77\Shared\Attributes\Fetch,
     Z77\Shared\Attributes\HttpMethod,
-    Z77\Shared\Attributes\Page
+    Z77\Shared\Attributes\Page,
+    Z77\Shared\Stats\StatsRecorder
 ;
 
 class Dispatcher
@@ -85,6 +87,11 @@ class Dispatcher
 
             $response->send();
 
+            // Web statistics — AFTER the response went out, whatever produced
+            // it: a page-cache HIT or a 304 passes through here exactly like a
+            // fresh render (the counter never sits inside the render path).
+            $this->countVisit($request, $response);
+
         } catch (NotFoundException $e) {
             ExceptionHandler::handle($e);
         }
@@ -95,6 +102,28 @@ class Dispatcher
             register_shutdown_function(function() {
                 $this->cacheManager->flush();
             });
+        }
+    }
+
+    /**
+     * One line per counted page view (docs/topics/stats.md). Sits behind
+     * send() so it can never delay or break what the visitor sees, and
+     * outside resolveResponse() so a cache HIT — a real visit — is counted
+     * like a rendered page. The recorder decides what counts (GET, Page mode,
+     * public module, no bot, no `data-stats="off"`); this only tells it
+     * whether the session is an editor's or admin's, which is never counted.
+     * A stateless route (/api) has no session and no page: nothing to count.
+     */
+    private function countVisit(Request $request, ResponseInterface $response): void
+    {
+        if ($this->stateless) {
+            return;
+        }
+        try {
+            $privileged = DI::getAuthService()->getCurrentUser()->hasAtLeast(AuthRole::EDITOR);
+            StatsRecorder::observe($request, $response, $privileged);
+        } catch (\Throwable) {
+            // A statistic is never worth a failed request — and the page is out already.
         }
     }
 

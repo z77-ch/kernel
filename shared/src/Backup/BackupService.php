@@ -62,6 +62,23 @@ final class BackupService
      */
     private const DATA_EXCLUDES = ['framework/jobs', 'framework/import'];
 
+    /**
+     * Never part of a full backup, relative to the project root, and — like
+     * DATA_EXCLUDES — appended unconditionally, NOT through the seed-once
+     * `fullExcludes` config: a changed default never reaches an installation
+     * that already has its copy (BACKUP-LIB-001, twice).
+     *
+     * `logs/stats`: the raw statistics lines (docs/topics/stats.md). They carry
+     * a daily visitor key and are deleted after seven days by `stats-rollup` —
+     * that deletion is the privacy promise, and an archive that keeps them for
+     * months would break it silently (owner decision E2, 2026-09-23). `logs/`
+     * itself stays IN: the form log is a record. (Files written before
+     * 2026-09-23 lie directly in `logs/` and ride along until the rollup has
+     * swept them — at most RAW_RETENTION_DAYS after the deploy; stats.md
+     * STATS-008.)
+     */
+    private const FIXED_EXCLUDES = ['logs/stats'];
+
     private string $baseDir;
     private array  $config;
     private array  $database;
@@ -194,6 +211,13 @@ final class BackupService
         // see DATA_EXCLUDES for why (transient state + it moves mid-archive).
         foreach (self::DATA_EXCLUDES as $jobPath) {
             $rel = 'data/' . $jobPath;
+            if (!in_array($rel, $excludes, true)) {
+                $excludes[] = $rel;
+            }
+        }
+
+        // Same standing, own reason — see FIXED_EXCLUDES.
+        foreach (self::FIXED_EXCLUDES as $rel) {
             if (!in_array($rel, $excludes, true)) {
                 $excludes[] = $rel;
             }

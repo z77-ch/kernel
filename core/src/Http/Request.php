@@ -730,6 +730,36 @@ class Request {
     }
 
     /**
+     * The client's user agent, trimmed to a sane length, or null when absent.
+     * Free text from outside: classify it, never store it verbatim
+     * (the statistics derive a device class and a bot verdict from it).
+     */
+    public function getUserAgent(): ?string
+    {
+        $ua = trim((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+
+        return $ua === '' ? null : mb_substr($ua, 0, 250);
+    }
+
+    /** The Referer header as sent, or null. A claim by the client — classify, never trust. */
+    public function getReferer(): ?string
+    {
+        $referer = trim((string)($_SERVER['HTTP_REFERER'] ?? ''));
+
+        return $referer === '' ? null : mb_substr($referer, 0, 500);
+    }
+
+    /**
+     * The host this request arrived on (`Host` header, no scheme, no port
+     * stripping). For telling an internal referer from an external one —
+     * NOT for building URLs that leave the request; that is getBaseUrl().
+     */
+    public function getHost(): string
+    {
+        return strtolower(trim((string)($_SERVER['HTTP_HOST'] ?? '')));
+    }
+
+    /**
      * Bearer value of the Authorization header, or null when absent/malformed.
      * REDIRECT_HTTP_AUTHORIZATION covers the Apache CGI/FastCGI pass-through
      * (`SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1` — see the api
