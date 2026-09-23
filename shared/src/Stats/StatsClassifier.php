@@ -32,8 +32,17 @@ final class StatsClassifier
      * blocklist of tokens, not an allowlist of browsers: an unknown browser
      * counts, an unknown bot that names itself «bot» does not. An EMPTY user
      * agent is a bot too (no browser sends none).
+     *
+     * `z77-` covers OUR OWN tooling, which is not a visitor either. Measured in
+     * production 2026-09-23 (zihlundsee): `.releases/switch.php` calls `/` twice
+     * per door switch — once to prove the new release answers, once as the
+     * reachability probe — with `User-Agent: z77-releases-switch`, and neither
+     * matched any token above. On the day of a deploy that was 10 of 47 raw
+     * lines, a fifth of the day's traffic, in a statistic an owner reads. Any
+     * future z77 tool inherits the rule by naming itself `z77-…`; no browser
+     * user agent carries that token.
      */
-    public const BOT_PATTERN = '~bot|crawl|spider|slurp|curl/|wget/|python|httpclient|java/|libwww|okhttp|go-http-client|headless|phantom|lighthouse|pingdom|uptime|monitor|facebookexternalhit|whatsapp|telegram|preview|scan|fetch|feed|archive|semrush|ahrefs|mj12|dataprovider|petal|bytespider|gpt|claude|anthropic|openai|ccbot|applebot|yandex|baidu|duckduck~i';
+    public const BOT_PATTERN = '~bot|crawl|spider|slurp|curl/|wget/|python|httpclient|java/|libwww|okhttp|go-http-client|headless|phantom|lighthouse|pingdom|uptime|monitor|facebookexternalhit|whatsapp|telegram|preview|scan|fetch|feed|archive|semrush|ahrefs|mj12|dataprovider|petal|bytespider|gpt|claude|anthropic|openai|ccbot|applebot|yandex|baidu|duckduck|z77-~i';
 
     /** Referring hosts classified as `search` (the host itself is kept too). */
     private const SEARCH_ENGINES = [
