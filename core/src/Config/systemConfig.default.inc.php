@@ -21,6 +21,18 @@ return [
     // client sends that header, and the page cache keys on path only.
     'canonicalBaseUrl' => '',
 
+    // What this installation calls itself in the backend chrome — the one place
+    // that says WHICH project a backend tab belongs to when several are open
+    // (parallel dev servers, a client's test and live door). Free text, e.g.
+    // 'Zihl und See' or 'Kunde AG (Test)'.
+    //
+    // Empty is the seed and is not an error: the shell then shows the host of
+    // `canonicalBaseUrl` — `localhost:8077`, `kunde.ch` — which distinguishes
+    // the installations already. Set a name only where it reads better than
+    // the host. Nothing else reads this value; it is chrome, not identity
+    // (that is `canonicalBaseUrl`).
+    'installationName' => '',
+
     // ISO 4217 code of the currency this installation keeps its books in. The
     // database stores amounts without a currency (ADR-042 decision 4: the
     // ledger is base-currency only), so every DECIMAL money column is read in
