@@ -3,7 +3,8 @@
  * «? Hilfe» — the page's help trigger in the TOP BAR (ADR-048 addendum, owner 2026-10-08).
  * A shell renders it in its top bar's right cluster ONLY when the controller attached help
  * (`$helpBlock`); it replaced the «i» in the crumb line, so the crumb line is the same on
- * every page.
+ * every page. Backend: `partials/shell/topbar`; member: the head, `partials/shell/userMenu`
+ * (owner 2026-10-09).
  *
  * Rendered `hidden`: the help is read in a movable, non-modal window that only the script
  * can build — without JavaScript there is no help, so there is no button either. core.js
