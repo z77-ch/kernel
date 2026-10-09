@@ -1,0 +1,148 @@
+#!/usr/bin/env php
+<?php
+/**
+ * z77 restore CLI — reads one SQL dump back into the installation's database
+ * (ADR-028: own binary, boots only what it needs).
+ *
+ *   php vendor/bin/z77-restore                       lists the archives that carry a dump
+ *   php vendor/bin/z77-restore 2026-10-09_170846_full.zip
+ *   php vendor/bin/z77-restore /path/from/nas/z77ch.sql
+ *   php vendor/bin/z77-restore <source> --yes        no confirmation prompt (scripts)
+ *   php vendor/bin/z77-restore <source> --keep-tables
+ *                                                    read on top of the existing tables
+ *
+ * Options: `--project=/abs/path` (as z77-backup), `--yes`, `--keep-tables`.
+ *
+ * WHY THERE IS NO --host / --database: the target is always the connection in
+ * config/client/database.inc.php. A tool that can be pointed somewhere else is
+ * the tool that one day points at production.
+ *
+ * Before reading, a `db` backup of the state about to be replaced is taken and
+ * a failure there aborts the run. The confirmation is the DATABASE NAME typed
+ * back — a y/n question is answered by reflex, a name is not.
+ *
+ * This is a development and recovery tool, not a cron entry: exit 0 = restored,
+ * 1 = error or declined. The backend deliberately has no button for it
+ * (docs/topics/backup.md).
+ */
+
+if (PHP_SAPI !== 'cli') {
+    fwrite(STDERR, "z77-restore: CLI only.\n");
+    exit(1);
+}
+
+$sourceArg  = null;
+$projectArg = null;
+$assumeYes  = false;
+$keepTables = false;
+foreach (array_slice($argv, 1) as $arg) {
+    if (str_starts_with($arg, '--project=')) {
+        $projectArg = substr($arg, strlen('--project='));
+    } elseif ($arg === '--yes' || $arg === '-y') {
+        $assumeYes = true;
+    } elseif ($arg === '--keep-tables') {
+        $keepTables = true;
+    } elseif ($sourceArg === null && $arg !== '' && $arg[0] !== '-') {
+        $sourceArg = $arg;
+    }
+}
+
+/** Project root resolution — identical to z77-backup, same reasoning (path-repo links). */
+$findRoot = static function (?string $explicit): ?string {
+    if ($explicit !== null) {
+        $explicit = rtrim(str_replace('\\', '/', $explicit), '/');
+        return is_file($explicit . '/vendor/autoload.php') ? $explicit : null;
+    }
+    $dir = str_replace('\\', '/', (string)getcwd());
+    while ($dir !== '' && $dir !== dirname($dir)) {
+        if (is_file($dir . '/vendor/autoload.php') && is_file($dir . '/composer.json')) {
+            return $dir;
+        }
+        $dir = dirname($dir);
+    }
+    return null;
+};
+
+$projectRoot = $findRoot($projectArg);
+if ($projectRoot === null) {
+    fwrite(STDERR, "z77-restore: project root not found — run from the project directory or pass --project=/abs/path\n");
+    exit(1);
+}
+
+require_once $projectRoot . '/vendor/autoload.php';
+
+use Z77\Shared\Backup\RestoreService;
+use Z77\Shared\Libraries\ConfigLocator;
+
+// The safety backup names an archive, and retention reads that name — so this
+// script needs the installation's time zone for the same reason z77-backup does
+// (backup.md BACKUP-TZ-001).
+$bootstrapFile = ConfigLocator::path('bootstrap.inc.php', $projectRoot);
+$bootstrap     = $bootstrapFile !== null ? require $bootstrapFile : [];
+if (is_array($bootstrap) && trim((string)($bootstrap['timeZone'] ?? '')) !== '') {
+    date_default_timezone_set((string)$bootstrap['timeZone']);
+}
+
+try {
+    $service = RestoreService::fromProjectRoot($projectRoot);
+
+    if (!$service->isDatabaseConfigured()) {
+        fwrite(STDERR, "z77-restore: no database configured (config/client/database.inc.php).\n");
+        exit(1);
+    }
+
+    $database = $service->databaseName();
+
+    // No source: show what is there instead of guessing one. Picking the
+    // newest archive for the operator is precisely the convenience that
+    // overwrites a database nobody meant to touch.
+    if ($sourceArg === null) {
+        $rows = $service->sources();
+        echo "z77-restore: target database '{$database}' — pass one of these, or a path to a .zip / .sql file:\n";
+        if ($rows === []) {
+            echo "  (no db or full archive in the backup root yet)\n";
+        }
+        foreach (array_slice($rows, 0, 15) as $row) {
+            printf(
+                "  %-34s %-5s %7.1f MB  %s\n",
+                $row['file'],
+                $row['type'],
+                $row['size'] / 1048576,
+                date('d.m.Y H:i', $row['time'])
+            );
+        }
+        exit(1);
+    }
+
+    $path = $service->resolveSource($sourceArg);
+
+    echo "z77-restore: reading '{$path}'\n";
+    echo "             into database '{$database}' ("
+        . ($keepTables ? 'keeping the existing tables' : 'dropping the existing tables first') . ")\n";
+    echo "             a db backup of the current state is taken first\n";
+
+    if (!$assumeYes) {
+        echo "Type the database name to confirm, anything else aborts: ";
+        $answer = trim((string)fgets(STDIN));
+        if ($answer !== $database) {
+            echo "z77-restore: aborted, nothing was changed.\n";
+            exit(1);
+        }
+    }
+
+    $started = microtime(true);
+    $result  = $service->restore($sourceArg, dropExisting: !$keepTables);
+
+    printf(
+        "z77-restore: ok — %s (%.1f KB) into '%s' in %.1fs; previous state saved as %s\n",
+        $result['sql'],
+        $result['bytes'] / 1024,
+        $database,
+        microtime(true) - $started,
+        $result['safety'] ?? '(none)'
+    );
+    exit(0);
+} catch (\Throwable $e) {
+    fwrite(STDERR, 'z77-restore: FAILED — ' . $e->getMessage() . "\n");
+    exit(1);
+}

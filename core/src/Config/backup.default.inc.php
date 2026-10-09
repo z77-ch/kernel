@@ -55,6 +55,9 @@ return [
                                       // is synced with the working copy, the binary's location is
                                       // not (backup.md BACKUP-DUMP-PATH-001). A path belongs here
                                       // only on a host that offers the binary by path alone.
+        'mysql'     => 'mysql',       // client binary for `z77-restore`, same PATH rule as above.
+                                      // Seed-once: an installation whose config predates 2026-10-09
+                                      // has no key here and falls back to 'mysql' in code.
         'user'      => null,
         'password'  => null,
     ],

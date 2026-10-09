@@ -4,8 +4,9 @@ namespace Z77\Shared\Backup;
 
 /**
  * MySQL/MariaDB dump via the `mysqldump` binary (shared-hosting friendly, cyon
- * ships it). Credentials go through a short-lived defaults file — never on the
- * command line, where they would be visible in the process list.
+ * ships it). Credentials go through a short-lived defaults file
+ * ({@see MysqlDefaultsFile}) — never on the command line, where they would be
+ * visible in the process list. The way back is {@see MysqlRestorer}.
  */
 final class MysqlDumper implements DbDumperInterface
 {
@@ -24,7 +25,7 @@ final class MysqlDumper implements DbDumperInterface
 
         $binary = trim((string)($dbConfig['mysqldump'] ?? 'mysqldump'));
 
-        $credentialsFile = $this->writeCredentialsFile($dbConfig);
+        $credentialsFile = MysqlDefaultsFile::write($dbConfig);
 
         try {
             $cmd = escapeshellarg($binary)
@@ -50,25 +51,4 @@ final class MysqlDumper implements DbDumperInterface
         }
     }
 
-    /** Writes host/user/password as a mysql defaults file (0600) and returns its path. */
-    private function writeCredentialsFile(#[\SensitiveParameter] array $dbConfig): string
-    {
-        $lines = ["[client]"];
-        $lines[] = 'host=' . (string)($dbConfig['host'] ?? 'localhost');
-        if (($dbConfig['port'] ?? null) !== null) {
-            $lines[] = 'port=' . (int)$dbConfig['port'];
-        }
-        $lines[] = 'user=' . (string)($dbConfig['user'] ?? '');
-        $lines[] = 'password="' . str_replace('"', '\"', (string)($dbConfig['password'] ?? '')) . '"';
-
-        $file = tempnam(sys_get_temp_dir(), 'z77db');
-        if ($file === false
-            || file_put_contents($file, implode("\n", $lines) . "\n") === false
-        ) {
-            throw new \RuntimeException('Database backup: failed to write the temporary credentials file.');
-        }
-        @chmod($file, 0600);
-
-        return $file;
-    }
 }
