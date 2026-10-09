@@ -7,6 +7,8 @@ use Composer\Composer;
 use Composer\IO\IOInterface;
 use Z77\Shared\Auth\PasswordPolicy;
 use Z77\Shared\Auth\PasswordTier;
+use Z77\Shared\Import\ImportSourceException;
+use Z77\Shared\Import\NavigationSeeds;
 
 /**
  * Composer post-install / post-update script.
@@ -208,6 +210,7 @@ class Install
         $this->writeDatabaseConfig();
         $this->writeFileFinderConfig();
         $this->writeDataFiles();
+        $this->seedNavigation();
         $this->provisionAdmin();
         $this->writeDebugFlag();
         $this->seedDenyFiles();
@@ -1466,6 +1469,141 @@ class Install
         }
 
         return array_keys($roots);
+    }
+
+    /**
+     * Navigation seeds (ADR-050): every package's `navigation.d/*.json` — the project's
+     * override tier first (a project may replace a package's seed file by name, CE
+     * principle), then the installed packages.
+     */
+    private function seedNavigation(): void
+    {
+        $roots = [];
+        foreach ($this->additionalPsr4Paths as $namespace => $paths) {
+            if (!str_starts_with($namespace, $this->frameworkPrefix)) {
+                continue;
+            }
+            foreach ((array) $paths as $p) {
+                $sub = trim($this->stripSrc($p), '/');
+                $dir = $this->trailingSlash($this->baseDir) . ($sub !== '' ? $sub . '/' : '') . 'data';
+                if (is_dir($dir)) {
+                    $roots[] = $dir;
+                }
+            }
+        }
+
+        $this->seedNavigationFrom(array_merge($roots, $this->frameworkDataRoots()));
+    }
+
+    /**
+     * ADDS every seed entry the installation's `navigation.json` does not hold yet —
+     * recognised by the import's identity rules (key → route → parent + ref), placed at
+     * the end of its siblings — and changes nothing that exists: the menu belongs to the
+     * project once installed (ADR-050 §3; supersedes the file-level seed-once rule of
+     * 2026-08-08 for the navigation). Runs after writeDataFiles(): on a fresh install
+     * that step wrote the kernel's `navigation.default.json` (the entries other seeds
+     * reference by id — frontend starter pages, login/logout), and this step adds the
+     * whole backend menu on top; on an update it adds only what a new package brought.
+     *
+     * A missing file is created. A corrupt one throws — it is never overwritten.
+     *
+     * @param string[] $dataRoots package data roots, in precedence order
+     */
+    private function seedNavigationFrom(array $dataRoots): void
+    {
+        $files = NavigationSeeds::discover($dataRoots);
+        if ($files === []) {
+            return;
+        }
+
+        $dir    = $this->trailingSlash($this->baseDir) . 'data/framework/routing';
+        $target = $dir . '/navigation.json';
+        if (!is_dir($dir) && !mkdir($dir, 0755, true) && !is_dir($dir)) {
+            throw new \RuntimeException("Failed to create directory: {$dir}");
+        }
+
+        // Same lock file + atomic replace as FileStorage (the runtime writer), so a live
+        // installation sharing data/ never reads a half-written file or loses an edit.
+        $lock = fopen($target . '.lock', 'c');
+        if ($lock === false || !$this->acquireLock($lock)) {
+            throw new \RuntimeException("Cannot acquire write lock for {$target}");
+        }
+
+        try {
+            try {
+                $result = NavigationSeeds::merge(NavigationSeeds::read($files), $this->loadNavigation($target));
+            } catch (ImportSourceException $e) {
+                throw new \RuntimeException($e->getMessage(), 0, $e);
+            }
+
+            foreach ($result['skipped'] as $line) {
+                $this->io->write("   Skipped navigation entry {$line}");
+            }
+
+            if ($result['added'] === []) {
+                $this->io->write('Navigation seeds: nothing to add (' . count($files) . ' seed files, every entry present)');
+                return;
+            }
+
+            $json = json_encode($result['records'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            if ($json === false) {
+                throw new \RuntimeException('Cannot encode navigation.json: ' . json_last_error_msg());
+            }
+            $tmp = $target . '.' . getmypid() . '.tmp';
+            $written = file_put_contents($tmp, $json) === strlen($json);
+            // Windows: the rename fails while a reader holds the target open — retry briefly.
+            for ($attempt = 1; $written && $attempt <= 10; $attempt++) {
+                if (@rename($tmp, $target)) {
+                    break;
+                }
+                if ($attempt === 10) {
+                    $written = false;
+                }
+                usleep($attempt * 5000);
+            }
+            if (!$written) {
+                @unlink($tmp);
+                throw new \RuntimeException("Failed to write {$target}");
+            }
+
+            $this->io->write('Navigation seeds → ' . count($result['added']) . " entries added to {$target}");
+            foreach ($result['added'] as $record) {
+                $this->io->write("   + «{$record['name']}»" . ($record['key'] !== null ? " ({$record['key']})" : ''));
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    /** navigation.json as records; missing or empty = []; a corrupt file throws. */
+    private function loadNavigation(string $path): array
+    {
+        if (!is_file($path)) {
+            return [];
+        }
+        $json = preg_replace('/^\xEF\xBB\xBF/', '', (string) file_get_contents($path));
+        if (trim($json) === '') {
+            return [];
+        }
+        $data = json_decode($json, true);
+        if (!is_array($data) || !array_is_list($data)) {
+            throw new \RuntimeException("Corrupt navigation file, not touched: {$path}");
+        }
+        return $data;
+    }
+
+    /** @param resource $handle */
+    private function acquireLock($handle): bool
+    {
+        for ($attempt = 1; $attempt <= 40; $attempt++) {
+            if (flock($handle, LOCK_EX | LOCK_NB)) {
+                return true;
+            }
+            usleep(50000);
+        }
+        fclose($handle);
+        return false;
     }
 
     /**

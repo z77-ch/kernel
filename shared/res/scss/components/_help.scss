@@ -1,0 +1,124 @@
+// ── The help window (ADR-048) — the shared primitive ────────────────────────────
+//
+// GEOMETRY ONLY (ADR-018 rule 5): where the help window stands, how it scrolls and resizes.
+// Colours, borders, radius and shadow are the HOST's (`_help-host.scss` in the backend, the
+// member stylesheet), read through the neutral tokens below so the primitive renders on its own.
+//
+// Not modal: no backdrop, the page stays usable. It stands above the windows layer
+// (`.z77-windows`, z-index 250) so it can be read beside a form's window.
+//
+//   .is-docked    default: right edge, full height, width resizable (CSS `resize`)
+//   .is-floating  after a drag on the title bar (core.js sets left/top), resizable both ways
+//   .is-full      full screen (the button in the title bar)
+
+.z77-help {
+    --z77-help-bg:   #fff;
+    --z77-help-line: #d9dbe4;
+
+    position:       fixed;
+    z-index:        260;
+    display:        flex;
+    flex-direction: column;
+    box-sizing:     border-box;
+    min-width:      16rem;
+    min-height:     10rem;
+    max-width:      100vw;
+    max-height:     100vh;
+    background:     var(--z77-help-bg);
+    border:         1px solid var(--z77-help-line);
+    overflow:       hidden;   // `resize` needs an overflow other than visible; the body scrolls
+}
+
+// Docked right: the resize grip belongs on the LEFT edge (the free one). `direction: rtl`
+// moves the browser's grip there and makes it grow the box leftwards; the content keeps ltr.
+.z77-help.is-docked {
+    top:       0;
+    right:     0;
+    bottom:    0;
+    width:     26rem;
+    resize:    horizontal;
+    direction: rtl;
+    > * { direction: ltr; }
+}
+.z77-help.is-floating {
+    resize: both;
+}
+.z77-help.is-full {
+    inset:     0 !important;       // beats the position, and the size, a drag or a resize left inline
+    width:     auto !important;
+    height:    auto !important;
+    max-width: none;
+    resize:    none;
+}
+
+.z77-help__head {
+    display:      flex;
+    flex:         none;
+    align-items:  center;
+    gap:          .5rem;
+    cursor:       move;
+    user-select:  none;
+    touch-action: none;             // a drag on a touch screen moves the window, not the page
+}
+.z77-help.is-full .z77-help__head { cursor: default; }
+.z77-help__title {
+    flex:          1;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+}
+.z77-help__full,
+.z77-help__close {
+    flex:       none;
+    border:     0;
+    background: transparent;
+    font:       inherit;
+    cursor:     pointer;
+}
+.z77-help__body {
+    flex:       1 1 auto;
+    min-height: 0;
+    overflow:   auto;
+}
+
+// The field section the help was opened at (ADR-048 addendum 2026-10-08): core.js scrolls a
+// `[data-help-field]` section into view and marks it `is-help-hit` for a moment. The colour is
+// the host's (`--z77-help-hit`); with `prefers-reduced-motion` the mark shows without the fade
+// (core.js removes the class after the same 1.6 s either way).
+.z77-help {
+    --z77-help-hit: rgba(255, 214, 0, .35);
+}
+.z77-help__body [data-help-field] {
+    scroll-margin-top: .5rem;
+    border-radius:     .25rem;
+}
+.z77-help__body .is-help-hit {
+    animation: z77-help-hit 1.6s ease-out;
+}
+@keyframes z77-help-hit {
+    0%, 35% { background: var(--z77-help-hit); }
+    100%    { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .z77-help__body .is-help-hit {
+        animation:  none;
+        background: var(--z77-help-hit);
+    }
+}
+
+// A phone: no room beside anything — the help covers the screen, × is the way back.
+@media (max-width: 767px) {
+    .z77-help,
+    .z77-help.is-docked,
+    .z77-help.is-floating {
+        inset:     0 !important;
+        width:     auto !important;
+        height:    auto !important;
+        min-width: 0;
+        max-width: none;
+        border:    0;
+        resize:    none;
+    }
+    .z77-help__head { cursor: default; }
+}

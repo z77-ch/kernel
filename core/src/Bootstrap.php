@@ -13,6 +13,7 @@ use Z77\Core\DI,
     Z77\Core\Services\AccessGuard,
     Z77\Core\Services\ApiKeyGuard,
     Z77\Core\Services\MessageService,
+    Z77\Core\Services\HelpService,
     Z77\Core\Services\NavigationService,
     Z77\Core\Services\NavigationUrlResolver,
     Z77\Shared\Entities\Navigation,
@@ -351,6 +352,9 @@ class Bootstrap
             }, true)
             ->set('MessageService', function($c) {
                 return new MessageService($c->get('SessionManager'));
+            }, true)
+            ->set('HelpService', function() {
+                return new HelpService();
             }, true)
             ->set('CsrfService', function($c) {
                 return new CsrfService($c->get('SessionManager'));

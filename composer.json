@@ -18,7 +18,10 @@
             "Z77\\Persistence\\": "persistence/src/",
             "BaconQrCode\\": "vendored/bacon-qr-code/src/",
             "DASPRiD\\Enum\\": "vendored/dasprid-enum/src/"
-        }
+        },
+        "classmap": [
+            "vendored/fpdf/src/fpdf.php"
+        ]
     },
     "bin": [
         "bin/z77-backup",

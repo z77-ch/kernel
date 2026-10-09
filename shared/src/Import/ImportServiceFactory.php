@@ -8,6 +8,7 @@ use Z77\Shared\Entities\MetaData;
 use Z77\Shared\Entities\Navigation;
 use Z77\Shared\Entities\NavigationAlias;
 use Z77\Shared\Import\Source\JsonEntitySource;
+use Z77\Shared\Import\Source\NavigationSeedSource;
 use Z77\Shared\Validators\MetaDataValidator;
 use Z77\Shared\Validators\NavigationAliasValidator;
 use Z77\Shared\Validators\NavigationValidator;
@@ -69,16 +70,7 @@ final class ImportServiceFactory
      */
     public static function discoverVendorDefaults(): array
     {
-        // getAllNamespaces(): ns → {sourcePaths, assetPaths} (the fileFinder config map)
-        $roots = [];
-        foreach (DI::getFileFinder()->getAllNamespaces() as $paths) {
-            foreach ($paths['sourcePaths'] ?? [] as $base) {
-                $dir = rtrim(str_replace('\\', '/', $base), '/') . '/data';
-                if (is_dir($dir)) {
-                    $roots[$dir] = true;
-                }
-            }
-        }
+        $roots = self::dataRoots();
 
         $files = [];
         foreach (DI::getModuleManager()->getImportEntities() as $class) {
@@ -89,7 +81,7 @@ final class ImportServiceFactory
             }
             $defaultRel = substr($path, 0, -strlen('.json')) . '.default.json';
 
-            foreach (array_keys($roots) as $root) {
+            foreach ($roots as $root) {
                 $candidate = $root . '/' . $defaultRel;
                 if (is_file($candidate)) {
                     $files[$class] = $candidate;
@@ -99,6 +91,52 @@ final class ImportServiceFactory
         }
 
         return $files;
+    }
+
+    /**
+     * The packages' navigation seeds (ADR-050): every `navigation.d/*.json`, one per
+     * file name, override tier first — the same set the installer collects.
+     *
+     * @return list<string> absolute paths
+     */
+    public static function discoverNavigationSeeds(): array
+    {
+        return NavigationSeeds::discover(self::dataRoots());
+    }
+
+    /**
+     * The vendor source spec: the `*.default.json` per entity PLUS the navigation
+     * seeds, which extend the Navigation record set (ADR-050 §4). Null when nothing
+     * is shipped at all.
+     */
+    public static function vendorSourceSpec(): ?array
+    {
+        $files = self::discoverVendorDefaults();
+        $seeds = self::discoverNavigationSeeds();
+        if ($files === [] && $seeds === []) {
+            return null;
+        }
+        return self::sourceSpec('vendor', 'Vendor-Defaults', $files, $seeds);
+    }
+
+    /**
+     * Data roots of all FileFinder namespaces (`<sourcePath>/data`), override tier
+     * first (CE principle). getAllNamespaces(): ns → {sourcePaths, assetPaths}.
+     *
+     * @return list<string>
+     */
+    private static function dataRoots(): array
+    {
+        $roots = [];
+        foreach (DI::getFileFinder()->getAllNamespaces() as $paths) {
+            foreach ($paths['sourcePaths'] ?? [] as $base) {
+                $dir = rtrim(str_replace('\\', '/', $base), '/') . '/data';
+                if (is_dir($dir)) {
+                    $roots[$dir] = true;
+                }
+            }
+        }
+        return array_keys($roots);
     }
 
     // -------------------------------------------------------------------------
@@ -111,15 +149,23 @@ final class ImportServiceFactory
      * decisions never run against a source that changed underneath
      * (index-keyed decisions would silently shift otherwise).
      *
+     * Navigation seed files (ADR-050) travel under `navigation_seeds` (path → sha1),
+     * verified the same way.
+     *
      * @param array<class-string, string> $files
+     * @param list<string> $navigationSeeds
      */
-    public static function sourceSpec(string $type, string $label, array $files): array
+    public static function sourceSpec(string $type, string $label, array $files, array $navigationSeeds = []): array
     {
         $hashes = [];
         foreach ($files as $class => $path) {
             $hashes[$class] = sha1((string) file_get_contents($path));
         }
-        return ['type' => $type, 'label' => $label, 'files' => $files, 'hashes' => $hashes];
+        $spec = ['type' => $type, 'label' => $label, 'files' => $files, 'hashes' => $hashes];
+        foreach ($navigationSeeds as $path) {
+            $spec['navigation_seeds'][$path] = sha1((string) file_get_contents($path));
+        }
+        return $spec;
     }
 
     /** Rebuilds the source from a stored spec; a changed/missing file throws (IMP-R011). */
@@ -134,6 +180,16 @@ final class ImportServiceFactory
                 );
             }
         }
-        return new JsonEntitySource($files, (string) ($spec['label'] ?? 'import'));
+        $seeds = $spec['navigation_seeds'] ?? [];
+        foreach ($seeds as $path => $expected) {
+            if (!is_file($path) || sha1((string) file_get_contents($path)) !== $expected) {
+                throw new ImportStaleException(
+                    "Navigation seed {$path} changed or disappeared since the plan was computed — start over."
+                );
+            }
+        }
+
+        $source = new JsonEntitySource($files, (string) ($spec['label'] ?? 'import'));
+        return $seeds === [] ? $source : new NavigationSeedSource($source, array_keys($seeds));
     }
 }

@@ -2,6 +2,7 @@
 
 namespace Z77\Shared\Qr;
 
+use BaconQrCode\Encoder\Encoder;
 use BaconQrCode\Renderer\GDLibRenderer;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
@@ -50,20 +51,48 @@ final class QrCode
         return self::write($renderer, $payload, $ecc);
     }
 
+    /**
+     * The module matrix — rows of booleans (true = dark), no quiet zone —
+     * for a consumer that draws the code itself as vector squares (the PDF
+     * facade: a QR-bill is printed sharp at any size, no raster image).
+     *
+     * @return list<list<bool>> square, one row per module row
+     */
+    public static function matrix(string $payload, string $ecc = 'M'): array
+    {
+        if ($payload === '') {
+            throw new \InvalidArgumentException('QR payload must not be empty');
+        }
+        $matrix = Encoder::encode($payload, self::level($ecc), 'utf-8')->getMatrix();
+        $rows   = [];
+        for ($y = 0; $y < $matrix->getHeight(); $y++) {
+            $row = [];
+            for ($x = 0; $x < $matrix->getWidth(); $x++) {
+                $row[] = $matrix->get($x, $y) === 1;
+            }
+            $rows[] = $row;
+        }
+
+        return $rows;
+    }
+
     private static function write(object $renderer, string $payload, string $ecc): string
     {
         if ($payload === '') {
             throw new \InvalidArgumentException('QR payload must not be empty');
         }
 
-        $level = match (strtoupper($ecc)) {
+        return (new Writer($renderer))->writeString($payload, 'utf-8', self::level($ecc));
+    }
+
+    private static function level(string $ecc): ErrorCorrectionLevel
+    {
+        return match (strtoupper($ecc)) {
             'L'     => ErrorCorrectionLevel::L(),
             'M'     => ErrorCorrectionLevel::M(),
             'Q'     => ErrorCorrectionLevel::Q(),
             'H'     => ErrorCorrectionLevel::H(),
             default => throw new \InvalidArgumentException("Unknown error correction level '{$ecc}' — use L, M, Q or H"),
         };
-
-        return (new Writer($renderer))->writeString($payload, 'utf-8', $level);
     }
 }

@@ -1,0 +1,81 @@
+// ── Controller-led windows (ADR-047) — the shared primitive ─────────────────────
+//
+// GEOMETRY ONLY (ADR-018 rule 5): where the windows stand, how they scroll, which one is in
+// front. Colours, borders, radius and shadow are the HOST's (`_windows-host.scss` in the
+// backend), read through the neutral tokens below so the primitive also renders on its own.
+//
+// Placement is presentation and nothing else (ADR-047 part 4): side by side on a wide
+// screen, on top of each other on a phone. core.js never looks at it — a later «draggable»
+// changes this file and a little presentation script, not the contract.
+
+.z77-windows {
+    --z77-windows-backdrop: rgba(0, 0, 0, .34);
+    --z77-window-bg:        #fff;
+    --z77-window-line:      #d9dbe4;
+
+    position:        fixed;
+    inset:           0;
+    z-index:         250;
+    display:         flex;
+    flex-wrap:       wrap;
+    align-items:     flex-start;
+    justify-content: center;
+    gap:             1rem;
+    padding:         2rem 1rem;
+    overflow:        auto;
+    background:      var(--z77-windows-backdrop);
+}
+.z77-windows[hidden] { display: none; }
+
+.z77-window {
+    position:       relative;
+    display:        flex;
+    flex-direction: column;
+    // The controller's width (`data-window-width` → `--z77-window-width`, set by core.js), else 46rem.
+    width:          min(var(--z77-window-width, 46rem), 100%);
+    max-height:     calc(100vh - 4rem);
+    min-height:     0;
+    background:     var(--z77-window-bg);
+    border:         1px solid var(--z77-window-line);
+    outline:        none;
+}
+.z77-window.is-front { z-index: 1; }
+
+.z77-window__head {
+    display:     flex;
+    flex:        none;
+    align-items: center;
+    gap:         .5rem;
+}
+.z77-window__title {
+    flex:          1;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+}
+.z77-window__close {
+    flex:       none;
+    border:     0;
+    background: transparent;
+    font:       inherit;
+    cursor:     pointer;
+}
+.z77-window__body {
+    flex:       1 1 auto;
+    min-height: 0;
+    overflow:   auto;
+}
+
+// A phone: one window at a time, the newest on top; × is the way back to the one below.
+@media (max-width: 767px) {
+    .z77-windows { display: block; padding: 0; }
+    .z77-window {
+        position:   absolute;
+        inset:      0;
+        width:      auto;
+        max-height: none;
+        border:     0;
+    }
+    .z77-window:not(.is-front) { visibility: hidden; }
+}

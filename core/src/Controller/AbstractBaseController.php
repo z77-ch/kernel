@@ -4,11 +4,13 @@ namespace Z77\Core\Controller;
 
 use Z77\Core\Services\LayoutManager,
     Z77\Core\Services\MessageService,
+    Z77\Core\Services\HelpService,
     Z77\Core\Http\Response\ResponseInterface,
     Z77\Core\Http\Response\HtmlResponse,
     Z77\Core\Http\Response\JsonResponse,
     Z77\Core\Http\Response\FetchResponse,
     Z77\Core\Http\Response\FileResponse,
+    Z77\Core\Http\Response\BytesResponse,
     Z77\Core\Http\Response\RedirectResponse,
     Z77\Core\Http\Response\VoidResponse,
     Z77\Core\Http\Response\NoContentResponse,
@@ -28,6 +30,8 @@ abstract class AbstractBaseController
     protected string $actionMethod;
     protected LayoutManager $layoutManager;
     protected MessageService $messageService;
+    /** Help for the answer being built (ADR-048): `$this->help->attach(...)`. */
+    protected HelpService $help;
 
     public function __construct(string $actionMethod)
     {
@@ -41,6 +45,7 @@ abstract class AbstractBaseController
             DEBUG
         );
         $this->messageService = DI::getMessageService();
+        $this->help           = DI::getHelpService();
         // initialize() is called lazily in html() — only when HTML output is needed
 
         if (method_exists($this, 'preExecute')) {
@@ -125,6 +130,12 @@ abstract class AbstractBaseController
         if (DI::getRequest()->getMode() === RequestMode::Page) {
             $context['_flashes']  = $this->messageService->consumeFlashesForPage();
             $context['_messages'] = $this->messageService->consumeMessagesForPage();
+        }
+
+        // Help the action attached (ADR-048): HtmlView appends it to `main` — page and fetch
+        // mode alike, so a window gets it too; a skeleton reads `helpBlock` for the «i».
+        if ($this->help->has()) {
+            $context['helpBlock'] = $this->help->render();
         }
 
         $response = new HtmlResponse($this->layoutManager, $context);
@@ -285,6 +296,16 @@ abstract class AbstractBaseController
     protected function file(string $path, string $filename, ?string $mimeType = null): FileResponse
     {
         return new FileResponse($path, $filename, $mimeType);
+    }
+
+    /**
+     * Returns bytes that exist in memory only (a rendered PDF, an assembled
+     * CSV) as a file — inline in the browser by default, $inline false = a
+     * download. A file on disk goes through {@see file()}.
+     */
+    protected function bytes(string $content, string $filename, string $mimeType, bool $inline = true): BytesResponse
+    {
+        return new BytesResponse($content, $filename, $mimeType, $inline);
     }
 
     /**

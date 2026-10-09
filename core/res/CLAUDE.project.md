@@ -35,7 +35,8 @@ AI-optimized: handbook, ADRs, and one topic doc per work area.
 3. HTTP input only through `Request` (`DI::getRequest()`) — never `$_GET` / `$_POST` /
    `$_SERVER` in a controller.
 4. Every config value has exactly one, semantically named home — no copies.
-5. As little JavaScript as possible — CSS first, then server-generated CSS, then JS.
+5. JavaScript where it makes sense — for user experience and client control; logic,
+   validation and authorization stay on the server. JS must never become an attack surface.
 
 ## Deployment note
 

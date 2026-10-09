@@ -1,0 +1,36 @@
+// ── A form's action bar (ADR-049) — the shared primitive ────────────────────────────────
+//
+// GEOMETRY ONLY (ADR-018 rule 5): the bar stays within reach while its form scrolls —
+// `position: sticky` in the nearest scroll area (a window's body, the page). CSS only.
+//
+//   .z77-form-actions         sticky at the TOP (the default — change a field, save)
+//   .z77-form-actions--end    sticky at the BOTTOM (forms filled once from top to bottom)
+//   .z77-form-actions__errors «2 Fehler»: a <label for> of the first invalid field
+//
+// The surface (background, line) is the host's, through the neutral tokens below.
+
+.z77-form-actions {
+    --z77-form-actions-bg:   #fff;
+    --z77-form-actions-line: #d9dbe4;
+
+    position:    sticky;
+    top:         0;
+    z-index:     2;
+    display:     flex;
+    flex-wrap:   wrap;
+    align-items: center;
+    gap:         .5rem;
+    padding:     .5rem 0;
+    background:  var(--z77-form-actions-bg);
+    border-bottom: 1px solid var(--z77-form-actions-line);
+}
+.z77-form-actions--end {
+    top:           auto;
+    bottom:        0;
+    border-bottom: 0;
+    border-top:    1px solid var(--z77-form-actions-line);
+}
+.z77-form-actions__errors {
+    cursor:      pointer;
+    font-weight: 600;
+}

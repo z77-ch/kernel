@@ -62,6 +62,11 @@ class HtmlView
         }
 
         $bodySections = $renderedByLevel['body'] ?? [];
+        // The help the controller attached (ADR-048, HelpService) closes `main` — here, not as
+        // a partial, so an action that rebuilds its `main` section after html() keeps it.
+        if (!empty($this->context['helpBlock'])) {
+            $bodySections['main'] = ($bodySections['main'] ?? '') . $this->context['helpBlock'];
+        }
 
         // Reserved layout vars override any colliding body section name.
         $layoutVars = array_merge($bodySections, [

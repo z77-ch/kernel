@@ -12,6 +12,9 @@
  *   [data-fetch-post]             generic POST submit
  *   [data-check-url]              attribute on a form → blur-validates each input
  *   [data-copy="<selector>"]      any clickable → copies the named element's text
+ *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»)
+ *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
+ *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
  *
  * Native semantics carry validity state:
  *   input/select … aria-invalid="true|false"
@@ -393,18 +396,20 @@ function _bindCheckUrl(scope) {
 }
 
 /* ── generic wire (data-fetch-post / data-fetch-get) ────────────────────── */
-_Z77.core.wire = function (container, defaultPostUrl) {
+/* `ctx` (optional): {window: id} when the container is a window's body (ADR-047) — a
+ * request fired from inside a window answers INTO that window. */
+_Z77.core.wire = function (container, defaultPostUrl, ctx) {
     container.querySelectorAll('[data-fetch-post]').forEach(function (form) {
         var url = form.dataset.fetchPost || defaultPostUrl;
         if (!url) return;
         form.addEventListener('submit', function (e) {
             e.preventDefault();
-            _Z77.core.fetch.post(url, _z77CollectFormData(form));
+            _Z77.core.fetch.post(url, _z77CollectFormData(form), ctx);
         });
     });
     container.querySelectorAll('[data-fetch-get]').forEach(function (el) {
         el.addEventListener('click', function () {
-            _Z77.core.fetch.get(el.dataset.fetchGet);
+            _Z77.core.fetch.get(el.dataset.fetchGet, ctx);
         });
     });
     // Copy to clipboard: the trigger names the element holding the text, so one
@@ -437,24 +442,26 @@ _Z77.core.fetch = (function () {
     var _meta = document.querySelector('meta[name="csrf-token"]');
     var _csrfToken = _meta ? _meta.getAttribute('content') : '';
 
-    var _envelopeHandlers = {};   // key → fn(value, envelope, sourceUrl)
-    var _commandHandlers  = {};   // action → fn(payload, envelopeData)
+    var _envelopeHandlers = {};   // key → fn(value, envelope, sourceUrl, ctx)
+    var _commandHandlers  = {};   // action → fn(payload, envelopeData, ctx)
+    // ctx (optional, ADR-047): {window: id} — the window a request came from. Handlers that
+    // do not care ignore the extra argument, so every existing handler keeps working.
 
     function registerEnvelopeHandler(key, fn) { _envelopeHandlers[key] = fn; }
     function registerCommand(action, fn)      { _commandHandlers[action] = fn; }
 
-    function _executeCommands(commands, data) {
+    function _executeCommands(commands, data, ctx) {
         (commands || []).forEach(function (cmd) {
             var handler = _commandHandlers[cmd.action];
-            if (handler) handler(cmd, data);
+            if (handler) handler(cmd, data, ctx);
         });
     }
 
-    function _handleEnvelope(env, sourceUrl) {
+    function _handleEnvelope(env, sourceUrl, ctx) {
         if (!env) return;
         Object.keys(env).forEach(function (key) {
             var handler = _envelopeHandlers[key];
-            if (handler) handler(env[key], env, sourceUrl);
+            if (handler) handler(env[key], env, sourceUrl, ctx);
         });
     }
 
@@ -474,24 +481,38 @@ _Z77.core.fetch = (function () {
         return { html: html.replace(re, ''), envelope: envelope };
     }
 
-    function _parseResponse(r, sourceUrl) {
+    function _parseResponse(r, sourceUrl, ctx) {
         var ct = r.headers.get('content-type') || '';
         if (ct.indexOf('text/html') !== -1) {
             return r.text().then(function (html) {
                 var extracted = _extractEmbeddedEnvelope(html);
                 var handler   = _envelopeHandlers['html'];
-                if (handler) handler(extracted.html, extracted.envelope, sourceUrl);
-                if (extracted.envelope) _handleEnvelope(extracted.envelope, sourceUrl);
+                if (handler) handler(extracted.html, extracted.envelope, sourceUrl, ctx);
+                if (extracted.envelope) _handleEnvelope(extracted.envelope, sourceUrl, ctx);
                 return { status: 'html', html: extracted.html, envelope: extracted.envelope };
             });
         }
         return r.json().then(function (env) {
-            _handleEnvelope(env, sourceUrl);
+            _handleEnvelope(env, sourceUrl, ctx);
             return env;
         });
     }
 
-    function post(url, data) {
+    /* A form as the browser would send it (multipart, `$_POST` on the server) — what a
+     * window's plain `<form method="post">` sends (ADR-047), so a controller reads it with
+     * getPostParameters() exactly as on a page load. The submitter's name/value rides along
+     * (`op=save` vs `op=more`). */
+    function postForm(url, formData, ctx) {
+        return fetch(url, {
+            method:  'POST',
+            headers: { 'X-CSRF-Token': _csrfToken, 'X-Requested-With': 'XMLHttpRequest' },
+            body:    formData
+        })
+        .then(function (r) { return _parseResponse(r, url, ctx); })
+        .catch(function () { _Z77.core.message.show('error', _Z77.core.i18n.t('js.connectionError', 'Verbindungsfehler')); });
+    }
+
+    function post(url, data, ctx) {
         return fetch(url, {
             method:  'POST',
             headers: {
@@ -501,15 +522,15 @@ _Z77.core.fetch = (function () {
             },
             body: JSON.stringify(data || {})
         })
-        .then(function (r) { return _parseResponse(r, url); })
+        .then(function (r) { return _parseResponse(r, url, ctx); })
         .catch(function () { _Z77.core.message.show('error', _Z77.core.i18n.t('js.connectionError', 'Verbindungsfehler')); });
     }
 
-    function get(url) {
+    function get(url, ctx) {
         return fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-        .then(function (r) { return _parseResponse(r, url); })
+        .then(function (r) { return _parseResponse(r, url, ctx); })
         .catch(function () { _Z77.core.message.show('error', _Z77.core.i18n.t('js.connectionError', 'Verbindungsfehler')); });
     }
 
@@ -524,10 +545,15 @@ _Z77.core.fetch = (function () {
         if (!r) return;
         setTimeout(function () { window.location.href = r.url; }, r.delay || 0);
     });
-    registerEnvelopeHandler('commands', function (cmds, env) {
-        _executeCommands(cmds, env && env.data);
+    registerEnvelopeHandler('commands', function (cmds, env, _src, ctx) {
+        _executeCommands(cmds, env && env.data, ctx);
     });
-    registerEnvelopeHandler('html', function (html, _env, sourceUrl) {
+    // HTML from a window's own request that declares itself a window's content
+    // ([data-window] — a re-rendered form with its errors, the read view again) fills that
+    // window; any other HTML is a popup (a confirmation stays a modal above the windows).
+    registerEnvelopeHandler('html', function (html, _env, sourceUrl, ctx) {
+        var win = ctx && ctx.window ? _Z77.core.windows.byId(ctx.window) : null;
+        if (win && /\sdata-window="/.test(html)) { _Z77.core.windows.fill(win, html, sourceUrl); return; }
         _Z77.core.popup.show(html, sourceUrl);
     });
     registerEnvelopeHandler('fields', function (fields) {
@@ -541,30 +567,37 @@ _Z77.core.fetch = (function () {
     });
 
     /* ── default generic commands (DOM ops, no module assumptions) ──────── */
+    /* `origin` (optional, ADR-047): 'page' | 'region:<name>' | 'window:<id>' — the target
+     * selector is resolved inside that part of the page; the controller got the origin from
+     * the request (`_origin`) and hands it back. Without it: the whole document, as always. */
+    function _find(p) {
+        var scope = p.origin ? _Z77.core.windows.scope(p.origin) : document;
+        return scope ? scope.querySelector(p.target) : null;
+    }
     registerCommand('replace-html', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (el) el.outerHTML = p.html;
     });
     registerCommand('remove-element', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (el) el.parentNode.removeChild(el);
     });
     registerCommand('insert-html', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (!el) return;
         var map = { prepend: 'afterbegin', before: 'beforebegin', after: 'afterend', append: 'beforeend' };
         el.insertAdjacentHTML(map[p.position] || 'beforeend', p.html);
     });
     registerCommand('update-text', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (el) el.textContent = p.text;
     });
     registerCommand('update-html', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (el) el.innerHTML = p.html;
     });
     registerCommand('scroll-to', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     registerCommand('reload', function () { window.location.reload(); });
@@ -580,11 +613,38 @@ _Z77.core.fetch = (function () {
     });
 
     /* ── popup commands ────────────────────────────────────────────────── */
-    registerCommand('close-modal', function () { _Z77.core.popup.close(); });
+    // From inside a window, «close the modal» means that window (ADR-047).
+    registerCommand('close-modal', function (_p, _d, ctx) {
+        var win = ctx && ctx.window ? _Z77.core.windows.byId(ctx.window) : null;
+        if (win) { _Z77.core.windows.close(win, true); return; }
+        _Z77.core.popup.close();
+    });
+
+    /* ── windows (ADR-047) ─────────────────────────────────────────────── */
+    // {action: 'close-window'} closes the window the request came from (or `window: id`),
+    // with the windows opened from it. A save has already happened, so no question is asked.
+    registerCommand('close-window', function (p, _d, ctx) {
+        var win = _Z77.core.windows.byId(p.window || (ctx && ctx.window));
+        if (win) _Z77.core.windows.close(win, true);
+    });
+    // {action: 'open-window', url, replace?: true, origin?} — a further window, or (replace)
+    // a new content for the window the request came from (after a save: the read view again).
+    registerCommand('open-window', function (p, _d, ctx) {
+        var win = ctx && ctx.window ? _Z77.core.windows.byId(ctx.window) : null;
+        if (p.replace && win) { _Z77.core.windows.load(win, p.url); return; }
+        _Z77.core.windows.open(p.url, { origin: p.origin || '', parent: win ? win.getAttribute('data-z77-window') : '' });
+    });
+    // {action: 'refresh-region', name, origin?} — a fetch region reloads by its own address
+    // (`data-fetch-region-src`, else the page's): the list behind a window, a total block.
+    registerCommand('refresh-region', function (p) {
+        var scope = p.origin ? _Z77.core.windows.scope(p.origin) : document;
+        var region = scope ? scope.querySelector('[data-fetch-region="' + p.name + '"]') : null;
+        if (region) _Z77.core.region.load(region, region.getAttribute('data-fetch-region-src') || window.location.href);
+    });
 
     /* ── update [data-field] slots inside a container ──────────────────── */
     registerCommand('update-fields', function (p, data) {
-        var container = document.querySelector(p.target);
+        var container = _find(p);
         if (!container || !data) return;
         Object.keys(p.fields || {}).forEach(function (key) {
             var el = container.querySelector('[data-field="' + key + '"]');
@@ -612,7 +672,7 @@ _Z77.core.fetch = (function () {
         if (typeof fn === 'function') fn(scope || document);
     }
     registerCommand('set-class', function (p) {
-        var el = document.querySelector(p.target);
+        var el = _find(p);
         if (!el) return;
         el.classList.toggle(p.class, !!p.on);
     });
@@ -643,15 +703,585 @@ _Z77.core.fetch = (function () {
     });
 
     return {
-        post: post,
-        get:  get,
+        post:     post,
+        postForm: postForm,
+        get:      get,
+        extractEnvelope:         _extractEmbeddedEnvelope,
+        handleEnvelope:          _handleEnvelope,
         registerEnvelopeHandler: registerEnvelopeHandler,
         registerCommand:         registerCommand
     };
 })();
 
+/* ── fetch regions ──────────────────────────────────────────────────────────
+ * A part of a page that reloads ALONE, the rest untouched — first user: the
+ * journal list below its capture form (FIN-JOURNAL-CAPTURE-001, owner
+ * 2026-09-28): sorting, paging, searching must not throw away a half-typed
+ * entry or its focus. Rule 7 justification: that is state in the rest of the
+ * page, which a full reload cannot keep; CSS cannot fetch.
+ *
+ * Contract (progressive: without this script every link and form works as a
+ * plain page load — the server renders the same markup either way):
+ *   [data-fetch-region="<name>"]    the part that is replaced
+ *   a[data-fetch-region-link]       inside it: a GET link that reloads only the region
+ *   form[data-fetch-region-form]    inside it: a GET form, same (Enter searches)
+ * The request goes to the link's / form's own URL in fetch mode; the server
+ * answers the page's `main` (fetch skeleton), in which the region with the
+ * same name is looked up and swapped in. The address bar follows
+ * (history.replaceState), so a reload or a bookmark shows the same state.
+ * Focus returns to the element with the same id when there is one. When the
+ * answer carries no such region, the browser simply navigates there.
+ */
+_Z77.core.region = (function () {
+    function _load(region, url) {
+        var name = region.getAttribute('data-fetch-region');
+        var focusId = document.activeElement && region.contains(document.activeElement) ? document.activeElement.id : '';
+        region.setAttribute('aria-busy', 'true');
+        return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var fresh = doc.querySelector('[data-fetch-region="' + name + '"]');
+                if (!fresh) { window.location.href = url; return; }
+                region.replaceWith(fresh);
+                history.replaceState(history.state, '', url);
+                if (focusId) {
+                    var el = document.getElementById(focusId);
+                    if (el) {
+                        el.focus();
+                        if (typeof el.setSelectionRange === 'function' && typeof el.value === 'string') {
+                            try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text field */ }
+                        }
+                    }
+                }
+            })
+            .catch(function () { window.location.href = url; });
+    }
+
+    function bind() {
+        document.addEventListener('click', function (e) {
+            var link = e.target.closest('a[data-fetch-region-link]');
+            if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            var region = link.closest('[data-fetch-region]');
+            if (!region) return;
+            e.preventDefault();
+            _load(region, link.href);
+        });
+        document.addEventListener('submit', function (e) {
+            var form = e.target.closest('form[data-fetch-region-form]');
+            if (!form || e.defaultPrevented || (form.method || 'get').toLowerCase() !== 'get') return;
+            var region = form.closest('[data-fetch-region]');
+            if (!region) return;
+            e.preventDefault();
+            var url = new URL(form.action, window.location.href);
+            var params = new URLSearchParams();
+            new FormData(form).forEach(function (value, key) { if (value !== '') params.append(key, value); });   // empty fields stay out of the address
+            url.search = params.toString();
+            _load(region, url.toString());
+        });
+    }
+
+    return { bind: bind, load: _load };
+})();
+
+/* ── windows (ADR-047) ─────────────────────────────────────────────────────
+ * Controller-led windows: a click opens a record in a window, a save answers with
+ * instructions, and nothing else on the page reloads. The CONTROLLER leads — it renders the
+ * window's content, names the form's target, and answers a save with commands for the place
+ * the window came from; this module only carries them out.
+ *
+ * Markup contract (data attributes only — module-agnostic, Rule 8):
+ *   [data-window-open="<url>"]  a trigger: GET <url> in fetch mode, the answer becomes a window.
+ *                               Keep an `href` on a link: without the script, and on a ctrl/⌘
+ *                               click, it is a plain page load.
+ *   [data-origin="<name>"]      (optional, on the trigger) the origin to report; default: the
+ *                               window the trigger sits in (`window:<id>`), else the fetch
+ *                               region (`region:<name>`), else `page`. Sent as `_origin`.
+ *   In the controller's answer, on the content's root element:
+ *   [data-window="<mask>"]              the mask (form) this window is
+ *   [data-window-entity="<type>:<id>"]  the record it shows
+ *   [data-window-title="…"]             the title bar text
+ *   [data-window-width="<length>"]      (optional) the width the controller wants for this content
+ *                                       (e.g. `62rem`; rem/ch/px/%/vw) — a phone ignores it
+ *   [data-window-confirm-close="…"]     ask this question before closing (the controller's call)
+ *   Inside a window:
+ *   a[data-window-link]         loads its href into THIS window (read view ↔ edit form)
+ *   [data-window-close]         closes this window (and its children); so does
+ *                               [data-popup-close] inside a window, × and Esc
+ *   <form method="post">        is sent by fetch as FormData to its action; the answer is HTML
+ *                               (this window's new content, e.g. errors) or an envelope
+ *
+ * Identity = mask + entity: the same mask on the same record opens ONCE (a second click brings
+ * it to the front). Two masks on one record are allowed — unless an editable field (a named
+ * input that is not hidden, disabled or read-only; `_…` and `csrf_token` excluded) is in both:
+ * then the second does not open, the first comes to the front and a message names the field.
+ * Placement (side by side, on top, draggable) is CSS only — nothing here depends on it.
+ */
+_Z77.core.windows = (function () {
+    var _seq = 0;
+    var _layer = null;
+
+    function _container() {
+        if (_layer) return _layer;
+        _layer = document.createElement('div');
+        _layer.className = 'z77-windows';
+        _layer.setAttribute('data-z77-windows', '');
+        _layer.hidden = true;
+        document.body.appendChild(_layer);
+        return _layer;
+    }
+    function all() {
+        return _layer ? Array.prototype.slice.call(_layer.children).filter(function (w) { return w.hasAttribute('data-z77-window'); }) : [];
+    }
+    function byId(id) {
+        return id ? all().filter(function (w) { return w.getAttribute('data-z77-window') === String(id); })[0] || null : null;
+    }
+    function of(el) { return el && el.closest ? el.closest('[data-z77-window]') : null; }
+
+    /* The page behind is inert while a window is open; the windows among themselves are not. */
+    function _inert(on) {
+        Array.prototype.forEach.call(document.body.children, function (c) {
+            // The message and flash channels stay live: a message about a window (a field
+            // conflict, «gespeichert») must be readable and closable above the windows.
+            // The help window (ADR-048) is read beside the form: it stays live as well.
+            if (c === _layer || c.tagName === 'SCRIPT' || c.tagName === 'DIALOG' || c.id === 'messages' || c.id === 'flash-messages' || c.hasAttribute('data-z77-help')) return;
+            if (on) c.setAttribute('inert', ''); else c.removeAttribute('inert');
+        });
+    }
+
+    function front(win) {
+        all().forEach(function (w) { w.classList.toggle('is-front', w === win); });
+    }
+
+    function _editable(root) {
+        var names = {};
+        root.querySelectorAll('input[name], select[name], textarea[name]').forEach(function (el) {
+            var type = (el.getAttribute('type') || '').toLowerCase();
+            if (type === 'hidden' || type === 'submit' || type === 'button' || el.disabled || el.readOnly) return;
+            var name = el.name.replace(/\[\]$/, '');
+            if (name.charAt(0) === '_' || name === 'csrf_token') return;
+            names[name] = true;
+        });
+        return Object.keys(names);
+    }
+
+    function _identity(root) {
+        var mask   = root ? root.getAttribute('data-window') : null;
+        var entity = root ? root.getAttribute('data-window-entity') : null;
+        return mask && entity ? { mask: mask, entity: entity, key: mask + '|' + entity } : null;
+    }
+
+    /* The open window this content may not open beside — and why. */
+    function _conflict(root) {
+        var id = _identity(root);
+        if (!id) return null;
+        var fields = _editable(root);
+        var hit = null;
+        all().some(function (w) {
+            var other = w._z77Identity;
+            if (!other) return false;
+            if (other.key === id.key) { hit = { win: w }; return true; }
+            if (other.entity !== id.entity) return false;
+            var shared = fields.filter(function (f) { return (w._z77Fields || []).indexOf(f) !== -1; });
+            if (shared.length) {
+                hit = { win: w, message: _Z77.core.i18n.t('js.windowFieldOpen', 'Das Feld ist bereits in einem offenen Fenster in Bearbeitung') + ': ' + shared.join(', ') };
+                return true;
+            }
+            return false;
+        });
+        return hit;
+    }
+
+    function _build(parentId, origin) {
+        var win = document.createElement('section');
+        win.className = 'z77-window';
+        win.setAttribute('data-z77-window', String(++_seq));
+        win.setAttribute('role', 'dialog');
+        win.setAttribute('aria-modal', 'true');
+        win.tabIndex = -1;
+        if (parentId) win.setAttribute('data-z77-window-parent', parentId);
+        win._z77Origin = origin || 'page';
+        win.innerHTML = '<header class="z77-window__head"><span class="z77-window__title"></span>'
+            + '<button type="button" class="z77-window__close" data-window-close aria-label="'
+            + _Z77.core.i18n.t('common.close', 'Schliessen') + '">×</button></header>'
+            + '<div class="z77-window__body"></div>';
+        return win;
+    }
+
+    /* The «i» in the title bar (ADR-048): there while the content carries a help template, gone
+     * when new content (read view ↔ edit form) has none. */
+    function _helpButton(win, body) {
+        var head = win.querySelector('.z77-window__head');
+        var btn  = head.querySelector('[data-help-open]');
+        var has  = !!body.querySelector('template[data-help]');
+        if (has && !btn) {
+            var label = _Z77.core.i18n.t('common.help', 'Hilfe');
+            btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'z77-help-open';
+            btn.setAttribute('data-help-open', '');
+            btn.setAttribute('aria-label', label);
+            btn.title = label;
+            btn.textContent = 'i';
+            head.insertBefore(btn, head.querySelector('.z77-window__close'));
+        } else if (!has && btn) {
+            btn.parentNode.removeChild(btn);
+        }
+    }
+
+    /* New content for a window: the controller's answer (HTML, fetch skeleton = `main`). */
+    function fill(win, html, sourceUrl) {
+        var extracted = _Z77.core.fetch.extractEnvelope(html);
+        var body = win.querySelector('.z77-window__body');
+        body.innerHTML = extracted.html;
+        var root = body.querySelector('[data-window]') || body.firstElementChild;
+        win._z77Src      = sourceUrl;
+        win._z77Identity = _identity(root);
+        win._z77Fields   = root ? _editable(root) : [];
+        win.querySelector('.z77-window__title').textContent = root ? (root.getAttribute('data-window-title') || '') : '';
+        // The controller knows how wide its content must be (a form row must not scroll sideways).
+        var width = root ? root.getAttribute('data-window-width') : null;
+        if (width && /^\d{1,3}(\.\d{1,2})?(rem|ch|px|%|vw)$/.test(width)) win.style.setProperty('--z77-window-width', width);
+        else win.style.removeProperty('--z77-window-width');
+        _helpButton(win, body);
+        var ctx = { window: win.getAttribute('data-z77-window') };
+        _Z77.core.wire(body, sourceUrl, ctx);
+        _bindCheckUrl(body);
+        if (extracted.envelope) _Z77.core.fetch.handleEnvelope(extracted.envelope, sourceUrl, ctx);
+    }
+
+    function _url(url, origin) {
+        var u = new URL(url, window.location.href);
+        if (origin) u.searchParams.set('_origin', origin);
+        return u.toString();
+    }
+
+    function _get(url) {
+        return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(function (r) { return r.text(); });
+    }
+
+    /* Opens <url> as a window — or brings the window that already shows it to the front. */
+    function open(url, opts) {
+        opts = opts || {};
+        var target = _url(url, opts.origin);
+        return _get(target).then(function (html) {
+            var probe = document.createElement('div');
+            probe.innerHTML = _Z77.core.fetch.extractEnvelope(html).html;
+            var hit = _conflict(probe.querySelector('[data-window]'));
+            if (hit) {
+                front(hit.win);
+                hit.win.focus();
+                if (hit.message) _Z77.core.message.show('error', hit.message);
+                return hit.win;
+            }
+            var win = _build(opts.parent || '', opts.origin);
+            var layer = _container();
+            layer.appendChild(win);
+            if (layer.hidden) { layer.hidden = false; _inert(true); }
+            fill(win, html, target);
+            front(win);
+            win.focus();
+            return win;
+        }).catch(function () { window.location.href = url; });
+    }
+
+    /* Loads <url> into an open window (read view ↔ edit form); the origin stays the window's. */
+    function load(win, url) {
+        var target = _url(url, win._z77Origin);
+        return _get(target).then(function (html) { fill(win, html, target); front(win); });
+    }
+
+    /* Closes a window and the windows opened from it. `force` skips the controller's question. */
+    function close(win, force) {
+        if (!win) return false;
+        var id = win.getAttribute('data-z77-window');
+        var children = all().filter(function (w) { return w.getAttribute('data-z77-window-parent') === id; });
+        for (var i = 0; i < children.length; i++) {
+            if (!close(children[i], force)) return false;
+        }
+        var ask = win.querySelector('[data-window-confirm-close]');
+        if (!force && ask && !window.confirm(ask.getAttribute('data-window-confirm-close'))) return false;
+        win.parentNode.removeChild(win);
+        var rest = all();
+        if (!rest.length) { _layer.hidden = true; _inert(false); }
+        else { front(rest[rest.length - 1]); rest[rest.length - 1].focus(); }
+        return true;
+    }
+
+    /* 'page' → document; 'region:<name>' → that fetch region; 'window:<id>' → that window. */
+    function scope(origin) {
+        if (!origin || origin === 'page') return document;
+        var i = origin.indexOf(':');
+        var kind = origin.slice(0, i), name = origin.slice(i + 1);
+        if (kind === 'window') return byId(name);
+        if (kind === 'region') return document.querySelector('[data-fetch-region="' + name + '"]');
+        return document;
+    }
+
+    function _originOf(el) {
+        var own = el.getAttribute('data-origin');
+        if (own) return own;
+        var win = of(el);
+        if (win) return 'window:' + win.getAttribute('data-z77-window');
+        var region = el.closest('[data-fetch-region]');
+        return region ? 'region:' + region.getAttribute('data-fetch-region') : 'page';
+    }
+
+    function bind() {
+        document.addEventListener('click', function (e) {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            var opener = e.target.closest('[data-window-open]');
+            if (opener) {
+                e.preventDefault();
+                var parent = of(opener);
+                open(opener.getAttribute('data-window-open'), {
+                    origin: _originOf(opener),
+                    parent: parent ? parent.getAttribute('data-z77-window') : ''
+                });
+                return;
+            }
+            var win = of(e.target);
+            if (!win) return;
+            var link = e.target.closest('a[data-window-link]');
+            if (link) { e.preventDefault(); load(win, link.href); return; }
+            if (e.target.closest('[data-window-close], [data-popup-close]')) { close(win); return; }
+            front(win);
+        });
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            var win = of(form);
+            if (!win || e.defaultPrevented || form.hasAttribute('data-fetch-post')) return;
+            if ((form.getAttribute('method') || 'get').toLowerCase() !== 'post') return;
+            e.preventDefault();
+            var data = e.submitter ? new FormData(form, e.submitter) : new FormData(form);
+            _Z77.core.fetch.postForm(form.action, data, { window: win.getAttribute('data-z77-window') });
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape' || !all().length || document.querySelector('dialog[open]')) return;
+            var win = _layer.querySelector('.is-front') || all()[all().length - 1];
+            if (win) { e.preventDefault(); close(win); }
+        });
+    }
+
+    return { open: open, load: load, fill: fill, close: close, front: front, byId: byId, of: of, scope: scope, all: all, bind: bind };
+})();
+
+/* ── help (ADR-048) ────────────────────────────────────────────────────────
+ * The help window: the text a controller attached to its answer, opened by an «i» and read
+ * BESIDE the form. Not modal — the page and the windows stay usable; it stays open until it
+ * is closed or the page changes (closing a form's window does not close it; Esc does not
+ * either — Esc belongs to the front window).
+ *
+ * Markup contract (data attributes only — module-agnostic, Rule 8):
+ *   <template data-help data-help-title="…">…</template>
+ *                               the help, rendered by HelpService at the end of `main` (page and
+ *                               fetch mode — so a window's body carries it too). Inert until opened.
+ *   [data-help-open]            opens the help that belongs to where it stands — inside a
+ *                               window that window's template; outside a window (the top bar's
+ *                               «? Hilfe») the template of the window that holds the last focused
+ *                               field, else the first template of the page outside any window.
+ *                               No template → nothing happens. A shell renders «? Hilfe»
+ *                               (`partials/helpTrigger`, `[data-help-trigger]`, server-side
+ *                               `hidden` — revealed here, so without JS there is no button);
+ *                               `windows.fill()` adds the «i» to a window's title bar.
+ *   [data-help-field="<key>"]   a section INSIDE the help template about one field (owner
+ *                               2026-10-08). Opening scrolls to the section of the field focused
+ *                               last and marks it `is-help-hit` for 1.6 s; no match → the top
+ *                               (the general part).
+ *   [data-help-key="<key>"]     on a form control: the key its help section carries, when it is
+ *                               not the control's `name` (default: `name` without `[…]`, so
+ *                               `debit[]` → `debit`).
+ *   F1 in a form control        opens the same help (preventDefault only when there is help).
+ *   Inside the help window (built here):
+ *   [data-help-full]            toggles full screen (`is-full`, aria-pressed follows)
+ *   [data-help-close]           closes the help window
+ *
+ * ONE help window: a second «i» replaces its content and title. Placement: docked to the right,
+ * full height (`is-docked`); dragging the title bar makes it float (`is-floating`). Resizing is
+ * CSS (`resize`), the geometry lives in kernel/shared `_help.scss`, the look in the host.
+ */
+_Z77.core.help = (function () {
+    var _win    = null;
+    var _last   = null;   // the form control focused last outside the help window
+    var _HIT_MS = 1600;   // the fade in `_help.scss` (`is-help-hit`)
+
+    function _build() {
+        var t = _Z77.core.i18n.t;
+        _win = document.createElement('aside');
+        _win.className = 'z77-help is-docked';
+        _win.setAttribute('data-z77-help', '');
+        _win.setAttribute('role', 'complementary');
+        _win.setAttribute('aria-labelledby', 'z77-help-title');
+        _win.innerHTML = '<header class="z77-help__head"><span class="z77-help__title" id="z77-help-title"></span>'
+            + '<button type="button" class="z77-help__full" data-help-full aria-pressed="false" aria-label="'
+            + t('common.fullscreen', 'Vollbild') + '" title="' + t('common.fullscreen', 'Vollbild') + '">⤢</button>'
+            + '<button type="button" class="z77-help__close" data-help-close aria-label="'
+            + t('common.close', 'Schliessen') + '" title="' + t('common.close', 'Schliessen') + '">×</button></header>'
+            + '<div class="z77-help__body"></div>';
+        document.body.appendChild(_win);
+        _drag(_win.querySelector('.z77-help__head'));
+        return _win;
+    }
+
+    /* The help of a window, or of the page (the first template outside any window). */
+    function _templateIn(win) {
+        if (win) return win.querySelector('.z77-window__body template[data-help]');
+        var all = document.querySelectorAll('template[data-help]');
+        for (var i = 0; i < all.length; i++) {
+            if (!_Z77.core.windows.of(all[i])) return all[i];
+        }
+        return null;
+    }
+
+    /* The help that belongs to where the opener stands. Outside a window (the top bar) the
+     * last focused field decides: in a window with help → that help, else the page's. */
+    function _templateFor(el) {
+        var win = _Z77.core.windows.of(el);
+        if (win) return _templateIn(win);
+        if (_last && _last.isConnected) {
+            var lastWin = _Z77.core.windows.of(_last);
+            var tpl = lastWin ? _templateIn(lastWin) : null;
+            if (tpl) return tpl;
+        }
+        return _templateIn(null);
+    }
+
+    /* A field the help can be about: a form control, not one of the help window's own. */
+    function _isField(el) {
+        if (!el || !el.matches || !el.matches('input, select, textarea')) return false;
+        if (/^(hidden|submit|button|reset|image)$/i.test(el.type || '')) return false;
+        return !el.closest('[data-z77-help]');
+    }
+
+    /* The section key of a field: `data-help-key`, else its name without brackets. */
+    function _keyOf(el) {
+        var key = el.getAttribute('data-help-key');
+        if (key) return key;
+        return (el.getAttribute('name') || '').replace(/\[[^\]]*\]$/, '');
+    }
+
+    /* The key of the last field — only when it lies in the same scope (page / window) as
+     * the help being opened; a field of another window says nothing about this help. */
+    function _lastKeyFor(tpl) {
+        if (!_last || !_last.isConnected) return '';
+        return _Z77.core.windows.of(_last) === _Z77.core.windows.of(tpl) ? _keyOf(_last) : '';
+    }
+
+    /* Scrolls the help body to the section about `key` and marks it; none → the top.
+     * Compares attribute values — the key never goes into a selector. */
+    function _reveal(body, key) {
+        body.scrollTop = 0;
+        if (!key) return;
+        var all = body.querySelectorAll('[data-help-field]'), sec = null;
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].getAttribute('data-help-field') === key) { sec = all[i]; break; }
+        }
+        if (!sec) return;
+        body.scrollTop = sec.getBoundingClientRect().top - body.getBoundingClientRect().top - 8;
+        sec.classList.add('is-help-hit');
+        setTimeout(function () { sec.classList.remove('is-help-hit'); }, _HIT_MS);
+    }
+
+    /* Shows <template>'s content in the help window (opens it, or replaces what it shows),
+     * at the section of `key` when the help has one. */
+    function open(tpl, key) {
+        if (!tpl || !tpl.content) return null;
+        var win = _win || _build();
+        win.querySelector('.z77-help__title').textContent = tpl.getAttribute('data-help-title') || _Z77.core.i18n.t('common.help', 'Hilfe');
+        var body = win.querySelector('.z77-help__body');
+        body.textContent = '';
+        body.appendChild(tpl.content.cloneNode(true));
+        _reveal(body, key || '');
+        return win;
+    }
+
+    /* Removes the help window; the next «i» builds a fresh one, docked again. */
+    function close() {
+        if (_win && _win.parentNode) _win.parentNode.removeChild(_win);
+        _win = null;
+    }
+
+    function _full(on) {
+        _win.classList.toggle('is-full', on);
+        _win.querySelector('[data-help-full]').setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+
+    /* Dragging the title bar. JavaScript because CSS cannot move an element by pointer
+     * (rule 7) — it only sets left/top; size stays CSS `resize`, the rest stays in the SCSS. */
+    function _drag(head) {
+        var dx = 0, dy = 0, active = false;
+        head.addEventListener('pointerdown', function (e) {
+            if (e.button !== 0 || e.target.closest('button') || _win.classList.contains('is-full')) return;
+            var r = _win.getBoundingClientRect();
+            dx = e.clientX - r.left;
+            dy = e.clientY - r.top;
+            active = true;
+            head.setPointerCapture(e.pointerId);
+            e.preventDefault();   // no text selection while dragging
+        });
+        head.addEventListener('pointermove', function (e) {
+            if (!active) return;
+            var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+            if (_win.classList.contains('is-docked')) {
+                // Leaving the dock: keep the width, give up the full height.
+                var r = _win.getBoundingClientRect();
+                _win.style.width  = r.width + 'px';
+                _win.style.height = Math.min(r.height, Math.round(vh * 0.7)) + 'px';
+                _win.classList.remove('is-docked');
+                _win.classList.add('is-floating');
+            }
+            var w = _win.offsetWidth, h = _win.offsetHeight;
+            _win.style.left = Math.max(0, Math.min(e.clientX - dx, vw - w)) + 'px';
+            _win.style.top  = Math.max(0, Math.min(e.clientY - dy, vh - h)) + 'px';
+        });
+        function stop(e) {
+            if (!active) return;
+            active = false;
+            if (head.hasPointerCapture(e.pointerId)) head.releasePointerCapture(e.pointerId);
+        }
+        head.addEventListener('pointerup', stop);
+        head.addEventListener('pointercancel', stop);
+    }
+
+    function bind() {
+        // The trigger is rendered `hidden` (no script, no help window — no button).
+        var triggers = document.querySelectorAll('[data-help-trigger][hidden]');
+        for (var i = 0; i < triggers.length; i++) triggers[i].hidden = false;
+
+        document.addEventListener('focusin', function (e) {
+            if (_isField(e.target)) _last = e.target;
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'F1' || e.altKey || e.ctrlKey || e.metaKey || !_isField(e.target)) return;
+            var tpl = _templateIn(_Z77.core.windows.of(e.target));
+            if (!tpl) return;   // no help here: F1 stays the browser's
+            e.preventDefault();
+            _last = e.target;
+            open(tpl, _keyOf(e.target));
+        });
+        document.addEventListener('click', function (e) {
+            if (e.button !== 0) return;
+            var opener = e.target.closest('[data-help-open]');
+            if (opener) {
+                e.preventDefault();
+                var tpl = _templateFor(opener);
+                open(tpl, tpl ? _lastKeyFor(tpl) : '');
+                return;
+            }
+            if (!_win || !_win.contains(e.target)) return;
+            if (e.target.closest('[data-help-close]')) { close(); return; }
+            if (e.target.closest('[data-help-full]')) _full(!_win.classList.contains('is-full'));
+        });
+    }
+
+    return { open: open, close: close, bind: bind };
+})();
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
+    _Z77.core.windows.bind();
+    _Z77.core.help.bind();
+    _Z77.core.region.bind();
     _Z77.core.i18n.load();
     _Z77.core.wire(document);
     _bindCheckUrl(document);
