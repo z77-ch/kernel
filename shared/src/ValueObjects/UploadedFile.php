@@ -68,12 +68,13 @@ final class UploadedFile
         if (!is_file($this->tmpPath)) {
             return '';
         }
+        // No finfo_close(): deprecated since PHP 8.5 (the handle is freed with the
+        // object), and the project servers run 8.5 since 2026-10-09.
         $info = finfo_open(FILEINFO_MIME_TYPE);
         if ($info === false) {
             return '';
         }
         $mime = finfo_file($info, $this->tmpPath);
-        finfo_close($info);
 
         return $mime ?: '';
     }
