@@ -391,8 +391,14 @@ class Bootstrap
         return $di->getDispatcher();
     }
 
-    /** Load global helpers — only after successful routing, before Dispatcher::execute(). */
-    private function loadGlobalHelpers(): void
+    /**
+     * The template helpers (`e()`, `raw()`, `t()`, `localizedUrl()` …) without the
+     * debug exception handler. A web request gets them through pullUp(); a CLI
+     * entry that renders a template — the job runner sending a template mail
+     * (`stats-report-mail`) — calls this after pullUpServices(). Found 2026-09-26:
+     * before it, a template mail from a cron job died on «undefined function e()».
+     */
+    public function loadTemplateHelpers(): void
     {
         $fileFinder = DI::getFileFinder();
         require_once $fileFinder->getFirstSourceMatch(
@@ -403,6 +409,13 @@ class Bootstrap
             'autoload/prod/php/Helper.php',
             Naming::toNamespaceString(['Z77', 'Core'])
         );
+    }
+
+    /** Load global helpers — only after successful routing, before Dispatcher::execute(). */
+    private function loadGlobalHelpers(): void
+    {
+        $this->loadTemplateHelpers();
+        $fileFinder = DI::getFileFinder();
         if (DEBUG) {
             require_once $fileFinder->getFirstSourceMatch(
                 'autoload/debug/php/Functions.php',

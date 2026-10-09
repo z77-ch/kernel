@@ -47,5 +47,13 @@ return [
             'subject'  => 'New contact form request',
             'template' => ['emails/publicForm', 'Z77\\Shared'],
         ],
+        // The monthly statistics mail (`stats-report-mail`, docs/topics/stats.md):
+        // the link to last month's report. A project that switches the job on
+        // copies this entry into its override and sets 'to'.
+        'statsReport' => [
+            'to'       => '',
+            'subject'  => 'Besuchsstatistik',
+            'template' => ['emails/statsReport', 'Z77\\Shared'],
+        ],
     ],
 ];

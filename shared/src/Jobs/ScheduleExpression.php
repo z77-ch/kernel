@@ -3,19 +3,26 @@
 namespace Z77\Shared\Jobs;
 
 /**
- * When a schedule is next due (ADR-031). Four deliberately small forms:
+ * When a schedule is next due (ADR-031). Five deliberately small forms:
  *
  *   every:15m            every 15 minutes, measured from the last run
  *   every:2h             every 2 hours, likewise
  *   hourly@:20           every hour at minute 20
  *   daily@03:15          every day at 03:15
  *   weekly@mon,03:15     every Monday at 03:15
+ *   monthly@1,06:00      on the 1st of every month at 06:00
+ *
+ * `monthly` was added 2026-09-26 for the statistics report mail
+ * (`stats-report-mail`, stats.md): a report about LAST month belongs on the
+ * 1st, and a daily job that only acts on the 1st would hide its real
+ * schedule in its code. The day is 1–28 on purpose — a 31st that silently
+ * skips February is exactly the kind of cron surprise this class avoids.
  *
  * NOT a cron expression, on purpose. A cron parser is a few hundred lines with
  * its own edge cases, and its errors are silent — `15 3 * * 7` looks right and
  * fires on the wrong day. These four forms cover what a website installation
  * actually schedules, read out loud correctly, and map onto a backend select
- * box. A cron form can be added later as a fifth case without changing anything
+ * box. A cron form can be added later as a further case without changing anything
  * around it.
  *
  * The wall-clock forms ignore the last run: 03:15 means 03:15, whether or not
@@ -24,6 +31,9 @@ namespace Z77\Shared\Jobs;
  */
 final class ScheduleExpression
 {
+    /** The readable forms, for help texts and error messages. */
+    public const FORMS = 'every:15m, every:2h, hourly@:20, daily@03:15, weekly@mon,03:15 or monthly@1,06:00';
+
     private const DAYS = ['mon' => 1, 'tue' => 2, 'wed' => 3, 'thu' => 4, 'fri' => 5, 'sat' => 6, 'sun' => 7];
 
     private function __construct(
@@ -33,6 +43,7 @@ final class ScheduleExpression
         private int $hour,
         private int $minute,
         private int $weekday,
+        private int $monthDay = 0,
     ) {}
 
     /** @throws \InvalidArgumentException on an unreadable expression */
@@ -63,8 +74,16 @@ final class ScheduleExpression
             return new self($expression, 'weekly', 0, self::hour($expression, (int) $m[2]), self::minute($expression, (int) $m[3]), self::DAYS[$m[1]]);
         }
 
+        if (preg_match('/^monthly@(\d{1,2}),(\d{1,2}):(\d{2})$/', $expression, $m)) {
+            $day = (int) $m[1];
+            if ($day < 1 || $day > 28) {
+                throw new \InvalidArgumentException("Schedule '{$expression}': day {$day} is out of range (1–28, so that every month has it)");
+            }
+            return new self($expression, 'monthly', 0, self::hour($expression, (int) $m[2]), self::minute($expression, (int) $m[3]), 0, $day);
+        }
+
         throw new \InvalidArgumentException(
-            "Schedule '{$expression}' is not readable. Use every:15m, every:2h, hourly@:20, daily@03:15 or weekly@mon,03:15."
+            "Schedule '{$expression}' is not readable. Use " . self::FORMS . '.'
         );
     }
 
@@ -101,6 +120,17 @@ final class ScheduleExpression
         if ($this->kind === 'weekly') {
             $shift     = ($this->weekday - (int) $candidate->format('N') + 7) % 7;
             $candidate = $candidate->modify("+{$shift} day");
+        }
+
+        if ($this->kind === 'monthly') {
+            // The day in THIS month; if that moment has passed, the same day of
+            // the next month. setDate() with a day of 1–28 never overflows.
+            $candidate = $candidate->setDate((int) $candidate->format('Y'), (int) $candidate->format('n'), $this->monthDay);
+            if ($candidate->getTimestamp() <= $after) {
+                $next      = $candidate->modify('first day of next month');
+                $candidate = $next->setDate((int) $next->format('Y'), (int) $next->format('n'), $this->monthDay);
+            }
+            return $candidate->getTimestamp();
         }
 
         if ($candidate->getTimestamp() > $after) {

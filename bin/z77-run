@@ -83,6 +83,9 @@ use Z77\Shared\Jobs\JobSchedules;
 try {
     $boot = new Bootstrap();
     $boot->pullUpServices();
+    // A job may render a template (a template mail: stats-report-mail) — the
+    // web path loads these helpers in pullUp(), the runner has to ask.
+    $boot->loadTemplateHelpers();
 } catch (\Throwable $e) {
     fwrite(STDERR, 'z77-run: boot failed — ' . $e->getMessage() . "\n");
     exit(1);

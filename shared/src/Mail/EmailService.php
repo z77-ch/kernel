@@ -146,6 +146,26 @@ final class EmailService
         }
     }
 
+    /**
+     * Where a form mail would go right now — resolved exactly as {@see sendForm()}
+     * resolves it (active backend record first, else emailConfig; default route),
+     * for a screen that says «goes to …» next to its send button. Reading the
+     * config directly would miss a backend override (mail.md rule). Throws like
+     * sendForm() on an unknown form key.
+     *
+     * @return array{to: list<string>, cc: list<string>}
+     */
+    public function formRecipients(string $formKey): array
+    {
+        $cfg      = DI::getConfigManager()->getArrayConfig(self::CONFIG_NAME, self::CONFIG_NAMESPACE);
+        $settings = $this->resolveFormSettings($formKey, $cfg);
+
+        return [
+            'to' => $this->resolveRecipients($settings['to']),
+            'cc' => $this->resolveRecipients($settings['cc']),
+        ];
+    }
+
     /** @return list<string> empty on success */
     public function getLastErrors(): array
     {
