@@ -13,7 +13,8 @@ use Z77\Shared\Libraries\ConfigLocator;
  * the Doctrine driver (ADR-039 decision 4); every failure throws \RuntimeException.
  *
  * Types: data (the data/ tree), db (SQL dump, only when a database is
- * configured), full (project root minus the configured excludes).
+ * configured), full (project root minus the configured excludes, plus the
+ * SQL dump as `database/{name}.sql` when a database is configured).
  */
 final class BackupService
 {
@@ -146,7 +147,7 @@ final class BackupService
 
         $files = match ($type) {
             BackupType::Data => (new ZipArchiver())->zipDirectory($this->baseDir . '/data', $zipPath, self::DATA_EXCLUDES),
-            BackupType::Full => (new ZipArchiver())->zipDirectory($this->baseDir, $zipPath, $this->fullExcludes()),
+            BackupType::Full => $this->runFullBackup($zipPath),
             BackupType::Db   => $this->runDbBackup($zipPath),
         };
 
@@ -234,15 +235,57 @@ final class BackupService
             );
         }
 
-        $dumper  = $this->dbDumper ?? new MysqlDumper();
         $sqlFile = $zipPath . '.sql';
 
         try {
-            $dumper->dump($this->dumpConfig(), $sqlFile);
+            $this->dumpDatabase($sqlFile);
             return (new ZipArchiver())->zipFile($sqlFile, $zipPath, basename($zipPath, '.zip') . '.sql');
         } finally {
             @unlink($sqlFile);
         }
+    }
+
+    /**
+     * The project tree plus — when a database is configured — its SQL dump as
+     * `database/{name}.sql` inside the same archive. «Full» means the whole
+     * installation, and since ADR-039 that includes the relational data; a full
+     * archive that left the database out would restore a project whose
+     * invoices, journals and debtors are gone while looking complete. A dump
+     * failure therefore fails the whole run (the installer error model: loud,
+     * not partial). Without a configured database the archive is the file
+     * tree alone, exactly as before.
+     *
+     * The dump is written next to the archive and packed through the same
+     * `.tmp`-then-rename write as the tree; it is removed afterwards — the
+     * archive is the only copy.
+     */
+    private function runFullBackup(string $zipPath): int
+    {
+        if (!$this->isDatabaseConfigured()) {
+            return (new ZipArchiver())->zipDirectory($this->baseDir, $zipPath, $this->fullExcludes());
+        }
+
+        $sqlFile = $zipPath . '.sql';
+
+        try {
+            $this->dumpDatabase($sqlFile);
+            $entryName = 'database/' . trim((string)$this->database['name']) . '.sql';
+
+            return (new ZipArchiver())->zipDirectory(
+                $this->baseDir,
+                $zipPath,
+                $this->fullExcludes(),
+                [$entryName => $sqlFile]
+            );
+        } finally {
+            @unlink($sqlFile);
+        }
+    }
+
+    /** Writes the configured database to $sqlFile through the dumper (`MysqlDumper` unless injected). */
+    private function dumpDatabase(string $sqlFile): void
+    {
+        ($this->dbDumper ?? new MysqlDumper())->dump($this->dumpConfig(), $sqlFile);
     }
 
     /**

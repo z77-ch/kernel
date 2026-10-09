@@ -60,6 +60,19 @@ require_once $projectRoot . '/vendor/autoload.php';
 
 use Z77\Shared\Backup\BackupService;
 use Z77\Shared\Backup\BackupType;
+use Z77\Shared\Libraries\ConfigLocator;
+
+// The archive name carries the timestamp retention reasons about, and the
+// backend (booted, `Bootstrap` step 5) stamps it in the installation's time
+// zone. This script boots nothing, so without this line a CLI archive would be
+// named in php.ini's zone (UTC on a stock install) — two clocks in one
+// directory, and the `last`/`daily` tiers would compare them as if they were
+// one. Same source as the kernel: `timeZone` of config/vendor/bootstrap.inc.php.
+$bootstrapFile = ConfigLocator::path('bootstrap.inc.php', $projectRoot);
+$bootstrap     = $bootstrapFile !== null ? require $bootstrapFile : [];
+if (is_array($bootstrap) && trim((string)($bootstrap['timeZone'] ?? '')) !== '') {
+    date_default_timezone_set((string)$bootstrap['timeZone']);
+}
 
 $type = BackupType::fromName($typeArg);
 if ($type === null) {

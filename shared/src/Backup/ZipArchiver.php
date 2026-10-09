@@ -37,10 +37,16 @@ final class ZipArchiver
      * @param list<string> $excludeRelPaths paths relative to $sourceDir (forward
      *                                      slashes, no leading slash); an entry
      *                                      excludes that file or whole subtree.
+     * @param array<string, string> $extraFiles files from OUTSIDE the tree to pack
+     *                                      into the same archive, entry name =>
+     *                                      absolute path (the full backup adds
+     *                                      the database dump this way). They must
+     *                                      exist until this method returns —
+     *                                      `ZipArchive` reads at close().
      *
-     * @return int number of files added
+     * @return int number of files added (tree + extras)
      */
-    public function zipDirectory(string $sourceDir, string $zipPath, array $excludeRelPaths = []): int
+    public function zipDirectory(string $sourceDir, string $zipPath, array $excludeRelPaths = [], array $extraFiles = []): int
     {
         $sourceDir = rtrim(str_replace('\\', '/', $sourceDir), '/');
         if (!is_dir($sourceDir)) {
@@ -65,6 +71,15 @@ final class ZipArchiver
 
         try {
             $count = $this->addTree($zip, $sourceDir, '', $excludes, $visited);
+            foreach ($extraFiles as $entryName => $filePath) {
+                if (!is_file($filePath)) {
+                    throw new \RuntimeException("Backup source file not found: {$filePath}");
+                }
+                if (!$zip->addFile($filePath, $entryName)) {
+                    throw new \RuntimeException("Failed to add file to backup archive: {$entryName}");
+                }
+                $count++;
+            }
         } catch (\Throwable $e) {
             $zip->close();
             @unlink($zipPath . '.tmp');

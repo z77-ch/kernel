@@ -50,7 +50,11 @@ return [
     // user. Whether a `db` backup runs at all is decided by database.inc.php
     // (an empty 'name' there = no database).
     'dump'         => [
-        'mysqldump' => 'mysqldump',   // binary, override when not on PATH
+        'mysqldump' => 'mysqldump',   // binary name, resolved via PATH. Put MariaDB's bin on the
+                                      // machine's PATH instead of writing its path here: this file
+                                      // is synced with the working copy, the binary's location is
+                                      // not (backup.md BACKUP-DUMP-PATH-001). A path belongs here
+                                      // only on a host that offers the binary by path alone.
         'user'      => null,
         'password'  => null,
     ],
