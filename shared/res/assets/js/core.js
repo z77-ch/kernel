@@ -574,9 +574,41 @@ _Z77.core.fetch = (function () {
         var scope = p.origin ? _Z77.core.windows.scope(p.origin) : document;
         return scope ? scope.querySelector(p.target) : null;
     }
+    /* HTML a command brings in is WIRED like a popup's body (FETCH-ROW-001): a row that a save
+     * replaced or inserted keeps its ⋮ (`data-fetch-get`), its switch (`data-fetch-toggle`),
+     * its forms and blur checks alive — before this, such a row arrived dead until the next
+     * page load, which is why every controller answered `reload`. The fragment is wired BEFORE
+     * it enters the document (listeners survive the move; a fragment's querySelectorAll sees
+     * its top-level nodes too). The wiring context is the window the TARGET lives in, not the
+     * window the request came from: a page row's ⋮ must open on the page. */
+    function _wiredFragment(html, origin) {
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        var ctx = origin && origin.indexOf('window:') === 0 ? { window: origin.slice(7) } : undefined;
+        _Z77.core.wire(tpl.content, undefined, ctx);
+        _bindCheckUrl(tpl.content);
+        return tpl.content;
+    }
+    /* Keyboard focus survives the swap (as `region.load` does it): the focused control is
+     * found again in the new markup by id, else by its toggle URL or name — a switch in a
+     * replaced row usually has no id. */
+    function _focusKey(el) {
+        var a = document.activeElement;
+        if (!a || !el.contains(a)) return '';
+        if (a.id) return '#' + CSS.escape(a.id);
+        if (a.dataset && a.dataset.fetchToggle) return '[data-fetch-toggle="' + CSS.escape(a.dataset.fetchToggle) + '"]';
+        if (a.name) return '[name="' + CSS.escape(a.name) + '"]';
+        return '';
+    }
     registerCommand('replace-html', function (p) {
         var el = _find(p);
-        if (el) el.outerHTML = p.html;
+        if (!el) return;
+        var parent = el.parentNode, key = _focusKey(el);
+        parent.replaceChild(_wiredFragment(p.html, p.origin), el);
+        if (key) {
+            var again = parent.querySelector(key);
+            if (again && typeof again.focus === 'function') again.focus({ preventScroll: true });
+        }
     });
     registerCommand('remove-element', function (p) {
         var el = _find(p);
@@ -585,8 +617,13 @@ _Z77.core.fetch = (function () {
     registerCommand('insert-html', function (p) {
         var el = _find(p);
         if (!el) return;
-        var map = { prepend: 'afterbegin', before: 'beforebegin', after: 'afterend', append: 'beforeend' };
-        el.insertAdjacentHTML(map[p.position] || 'beforeend', p.html);
+        var frag = _wiredFragment(p.html, p.origin);
+        switch (p.position) {
+            case 'prepend': el.insertBefore(frag, el.firstChild); break;
+            case 'before':  el.parentNode.insertBefore(frag, el); break;
+            case 'after':   el.parentNode.insertBefore(frag, el.nextSibling); break;
+            default:        el.appendChild(frag);
+        }
     });
     registerCommand('update-text', function (p) {
         var el = _find(p);
@@ -594,7 +631,9 @@ _Z77.core.fetch = (function () {
     });
     registerCommand('update-html', function (p) {
         var el = _find(p);
-        if (el) el.innerHTML = p.html;
+        if (!el) return;
+        el.textContent = '';
+        el.appendChild(_wiredFragment(p.html, p.origin));
     });
     registerCommand('scroll-to', function (p) {
         var el = _find(p);
@@ -614,10 +653,15 @@ _Z77.core.fetch = (function () {
 
     /* ── popup commands ────────────────────────────────────────────────── */
     // From inside a window, «close the modal» means that window (ADR-047).
+    // A host without the shared popup (the member shell opens native <dialog>s by
+    // `data-dialog-open`) closes the open page dialog instead — one answer vocabulary
+    // for both shells, no second command.
     registerCommand('close-modal', function (_p, _d, ctx) {
         var win = ctx && ctx.window ? _Z77.core.windows.byId(ctx.window) : null;
         if (win) { _Z77.core.windows.close(win, true); return; }
-        _Z77.core.popup.close();
+        if (document.querySelector('[data-z77-popup]')) { _Z77.core.popup.close(); return; }
+        var dialog = document.querySelector('dialog[open]');
+        if (dialog && typeof dialog.close === 'function') dialog.close();
     });
 
     /* ── windows (ADR-047) ─────────────────────────────────────────────── */

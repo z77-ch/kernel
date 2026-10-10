@@ -42,6 +42,66 @@ class FetchResponse implements ResponseInterface
         return $this;
     }
 
+    /*
+     * ── The row vocabulary (ADR-047 addendum 2026-10-10) ──────────────────────────────
+     *
+     * A one-row save answers with what changed, not with `reload`. A list row carries the
+     * entity identity the windows already use — `data-entity="<entity>:<id>"` — and a list
+     * that receives new rows carries `data-entity-list="<entity>"`. The three helpers below
+     * turn «replace the row of invoice 42» into one line; they emit the existing commands
+     * (`replace-html`, `remove-element`, `insert-html`), nothing new in core.js.
+     *
+     * `$origin` (optional) scopes the target to the page part the request came from
+     * ('page' | 'region:<name>' | 'window:<id>'), as every command does.
+     */
+
+    /** The DOM address of one entity row: `[data-entity="<entity>:<id>"]`. */
+    public static function rowTarget(string $entity, int|string $id): string
+    {
+        return '[data-entity="' . $entity . ':' . $id . '"]';
+    }
+
+    /** The DOM address of the list that receives new rows of an entity: `[data-entity-list="<entity>"]`. */
+    public static function listTarget(string $entity): string
+    {
+        return '[data-entity-list="' . $entity . '"]';
+    }
+
+    /** Replace the rendered row of an entity (`replace-html` on its `data-entity` element). */
+    public function replaceRow(string $entity, int|string $id, string $html, string $origin = ''): self
+    {
+        return $this->addCommand('replace-html', self::scoped(['target' => self::rowTarget($entity, $id), 'html' => $html], $origin));
+    }
+
+    /** Remove the row of an entity (`remove-element`). */
+    public function removeRow(string $entity, int|string $id, string $origin = ''): self
+    {
+        return $this->addCommand('remove-element', self::scoped(['target' => self::rowTarget($entity, $id)], $origin));
+    }
+
+    /**
+     * Insert a new row into the entity's list (`insert-html` on its `data-entity-list` element).
+     * $position: 'append' (default) | 'prepend' | 'before' | 'after' — the last two address a
+     * sibling row, so hand its target in through $target.
+     */
+    public function insertRow(string $entity, string $html, string $position = 'append', string $origin = '', ?string $target = null): self
+    {
+        return $this->addCommand('insert-html', self::scoped([
+            'target'   => $target ?? self::listTarget($entity),
+            'html'     => $html,
+            'position' => $position,
+        ], $origin));
+    }
+
+    /** @param array<string,mixed> $params */
+    private static function scoped(array $params, string $origin): array
+    {
+        if ($origin !== '') {
+            $params['origin'] = $origin;
+        }
+        return $params;
+    }
+
     public function send(): void
     {
         http_response_code(200);
