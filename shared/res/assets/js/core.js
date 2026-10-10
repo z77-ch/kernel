@@ -11,8 +11,7 @@
  *   [data-fetch-get]              generic GET trigger
  *   [data-fetch-post]             generic POST submit
  *   [data-check-url]              attribute on a form → blur-validates each input
- *   [data-copy="<selector>"]      any clickable → copies the named element's text
- *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»)
+ *   [data-copy="<selector>"]      any clickable → copies the named element's text *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»)
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
  *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
  *
@@ -952,8 +951,9 @@ _Z77.core.windows = (function () {
         return win;
     }
 
-    /* The «i» in the title bar (ADR-048): there while the content carries a help template, gone
-     * when new content (read view ↔ edit form) has none. */
+    /* The «Hilfe» button in the title bar (ADR-048): there while the content carries a help
+     * template, gone when new content (read view ↔ edit form) has none. It says the word — an
+     * icon stands for a word only where there is no room for it (owner 2026-10-10). */
     function _helpButton(win, body) {
         var head = win.querySelector('.z77-window__head');
         var btn  = head.querySelector('[data-help-open]');
@@ -966,7 +966,7 @@ _Z77.core.windows = (function () {
             btn.setAttribute('data-help-open', '');
             btn.setAttribute('aria-label', label);
             btn.title = label;
-            btn.textContent = 'i';
+            btn.textContent = label;
             head.insertBefore(btn, head.querySelector('.z77-window__close'));
         } else if (!has && btn) {
             btn.parentNode.removeChild(btn);
