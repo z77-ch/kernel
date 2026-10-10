@@ -266,6 +266,24 @@ final class PdfDocument
         return $this->writer->GetY();
     }
 
+    /**
+     * $text cut to $width mm in the current font, ending in «…» when it had to be cut — the
+     * one-line cell of a table (owner 2026-10-10: «zu lange Titel werden mit Ellipsis
+     * dargestellt»). Unchanged when it fits; cut on characters, not bytes (UTF-8 in).
+     */
+    public function fit(string $text, float $width): string
+    {
+        if ($width <= 0 || $this->textWidth($text) <= $width) {
+            return $text;
+        }
+        $chars = mb_str_split($text);
+        while ($chars !== [] && $this->textWidth(rtrim(implode('', $chars)) . '…') > $width) {
+            array_pop($chars);
+        }
+
+        return rtrim(implode('', $chars)) . '…';
+    }
+
     /** The width of $text in the current font, mm. */
     public function textWidth(string $text): float
     {

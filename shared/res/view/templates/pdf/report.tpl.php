@@ -20,6 +20,8 @@
  *                  `columns` / `rows` exactly as `pdf/table` takes them
  *   - `notice`     string — an error line in red above the first block ('' = none), e.g.
  *                  «Aktiven ≠ Passiven — Differenz 12.00»
+ *   - `marginLeft` / `marginRight`  mm (default 12 / 10)
+ *   - `marginLeft` / `marginRight`  mm (default 12 / 10)
  *   - `orientation` is the creator's (`PdfDocument::create(…, 'L')` for a wide journal)
  *
  * Draws through `$pdf` only — echoes nothing.
@@ -33,8 +35,9 @@ $printedAt = (string) ($printedAt ?? '');
 $blocks    = $blocks ?? [];
 $notice    = (string) ($notice ?? '');
 
-$left   = 15.0;
-$right  = $pdf->pageWidth() - 15.0;
+// Margins (owner 2026-10-10): left 12 mm, right 10 mm — a caller may set others.
+$left   = (float) ($marginLeft ?? 12.0);
+$right  = $pdf->pageWidth() - (float) ($marginRight ?? 10.0);
 $width  = $right - $left;
 $footY  = $pdf->pageHeight() - 12.0;
 
@@ -73,7 +76,7 @@ foreach ($blocks as $block) {
         'columns' => $block['columns'],
         'rows'    => $block['rows'],
         'header'  => $block['header'] ?? true,
-        'wrap'    => $block['wrap'] ?? 0,
+        'wrap'    => array_key_exists('wrap', $block) ? $block['wrap'] : 0,   // null = no wrap (`??` would turn it into 0)
         'x'       => $left,
         'y'       => $pdf->y(),
     ], 'Z77\\Shared');

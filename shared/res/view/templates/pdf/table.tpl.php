@@ -14,7 +14,8 @@
  *                 `indent` shifts the first cell (a sub-line); `rule` draws a line ABOVE the row (a totals row)
  *   - `x`, `y`    where the table starts (default: the cursor)
  *   - `fontSize`  points (default 9); `lineHeight` mm (default 4.5)
- *   - `wrap`      int, the index of the column that wraps (default 0); `indent` applies to it
+ *   - `wrap`      int|null, the index of the column that wraps (default 0); `indent` applies to it.
+ *                 null = no column wraps. A one-line cell that is too long ends in «…» (`fit()`).
  *   - `header`    bool, draw the header row (default true)
  *   - `headerFill` bool, a light grey band behind the header (default true)
  *
@@ -50,13 +51,13 @@ if ($header) {
     $y = $drawHeader($y);
 }
 
-$wrap      = (int) ($wrap ?? 0);
-$wrapWidth = (float) $columns[$wrap]['width'];
+$wrap      = array_key_exists('wrap', get_defined_vars()) && $wrap === null ? null : (int) ($wrap ?? 0);
+$wrapWidth = $wrap === null ? 0.0 : (float) $columns[$wrap]['width'];
 foreach ($rows as $row) {
     $cells  = array_values($row['cells']);
     $indent = (float) ($row['indent'] ?? 0);
     $pdf->font(!empty($row['bold']) ? 'B' : '', $fontSize);
-    $lines  = $pdf->lineCount((string) ($cells[$wrap] ?? ''), $wrapWidth - 2 * $pad - $indent);
+    $lines  = $wrap === null ? 1 : $pdf->lineCount((string) ($cells[$wrap] ?? ''), $wrapWidth - 2 * $pad - $indent);
     $height = $lines * $lineHeight + 1;
 
     // A row never splits; a row that does not fit moves to a new page, the header with it.
@@ -78,7 +79,8 @@ foreach ($rows as $row) {
         if ($i === $wrap) {
             $pdf->paragraph($cx + $pad + $indent, $y + 0.5, $w - 2 * $pad - $indent, $text, $lineHeight);
         } elseif ($text !== '') {
-            $pdf->text($cx + $pad, $y + 0.5, $text, $column['align'] ?? 'L', $w - 2 * $pad);
+            $shift = $wrap === null && $i === 0 ? $indent : 0.0;
+            $pdf->text($cx + $pad + $shift, $y + 0.5, $pdf->fit($text, $w - 2 * $pad - $shift), $column['align'] ?? 'L', $w - 2 * $pad - $shift);
         }
         $cx += $w;
     }
