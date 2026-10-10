@@ -17,12 +17,18 @@
 // big `<label for>` — keyboard and screen reader get a real file field, not a
 // div with a click handler.
 
-.z77-upload {
+// Two roots, one set of tokens: the component itself, and — for the `cell` shape — the
+// container the QUEUE is moved into (`[data-upload-progress]`, marked by the script).
+// A row that leaves the component must take its colours with it.
+.z77-upload,
+.z77-upload-queue {
     --z77-up-radius: 14px;
     --z77-up-line: var(--z77-up-border, #c3dadf);
     --z77-up-ground: var(--z77-up-surface, #fff);
     --z77-up-accent-color: var(--z77-up-accent, #0aa5b5);
+}
 
+.z77-upload {
     display: flex;
     flex-direction: column;
     gap: 10px;

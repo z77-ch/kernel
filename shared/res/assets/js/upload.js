@@ -530,11 +530,25 @@ _Z77.upload = (function () {
 
             uploader.bindDrop(form);
 
-            // The action-cell shape has no zone of its own: the work area is the target.
+            // The action-cell shape has no zone of its own: the work area is the target,
+            // and the QUEUE moves out there too. A row with a progress bar cannot be read
+            // in a 210px cell, and the cell must not grow while files upload — so the
+            // list goes where the page offers room (`[data-upload-progress]`), and only
+            // the button stays behind (owner 2026-10-10).
             if (uploader.shape === 'cell') {
                 var area = document.querySelector('[data-upload-area]')
                     || document.querySelector('.be-shell-col--2, .me-shell__work, main');
                 if (area) uploader.bindDrop(area);
+
+                var target = document.querySelector('[data-upload-progress]');
+                if (target) {
+                    // The tokens live on the component's root, so the queue takes a root
+                    // of its own with it — otherwise the rows land outside every
+                    // `--z77-up-*` and render unstyled.
+                    target.classList.add('z77-upload-queue');
+                    target.appendChild(uploader.list);
+                    target.appendChild(uploader.summary);
+                }
             }
         });
     }

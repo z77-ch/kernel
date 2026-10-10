@@ -119,10 +119,28 @@ class Install
     private array  $assetPublishedNew   = [];
     private array  $assetRemovedHere    = [];
 
+    // The reverse direction (INST-ASSET-003): a file the packages no longer
+    // ship, collected by collectDroppedAssets() over the SAME asset trees the walk above just
+    // scanned. Filled only for a tree whose vendor source was actually present this run.
+    //
+    //   $assetUnpublished — on disk, no longer shipped, and still byte-identical to the
+    //                       publication record → deleted by unpublishDroppedAssets().
+    //   $assetForgotten   — record keys only: no longer shipped and already gone from disk.
+    //                       Nothing to delete; the entry is dropped so a file that comes BACK
+    //                       under that name is not misread as "the project deleted it".
+    private array  $assetUnpublished    = [];
+    private array  $assetForgotten      = [];
+
+    // Every shipped asset file the drift walk saw this run, as publication-record keys.
+    // collectDroppedAssets() subtracts it from the record to find what is no longer shipped.
+    private array  $shippedPublicFiles  = [];
+
     // The publication record itself: project-relative path → sha1 at publication time.
-    // It only ever GROWS — an entry for a file the framework no longer ships is dead
-    // weight, not a defect, and is deliberately not pruned (a sha1 per path costs bytes,
-    // while deciding "no longer shipped" would mean trusting one run's view of vendor/).
+    // It grows by itself and shrinks only where the installer ITSELF removed the published
+    // file (or found it already gone) while walking that package's asset tree — never from a
+    // guess about vendor/: a disabled module or a half-installed tree is not walked at all,
+    // so its entries are never considered. An entry for a path outside the walked trees is
+    // dead weight, not a defect, and stays.
     private array  $publishedAssets     = [];
     private bool   $publishedAssetsDirty = false;
 
@@ -193,6 +211,10 @@ class Install
                 // the project never touched since we published them, and files it never had.
                 // A stale copy of an unedited framework file is a bug, not developer ownership.
                 $this->deployUndisputedAssets();
+                // The same argument in the other direction (INST-ASSET-003): a published copy
+                // of a file the packages dropped, still byte-identical to what we wrote, is
+                // ours to take back. Anything the project changed stays.
+                $this->unpublishDroppedAssets();
             }
 
             $this->createDirectories($config['directories'] ?? [], $firstInstall);
@@ -529,9 +551,10 @@ class Install
     /**
      * On an update (public/ present) the installer walks every shipped `res/assets` file and
      * hands it to {@see classifyPublishedFile()}, which sorts it into the four lists declared
-     * at the top of this class (ADR-025 + INST-ASSET-DIFF-001). Collects only — the notices
-     * print at the very end of the run, after {@see deployUndisputedAssets()} has written
-     * what needs no decision.
+     * at the top of this class (ADR-025 + INST-ASSET-DIFF-001). Per asset tree it then also
+     * looks the other way round — {@see collectDroppedAssets()} for what the packages no
+     * longer ship (INST-ASSET-003). Collects only — the notices print at the very end of the
+     * run, after {@see deployUndisputedAssets()} has written what needs no decision.
      */
     private function reportAssetDrift(): void
     {
@@ -556,11 +579,19 @@ class Install
             $target = $this->trailingSlash($this->baseDir)
                     . $this->trailingSlash($publicDir) . "{$assetDir}/{$assetName}";
 
+            $scanned = false;
             foreach ($vendorPaths as $vendorPath) {
                 $source = $this->trailingSlash($this->baseDir) . "{$vendorPath}/res/assets";
                 if (is_dir($source)) {
                     $this->collectAssetDrift($source, $target, $assetName);
+                    $scanned = true;
                 }
+            }
+
+            // Only for a tree we actually walked: without a vendor source there is no
+            // statement to make about what is "no longer shipped" (INST-ASSET-003).
+            if ($scanned) {
+                $this->collectDroppedAssets($target, $assetName);
             }
         }
     }
@@ -594,12 +625,155 @@ class Install
     }
 
     /**
+     * The publish ADDS and REFRESHES — it used to never REMOVE, so a file a package dropped
+     * stayed published forever and kept being served (INST-ASSET-003, measured 2026-10-10:
+     * the DMS deleted `documents/upload.js` + `.min.js`, `public/assets/dms/js/documents/`
+     * served both for weeks). Dead weight while nothing references it, and a live defect the
+     * day the same name comes back with other content or a template still asks for it.
+     *
+     * Collects, for ONE asset tree that was just walked, the record entries that tree no
+     * longer ships:
+     *
+     *   - on disk and still byte-identical to the publication record → $assetUnpublished.
+     *     Identical means nobody edited it since we wrote it, so deleting it loses nothing;
+     *     and if the package brings the file back, the next install republishes it as new.
+     *   - on disk but DIFFERENT (or with no usable hash) → left alone, silently. It may be
+     *     the project's own file in its own public/ directory, and naming it would put it in
+     *     every install log forever (the INST-ASSET-ENTRY-001 noise argument).
+     *   - already gone from disk → nothing to delete, but the record entry is dropped
+     *     ($assetForgotten); left in place it would classify a returning file as
+     *     "− removed here" and block it from ever being published again.
+     *
+     * Reads only — the deletes happen in {@see unpublishDroppedAssets()}.
+     */
+    private function collectDroppedAssets(string $target, string $assetName): void
+    {
+        $prefix = $this->trailingSlash($this->publishedKey($target));
+
+        foreach ($this->publishedAssets as $key => $hash) {
+            if (!str_starts_with($key, $prefix) || isset($this->shippedPublicFiles[$key])) {
+                continue;
+            }
+            // A record is data on disk: a hand-edited key must never be able to point the
+            // delete out of the asset tree it was matched against.
+            if (!$this->isSafeRecordKey($key)) {
+                continue;
+            }
+
+            $dst     = $this->trailingSlash($this->baseDir) . $key;
+            $display = $assetName . '/' . substr($key, strlen($prefix));
+
+            if (!is_file($dst)) {
+                $this->assetForgotten[$key] = $key;
+                continue;
+            }
+            if (hash_file('sha1', $dst) !== $hash) {
+                continue;
+            }
+
+            // Keyed by the record key: two namespaces that derive the same asset dir name
+            // would otherwise queue the same delete twice, and the second unlink() would
+            // throw over a file the first one had already removed.
+            $this->assetUnpublished[$key] = [
+                'display' => $display,
+                'dst'     => $dst,
+                'key'     => $key,
+                'root'    => $target,
+            ];
+        }
+    }
+
+    /**
+     * Deletes what {@see collectDroppedAssets()} proved to be our own leftover, and drops
+     * those entries from the publication record. Same crash-safety as the write loop: the
+     * record is saved in a `finally`, so an abort mid-way cannot leave the record claiming
+     * a file that is already deleted. Throws on a failing unlink() — no silent errors.
+     */
+    private function unpublishDroppedAssets(): void
+    {
+        if (empty($this->assetUnpublished) && empty($this->assetForgotten)) {
+            return;
+        }
+
+        try {
+            foreach ($this->assetForgotten as $key) {
+                $this->forgetPublishedAsset($key);
+            }
+
+            foreach ($this->assetUnpublished as $entry) {
+                if (!unlink($entry['dst'])) {
+                    throw new \RuntimeException("Failed to remove unpublished asset: {$entry['dst']}");
+                }
+                $this->forgetPublishedAsset($entry['key']);
+                $this->pruneEmptyAssetDirs(dirname($entry['dst']), $entry['root']);
+            }
+        } finally {
+            $this->savePublishedAssets();
+        }
+    }
+
+    /**
+     * Removes the now-empty directories a delete left behind, upwards to (never including)
+     * the asset tree root. Cosmetic only — an empty directory serves nothing but is not a
+     * defect either, so a refused rmdir() is not an error worth failing an install over.
+     */
+    private function pruneEmptyAssetDirs(string $dir, string $root): void
+    {
+        $root = rtrim(str_replace('\\', '/', $root), '/');
+        $dir  = rtrim(str_replace('\\', '/', $dir), '/');
+
+        while ($dir !== $root && str_starts_with($dir, $root . '/') && is_dir($dir)) {
+            if (count(scandir($dir) ?: []) > 2) {   // more than . and ..
+                return;
+            }
+            if (!@rmdir($dir)) {
+                return;
+            }
+            $dir = rtrim(str_replace('\\', '/', dirname($dir)), '/');
+        }
+    }
+
+    /**
+     * A record key is only ever produced by {@see publishedKey()}, so it is relative and
+     * forward-slashed. The file itself is editable, though — reject anything that could
+     * resolve outside the tree it was matched against.
+     */
+    private function isSafeRecordKey(string $key): bool
+    {
+        if ($key === '' || str_contains($key, '\\') || str_starts_with($key, '/')) {
+            return false;
+        }
+        if (preg_match('#^[A-Za-z]:#', $key) === 1) {   // Windows drive letter
+            return false;
+        }
+
+        return !in_array('..', explode('/', $key), true);
+    }
+
+    /**
+     * Drops one entry from the publication record — called ONLY where the installer itself
+     * removed the published file, or found it already gone from a tree it walked. Never from
+     * a guess about what vendor/ still ships.
+     */
+    private function forgetPublishedAsset(string $key): void
+    {
+        if (!array_key_exists($key, $this->publishedAssets)) {
+            return;
+        }
+
+        unset($this->publishedAssets[$key]);
+        $this->publishedAssetsDirty = true;
+    }
+
+    /**
      * One plain block naming every file written without asking — so an operator reading a
-     * deploy log sees what changed under public/ and why it needed no decision.
+     * deploy log sees what changed under public/ and why it needed no decision. The deletes
+     * from {@see unpublishDroppedAssets()} are listed with them, for the same reason.
      */
     private function renderAssetWriteNotice(): void
     {
         if (empty($this->assetRefreshed) && empty($this->assetPublishedNew)) {
+            $this->renderAssetRemovalNotice();
             return;
         }
 
@@ -614,6 +788,30 @@ class Install
         }
         foreach ($this->assetPublishedNew as $entry) {
             $this->io->write('  + published: ' . $entry['display']);
+        }
+
+        $this->renderAssetRemovalNotice();
+    }
+
+    /**
+     * Names what was taken back out of public/ (INST-ASSET-003). A delete needs no decision
+     * either — it only ever hits a file still byte-identical to the copy we published — but a
+     * deploy log must show it: this is the one place that says a served file is gone.
+     */
+    private function renderAssetRemovalNotice(): void
+    {
+        if (empty($this->assetUnpublished)) {
+            return;
+        }
+
+        $count = count($this->assetUnpublished);
+        $this->io->write('');
+        $this->io->write(
+            "Asset removal: {$count} file(s) the packages no longer ship were deleted from "
+            . 'public/ — each still byte-identical to the copy the installer published:'
+        );
+        foreach ($this->assetUnpublished as $entry) {
+            $this->io->write('  ✖ unpublished: ' . $entry['display']);
         }
     }
 
@@ -852,7 +1050,9 @@ class Install
     }
 
     /**
-     * Recursively walks $source and hands every file to {@see classifyPublishedFile()}.
+     * Recursively walks $source and hands every file to {@see classifyPublishedFile()},
+     * noting each shipped file in $shippedPublicFiles — that set is what
+     * {@see collectDroppedAssets()} subtracts from the record to find leftovers.
      * Read-only — the writing happens later, from the collected lists. (ADR-025)
      */
     private function collectAssetDrift(string $source, string $target, string $displayPrefix): void
@@ -871,6 +1071,7 @@ class Install
                 continue;
             }
 
+            $this->shippedPublicFiles[$this->publishedKey($dst)] = true;
             $this->classifyPublishedFile($src, $dst, $rel);
         }
     }

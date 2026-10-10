@@ -74,9 +74,13 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
     <?php if ($shape === 'cell'): ?>
     <?php // The action cell carries ONE button; the drop target is the work area, which the
           // script marks while files are over the window. ?>
+    <?php // `be-btn__label` is not decoration: the shell hides exactly that class on a
+          // phone (visually, so the button keeps its name) and the cell becomes a square
+          // with the arrow alone — owner 2026-10-10, «in mobile muss der Upload auch in
+          // der Werkzeugzeile erscheinen». ?>
     <label class="be-btn be-btn--primary z77-upload__cell" for="<?= e($inputId) ?>">
         <span class="z77-upload__arrow" aria-hidden="true">↑</span>
-        <span class="z77-upload__cell-label"><?= e($label) ?></span>
+        <span class="be-btn__label z77-upload__cell-label"><?= e($label) ?></span>
     </label>
     <?php else: ?>
     <label class="z77-upload__zone" for="<?= e($inputId) ?>" data-upload-zone>
