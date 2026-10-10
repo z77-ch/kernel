@@ -3,7 +3,8 @@
  * PDF partial: a table that flows down the page — the shared building block
  * for any list a document prints (invoice lines, a data sheet's properties,
  * a report). Fixed column widths in mm, a header row repeated after a page
- * break, the FIRST column wraps (the text column), the others are one line.
+ * break, ONE column wraps (`wrap`, default the first — the text column), the
+ * others are one line.
  * Leaves the cursor BELOW the last row (`$pdf->setY()`), the convention of
  * PDF partials. Draws through `$pdf` only — echoes nothing.
  *
@@ -13,6 +14,7 @@
  *                 `indent` shifts the first cell (a sub-line); `rule` draws a line ABOVE the row (a totals row)
  *   - `x`, `y`    where the table starts (default: the cursor)
  *   - `fontSize`  points (default 9); `lineHeight` mm (default 4.5)
+ *   - `wrap`      int, the index of the column that wraps (default 0); `indent` applies to it
  *   - `header`    bool, draw the header row (default true)
  *   - `headerFill` bool, a light grey band behind the header (default true)
  *
@@ -48,12 +50,13 @@ if ($header) {
     $y = $drawHeader($y);
 }
 
-$firstWidth = (float) $columns[0]['width'];
+$wrap      = (int) ($wrap ?? 0);
+$wrapWidth = (float) $columns[$wrap]['width'];
 foreach ($rows as $row) {
     $cells  = array_values($row['cells']);
     $indent = (float) ($row['indent'] ?? 0);
     $pdf->font(!empty($row['bold']) ? 'B' : '', $fontSize);
-    $lines  = $pdf->lineCount((string) ($cells[0] ?? ''), $firstWidth - 2 * $pad - $indent);
+    $lines  = $pdf->lineCount((string) ($cells[$wrap] ?? ''), $wrapWidth - 2 * $pad - $indent);
     $height = $lines * $lineHeight + 1;
 
     // A row never splits; a row that does not fit moves to a new page, the header with it.
@@ -72,7 +75,7 @@ foreach ($rows as $row) {
     foreach ($columns as $i => $column) {
         $w    = (float) $column['width'];
         $text = (string) ($cells[$i] ?? '');
-        if ($i === 0) {
+        if ($i === $wrap) {
             $pdf->paragraph($cx + $pad + $indent, $y + 0.5, $w - 2 * $pad - $indent, $text, $lineHeight);
         } elseif ($text !== '') {
             $pdf->text($cx + $pad, $y + 0.5, $text, $column['align'] ?? 'L', $w - 2 * $pad);
