@@ -38,6 +38,7 @@
     "form.error.check": "Bitte prüfen Sie die rot markierten Felder.",
     "form.flash.sent": "Ihre Anfrage wurde verschickt.",
     "js.connectionError": "Verbindungsfehler",
+    "js.requestFailed": "Anfrage fehlgeschlagen",
     "js.scriptLoadError": "Script konnte nicht geladen werden",
     "js.copied": "Kopiert",
     "js.copyFailed": "Kopieren nicht möglich — bitte von Hand kopieren"

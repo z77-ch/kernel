@@ -39,6 +39,12 @@ use Z77\Shared\Qr\QrCode;
  * and footer); the key-value bag ({@see set()} / {@see get()}) lets a layout
  * tell its hooks what a page carries («no footer on the page with the
  * payment part»). `{nb}` in a text is replaced by the page count at output.
+ *
+ * Several documents in ONE file (2026-10-10): {@see startSection()} before
+ * each layout — the hooks and the bag start empty again, and
+ * {@see sectionPageNo()} / {@see sectionPageCount()} number the pages per
+ * document (the invoice prints «Seite 1 von 2» of ITS pages, not the
+ * file's).
  */
 final class PdfDocument
 {
@@ -140,6 +146,43 @@ final class PdfDocument
         return $this;
     }
 
+    // ── sections: several documents in one file ─────────────────────────
+
+    /**
+     * Starts a new DOCUMENT inside this file (2026-10-10, the combined PDF of
+     * a batch of invoices): the open page is finished with the footer hook it
+     * was drawn with, both hooks and the layout's bag are cleared, and page
+     * numbering starts again — {@see sectionPageNo()} counts from 1 on the
+     * next {@see addPage()}, {@see sectionPageCount()} names this section's
+     * pages. A layout drawn into a fresh file is section 0 and needs no
+     * call; a caller that appends several layouts calls this before each.
+     * The layout itself must start with `addPage()` (every layout does).
+     */
+    public function startSection(): self
+    {
+        $this->writer->startSection();
+        $this->bag = [];
+
+        return $this;
+    }
+
+    /** The page number within the current section — equal to {@see pageNo()} in a single-document file. */
+    public function sectionPageNo(): int
+    {
+        return $this->writer->sectionPageNo();
+    }
+
+    /**
+     * A placeholder for the page count of the CURRENT section, replaced at
+     * output — «Seite 2 von {nb}» counts the whole file, «Seite 2 von » .
+     * sectionPageCount() counts this document only. Equal to `{nb}` in a
+     * single-document file.
+     */
+    public function sectionPageCount(): string
+    {
+        return $this->writer->sectionAlias();
+    }
+
     // ── the layout's bag ────────────────────────────────────────────────
 
     /** A value the layout leaves for its hooks («this page carries no footer»). */
@@ -227,6 +270,25 @@ final class PdfDocument
         $this->writer->SetXY($x, $y);
         $this->writer->Cell($width > 0 ? $width : $this->writer->GetStringWidth($this->enc($text)), $h, $this->enc($text), 0, 0, $align);
         $this->writer->SetAutoPageBreak($this->breakMargin > 0, $this->breakMargin);
+
+        return $this;
+    }
+
+    /**
+     * One line of text CENTRED on ($cx, $cy) and turned $degrees
+     * counter-clockwise about that point (45 = bottom-left to top-right) —
+     * a stamp across the page: «VORSCHAU», later «KOPIE» / «ENTWURF»
+     * (owner 2026-10-13). In the current font and text colour; does not
+     * move the cursor and never breaks the page. Drawn in order like
+     * everything else: a watermark goes UNDER the content when it is drawn
+     * first on the page (in the page-start hook).
+     */
+    public function rotatedText(float $cx, float $cy, string $text, float $degrees): self
+    {
+        $encoded = $this->enc($text);
+        $width   = $this->writer->GetStringWidth($encoded);
+        // Vertically centred on the cap height (Helvetica ≈ 0.72 em): the baseline lies half of it below $cy.
+        $this->writer->rotatedText($cx - $width / 2, $cy + $this->writer->fontSizeMm() * 0.36, $encoded, $degrees, $cx, $cy);
 
         return $this;
     }

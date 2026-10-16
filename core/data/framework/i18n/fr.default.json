@@ -38,6 +38,7 @@
     "form.error.check": "Merci de vérifier les champs marqués en rouge.",
     "form.flash.sent": "Votre demande a été envoyée.",
     "js.connectionError": "Erreur de connexion",
+    "js.requestFailed": "La requête a échoué",
     "js.scriptLoadError": "Le script n'a pas pu être chargé",
     "js.copied": "Copié",
     "js.copyFailed": "Copie impossible — merci de copier à la main"

@@ -45,6 +45,22 @@ class LayoutManager
 
     private array $assets = ['css' => [], 'js' => []];
 
+    /**
+     * Page mode: the `body.main` partials a layout config set before the action ran
+     * (the fragment pattern pins the screen's list template for EVERY action).
+     * Read by {@see hasPage()} after the action.
+     */
+    private array $configuredMain = [];
+
+    /** Page mode: no config set `body.main` and the action has no `{action}.tpl.php`. */
+    private bool $actionTemplateMissing = false;
+
+    /** Page mode: the action dropped `body.main` after initialize() and built its own page. */
+    private bool $mainReplaced = false;
+
+    /** Fetch mode: initialize() set the fetch skeleton only — `main` is settled after the action by {@see completeFetchMain()}. */
+    private bool $fetchMode = false;
+
     // -------------------------------------------------------------------------
     // Construction
     // -------------------------------------------------------------------------
@@ -74,12 +90,14 @@ class LayoutManager
      * Reads layout configuration for the current module and controller.
      * Sets skeleton template, partials, and assets.
      *
-     * Fetch mode: only sets the fetch skeleton, skips config loading.
+     * Fetch mode: only sets the fetch skeleton, skips config loading — after the
+     * action, completeFetchMain() fills an empty `main` (LISTING-FETCH-001).
      * Page mode:
      *   1. Module config Ui/Config/layoutConfig.inc.php — required, defines defaults
      *   2. Controller config Ui/Config/{controller}Config.inc.php — optional, extends/overrides
      *   3. Default skeleton fallback if no config set one
-     *   4. Action template fallback if body.main is empty
+     *   4. Action template fallback if body.main is empty — none found is not an
+     *      error here: the action may be a dialog, see hasPage()
      *
      * After initialize(), the action may still extend the layout, e.g.:
      *   $this->layoutManager->addPartials('sidebar', 'partials', $ns,
@@ -89,35 +107,34 @@ class LayoutManager
     {
         if (DI::getRequest()->getMode() === RequestMode::Fetch) {
             $this->setSkeletonTemplate(LayoutDefaults::FETCH_SKELETON);
+            $this->fetchMode = true;
             return $this;
         }
 
-        $moduleLayoutConfig = DI::getConfigManager()->getArrayConfig(
-            configName: 'Ui/Config/layoutConfig',
-            nameSpace: $this->nameSpace,
-            throwError: true
-        );
-        $this->applyLayoutConfig($moduleLayoutConfig);
-
-        $controllerLayoutConfig = DI::getConfigManager()->getArrayConfig(
-            configName: 'Ui/Config/' . $this->controllerResourcePath() . 'Config',
-            nameSpace: $this->nameSpace,
-            throwError: false
-        );
-        if ($controllerLayoutConfig) {
-            $this->applyLayoutConfig($controllerLayoutConfig);
+        foreach ($this->layoutConfigs() as $layoutConfig) {
+            $this->applyLayoutConfig($layoutConfig);
         }
 
         if ($this->documentTplPath === '') {
             $this->setSkeletonTemplate();
         }
 
-        if (empty($this->partialFilePaths['body']['main'] ?? [])) {
-            $this->addPartials(
-                $this->action,
-                $this->controllerTplDir(),
-                $this->nameSpace
-            );
+        $this->configuredMain = $this->partialFilePaths['body']['main'] ?? [];
+        $this->mainReplaced   = false;
+        if ($this->configuredMain === []) {
+            try {
+                $this->addPartials(
+                    $this->action,
+                    $this->controllerTplDir(),
+                    $this->nameSpace
+                );
+            } catch (LayoutManagerException) {
+                // A dialog action (edit, add, confirm*, an actions hub) has no page
+                // template — its form is added by the action. The controller asks
+                // hasPage() after the action and answers a page request with a
+                // redirect instead of a 500 (MODAL-PAGE-001, fetch.md).
+                $this->actionTemplateMissing = true;
+            }
         }
 
         // Dev tool: partial-label overlay script (gate: DEBUG + admin + user preference).
@@ -134,6 +151,102 @@ class LayoutManager
         }
 
         return $this;
+    }
+
+    /**
+     * Fetch mode, after the action ran: an action that put nothing into `body.main`
+     * gets what its page shows there — the `main` the layout configs pin (a
+     * fragment's list), else its own `{action}.tpl.php`. A fetch region (core.js
+     * «fetch regions», `refresh-region`) loads the list's own URL and takes its
+     * region out of this `main`; before, the fetch skeleton answered an empty body
+     * and the client fell back to a full page load (LISTING-FETCH-001).
+     *
+     * An action that added its own partials (a dialog, the journal's list without
+     * its capture form) keeps exactly those. Only `main` is taken from the configs
+     * — no skeleton, no assets, no other section: the answer stays a fragment.
+     * No-op in page mode and before initialize().
+     */
+    public function completeFetchMain(): void
+    {
+        if (!$this->fetchMode || ($this->partialFilePaths['body']['main'] ?? []) !== []) {
+            return;
+        }
+
+        foreach ($this->layoutConfigs() as $layoutConfig) {
+            $entries = $layoutConfig->get(['levelElements', 'body', 'main'], []);
+            foreach (is_string($entries) ? [$entries] : $entries as $entry) {
+                $normalized = $this->normalizePartialEntry($entry, 'body', 'main');
+                $this->addPartials($normalized['name'], $normalized['path'], $normalized['nameSpace']);
+            }
+        }
+
+        if (($this->partialFilePaths['body']['main'] ?? []) === []) {
+            try {
+                $this->addPartials($this->action, $this->controllerTplDir(), $this->nameSpace);
+            } catch (LayoutManagerException) {
+                // No page template either (a dialog that added nothing): the answer stays empty.
+            }
+        }
+    }
+
+    /**
+     * Page mode, after the action ran: does `body.main` hold a page of THIS action?
+     *
+     * False in two cases, both «a dialog action reached as a page» (a direct URL,
+     * a reload — no fetch header; MODAL-PAGE-001):
+     *   - no config set `main` and the action has no `{action}.tpl.php`;
+     *   - a config pinned `main` (fragment layouts pin the list for every action)
+     *     and the action only APPENDED its dialog partial to the pin — the pinned
+     *     list would render without its variables.
+     * A page action replaces `main` (`removeSection('main')`, then its own
+     * partials — journal, invoice, report pages) or leaves the pin alone (the
+     * list itself, the mandator form), and stays a page.
+     *
+     * Always true in fetch mode and before initialize(): the question only exists
+     * for a full page render.
+     */
+    public function hasPage(): bool
+    {
+        if ($this->mainReplaced) {
+            return true;
+        }
+        if ($this->actionTemplateMissing) {
+            return false;
+        }
+        $pinned = count($this->configuredMain);
+        if ($pinned === 0) {
+            return true;
+        }
+        $main = $this->partialFilePaths['body']['main'] ?? [];
+
+        return !(count($main) > $pinned && array_slice($main, 0, $pinned) === $this->configuredMain);
+    }
+
+    /**
+     * The layout configs in the order they apply: the module's
+     * `Ui/Config/layoutConfig` (required, the defaults), then the controller's
+     * `Ui/Config/{controller}Config` (optional, extends / overrides).
+     *
+     * @return list<Config>
+     */
+    private function layoutConfigs(): array
+    {
+        $configs = [DI::getConfigManager()->getArrayConfig(
+            configName: 'Ui/Config/layoutConfig',
+            nameSpace: $this->nameSpace,
+            throwError: true
+        )];
+
+        $controllerLayoutConfig = DI::getConfigManager()->getArrayConfig(
+            configName: 'Ui/Config/' . $this->controllerResourcePath() . 'Config',
+            nameSpace: $this->nameSpace,
+            throwError: false
+        );
+        if ($controllerLayoutConfig) {
+            $configs[] = $controllerLayoutConfig;
+        }
+
+        return $configs;
     }
 
     /**
@@ -259,6 +372,9 @@ class LayoutManager
     public function removeSection(string $section, string $level = 'body'): void
     {
         unset($this->partialFilePaths[$level][$section]);
+        if ($level === 'body' && $section === 'main') {
+            $this->mainReplaced = true;   // the action builds its own page (hasPage())
+        }
     }
 
     // -------------------------------------------------------------------------

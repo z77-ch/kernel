@@ -16,6 +16,8 @@ use Z77\Core\Services\LayoutManager,
     Z77\Core\Http\Response\NoContentResponse,
     Z77\Core\Http\RequestMode,
     Z77\Core\Exception\NotFoundException,
+    Z77\Core\Exception\LayoutManagerException,
+    Z77\Shared\Libraries\Convention\Naming,
     Z77\Core\DI,
     Z77\Core\Libraries\Seo\SeoLinks,
     Z77\Core\Libraries\Seo\SiteIdentity
@@ -32,6 +34,13 @@ abstract class AbstractBaseController
     protected MessageService $messageService;
     /** Help for the answer being built (ADR-048): `$this->help->attach(...)`. */
     protected HelpService $help;
+
+    /**
+     * What html() took from the session for the page (flashes, messages) — put
+     * back when that page is not rendered after all (MODAL-PAGE-001 redirect).
+     * @var array{flashes: list<array{type:string,text:string}>, messages: list<array{type:string,text:string}>}
+     */
+    private array $pageFeedback = ['flashes' => [], 'messages' => []];
 
     public function __construct(string $actionMethod)
     {
@@ -58,7 +67,52 @@ abstract class AbstractBaseController
             $this->postExecute();
         }
 
+        if ($response instanceof HtmlResponse && !$this->layoutManager->hasPage()) {
+            return $this->dialogPageFallback();
+        }
+        if ($response instanceof HtmlResponse) {
+            // Fetch mode: a list action adds nothing to `main` — it gets its page's
+            // `main` (the fragment pin), so a region load finds its region (LISTING-FETCH-001).
+            $this->layoutManager->completeFetchMain();
+        }
+
         return $response;
+    }
+
+    /**
+     * A dialog action (edit, add, confirm*, an actions hub) reached as a PAGE — a
+     * direct URL, a reload, a bookmark: no fetch header, so no dialog to fill and
+     * no page template of its own (MODAL-PAGE-001, fetch.md). One answer for every
+     * controller instead of a 500: 303 to the controller's `list`, the screen the
+     * dialog is opened from. The URL is the requested one with its action segment
+     * replaced — under any other spelling (an alias), or for `list` itself, the
+     * missing page stays the programming error it is.
+     */
+    private function dialogPageFallback(): RedirectResponse
+    {
+        $uri  = DI::getRequest()->getRawRequestUri();
+        $path = rtrim(strtok($uri, '?#') ?: '', '/');
+        $cut  = strrpos($path, '/');
+        $last = $cut === false ? '' : substr($path, $cut + 1);
+
+        if ($last === ''
+            || strcasecmp(Naming::toActionMethod($last), $this->actionMethod) !== 0
+            || strcasecmp($this->actionMethod, Naming::toActionMethod('list')) === 0
+        ) {
+            throw new LayoutManagerException(
+                "Action {$this->actionMethod} has no page template and no list to fall back to ({$uri})."
+            );
+        }
+
+        // html() already took the session's flashes for this page — they belong on the list.
+        foreach ($this->pageFeedback['flashes'] as $flash) {
+            $this->messageService->pushFlashAfterRedirect($flash['type'], $flash['text']);
+        }
+        foreach ($this->pageFeedback['messages'] as $message) {
+            $this->messageService->pushMessageAfterRedirect($message['type'], $message['text']);
+        }
+
+        return $this->redirect(substr($path, 0, $cut) . '/list', 303);
     }
 
     private function execute(): ResponseInterface
@@ -130,6 +184,7 @@ abstract class AbstractBaseController
         if (DI::getRequest()->getMode() === RequestMode::Page) {
             $context['_flashes']  = $this->messageService->consumeFlashesForPage();
             $context['_messages'] = $this->messageService->consumeMessagesForPage();
+            $this->pageFeedback   = ['flashes' => $context['_flashes'], 'messages' => $context['_messages']];
         }
 
         // Help the action attached (ADR-048): HtmlView appends it to `main` — page and fetch

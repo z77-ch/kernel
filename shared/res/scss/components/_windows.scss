@@ -41,6 +41,23 @@
 }
 .z77-window.is-front { z-index: 1; }
 
+// A window opened FROM a window (core.js: `data-z77-window-parent` — the customer picker over the
+// order, «+ Kontakt» over the invoice) lies OVER its parent instead of beside it (owner
+// 2026-10-15: beside a wide window it wrapped into a row of its own and pushed the parent up).
+// Out of the flow: the parent stays where it is. Above every parent, even a parent in front — a
+// child is answered or closed first; a grandchild comes later in the DOM and paints above.
+@media (min-width: 768px) {
+    .z77-window[data-z77-window-parent] {
+        position:   fixed;
+        top:        3rem;
+        left:       50%;
+        z-index:    2;
+        width:      min(var(--z77-window-width, 46rem), calc(100vw - 2rem));
+        max-height: calc(100vh - 6rem);
+        transform:  translateX(-50%);
+    }
+}
+
 .z77-window__head {
     display:     flex;
     flex:        none;

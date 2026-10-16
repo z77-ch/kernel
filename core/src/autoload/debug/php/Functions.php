@@ -113,6 +113,18 @@ function debug(string $message = '', ?array $array = null): void
 
 function setOwnExceptionHandler()
 {
+    // Fetch mode answers JSON or a fragment the client parses (fetch.md): the HTML box
+    // below printed into it breaks the whole answer — a single notice made the PNG upload
+    // fail with «Verbindungsfehler» (review 2026-10-13). There a notice is logged and
+    // handed to the envelope as a message instead; page mode keeps the box.
+    $isFetch = static function (): bool {
+        try {
+            return \Z77\Core\DI::getRequest()->getMode() === \Z77\Core\Http\RequestMode::Fetch;
+        } catch (\Throwable) {
+            return false;   // very early error: no Request yet
+        }
+    };
+
     // Gemeinsame Ausgabe-Funktion für alle Fehlerarten
     $renderError = function($type, $message, $file, $line, $trace = null) {
         // Fehler-Typ lesbar machen
@@ -157,7 +169,7 @@ function setOwnExceptionHandler()
     };
 
     // Exceptions abfangen
-    set_exception_handler(function(\Throwable $e) use ($renderError) {
+    set_exception_handler(function(\Throwable $e) use ($renderError, $isFetch) {
         // Status first, before the box is printed: without it the request went out
         // as HTTP 200 (a user handler takes the error away from PHP's own 500).
         \Z77\Core\Exception\ExceptionHandler::markFailed();
@@ -169,7 +181,8 @@ function setOwnExceptionHandler()
         } catch (\Throwable) {
             $stateless = false;   // very early error: no Request yet
         }
-        if ($stateless) {
+        // Fetch mode likewise: handleUncaught() answers it as JSON (with the message in DEBUG).
+        if ($stateless || $isFetch()) {
             \Z77\Core\Exception\ExceptionHandler::handleUncaught($e);
             return;
         }
@@ -178,10 +191,26 @@ function setOwnExceptionHandler()
     });
 
     // Warnungen, Notices, usw. abfangen
-    set_error_handler(function($errno, $errstr, $errfile, $errline) use ($renderError) {
+    set_error_handler(function($errno, $errstr, $errfile, $errline) use ($renderError, $isFetch) {
         // Standard-Fehlerbehandlung ignorieren, wenn error_reporting ausgeschaltet ist
         if (!(error_reporting() & $errno)) {
             return false;
+        }
+        if ($isFetch()) {
+            $kind = match (true) {
+                ($errno & (E_DEPRECATED | E_USER_DEPRECATED)) !== 0 => "Deprecated",
+                ($errno & (E_WARNING | E_USER_WARNING)) !== 0       => "Warning",
+                default                                            => "Notice",
+            };
+            $text = "PHP {$kind}: {$errstr} in {$errfile}:{$errline}";
+            error_log($text);
+            try {
+                // Reaches the envelope while the answer is still being built; later only the log.
+                \Z77\Core\DI::getMessageService()->pushMessage('error', $text);
+            } catch (\Throwable) {
+                // no message service yet — the log has it
+            }
+            return true;
         }
         $renderError($errno, $errstr, $errfile, $errline);
         // false zurückgeben, um Standard-Handler nicht zu blockieren
@@ -189,9 +218,14 @@ function setOwnExceptionHandler()
     });
 
     // Fatal Errors (Shutdown)
-    register_shutdown_function(function() use ($renderError) {
+    register_shutdown_function(function() use ($renderError, $isFetch) {
         $error = error_get_last();
         if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+            if ($isFetch()) {
+                // A box would only garble the JSON further — the log keeps it.
+                error_log("PHP Fatal: {$error["message"]} in {$error["file"]}:{$error["line"]}");
+                return;
+            }
             $renderError($error['type'], $error['message'], $error['file'], $error['line']);
         }
     });

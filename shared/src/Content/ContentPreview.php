@@ -71,11 +71,17 @@ final class ContentPreview
 
     /**
      * The preview key of the current request (?preview=), or null when there is
-     * none. Read from the query string only — never from a cookie or the session.
+     * none. Read from the query string only — never from a cookie or the session
+     * (through Request, Rule 4). Without a request (a job, the CLI building a
+     * link with localizedUrl()) there is no preview.
      */
     public static function key(): ?string
     {
-        $raw = $_GET[self::PARAM] ?? null;
+        try {
+            $raw = \Z77\Core\DI::getRequest()->getGetParameter(self::PARAM);
+        } catch (\RuntimeException) {
+            return null;   // no Request registered
+        }
         if (!is_string($raw)) {
             return null;
         }

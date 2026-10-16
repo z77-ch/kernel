@@ -14,9 +14,10 @@ use Z77\Core\DI;
  * or adds it under `override/`. It is rendered with the controller's variables (live values
  * allowed) and travels INSIDE the answer as `<template data-help>` at the end of `main` (the
  * base controller hands it to the view as `helpBlock`, HtmlView appends it), page and fetch
- * mode alike: no help route, no second request. Where help is attached an «i»
- * appears (window title bar via core.js, the crumb line on a page); a click opens the help
- * window (core.js `_Z77.core.help`). Nothing attached → nothing rendered.
+ * mode alike: no help route, no second request. Where help is attached a «Hilfe» trigger
+ * appears (the window's title bar via core.js; on a page «? Hilfe» in the shell's top bar,
+ * `partials/helpTrigger`, HELP-002); a click opens the help window (core.js
+ * `_Z77.core.help`). Nothing attached → nothing rendered.
  *
  * One help per answer: a second attach replaces the first — the controller decides.
  */

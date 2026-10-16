@@ -3,7 +3,8 @@
  * The action row of a dialog or window form (ADR-049, revision 2026-10-10): ONE fixed row,
  * directly under the header — never at the bottom, never in the middle. Renders
  * `.z77-form-actions` with the primary submit FIRST in document order (Enter presses it,
- * ADR-049 §5), then the cancel, then whatever the caller adds, then the «n Fehler» link.
+ * ADR-049 §5), then whatever the caller adds (`extra`), then the cancel, then the «n Fehler»
+ * link.
  *
  * Place it right after `.be-modal__header`, before `.be-modal__body`. The host CSS pins it
  * there (the popup content is a flex column, the row has `order: -1`) and gives it the
