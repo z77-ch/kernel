@@ -3,6 +3,7 @@
 namespace Z77\Shared\Mail;
 
 use Z77\Core\DI;
+use Z77\Shared\Entities\EmailDocumentSetting;
 use Z77\Shared\Entities\EmailFormSetting;
 
 /**
@@ -176,6 +177,56 @@ final class EmailService
         return [
             'to' => $this->resolveRecipients($settings['to']),
             'cc' => $this->resolveRecipients($settings['cc']),
+        ];
+    }
+
+    /**
+     * The subject and text of a DOCUMENT MAIL («Beleg-Mail», step 3 of the mail plan, owner
+     * 2026-10-22) — the single resolution point, like {@see resolveFormSettings()} for a form:
+     *
+     *   1. the operator's {@see EmailDocumentSetting} of the kind, when one exists AND is active
+     *      (it wins completely), else the module's declaration ({@see DocumentMailKinds});
+     *   2. within that source the document's `$language` when BOTH its subject and its text are
+     *      filled, else German (`de`, always present);
+     *   3. every `{name}` replaced by `$values[name]` (a placeholder without a value stays as
+     *      written — visible, not silently dropped); line breaks in a value are flattened in the
+     *      subject (a header).
+     *
+     * Sending is the caller's (module-mailing's outbox): this answers text, not a mail. The
+     * body is PLAIN TEXT — render it through `emails/documentMail` (escaped). An undeclared
+     * kind throws (programmer error).
+     *
+     * @param array<string, string> $values placeholder name => value (data — never markup)
+     * @return array{subject: string, body: string, language: string}
+     */
+    public function documentMail(string $kind, string $language, array $values, ?DocumentMailKinds $kinds = null): array
+    {
+        $declared = ($kinds ?? DocumentMailKinds::fromModules(DI::getModuleManager()))->get($kind);
+        $subjects = $declared['subject'];
+        $bodies   = $declared['body'];
+
+        $record = DI::getUnifiedEntityManager()->getRepository(EmailDocumentSetting::class)->findByKind($kind);
+        if ($record !== null && $record->isActive()) {
+            $subjects = $record->getSubjects();
+            $bodies   = $record->getBodies();
+        }
+
+        $language = strtolower(trim($language));
+        if (trim((string) ($subjects[$language] ?? '')) === '' || trim((string) ($bodies[$language] ?? '')) === '') {
+            $language = DocumentMailKinds::FALLBACK_LANGUAGE;
+        }
+
+        $inBody    = [];
+        $inSubject = [];
+        foreach ($values as $name => $value) {
+            $inBody['{' . $name . '}']    = (string) $value;
+            $inSubject['{' . $name . '}'] = trim((string) preg_replace('/\s*[\r\n]+\s*/', ' ', (string) $value));
+        }
+
+        return [
+            'subject'  => trim(strtr((string) ($subjects[$language] ?? ''), $inSubject)),
+            'body'     => trim(strtr((string) ($bodies[$language] ?? ''), $inBody)),
+            'language' => $language,
         ];
     }
 
