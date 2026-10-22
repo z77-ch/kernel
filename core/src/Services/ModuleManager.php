@@ -184,6 +184,30 @@ class ModuleManager
     }
 
     /**
+     * The entry page of a view-area environment (config `viewAreaEntry`: [module, group,
+     * controller, action]) — where a switch into the environment lands. Null = none declared
+     * (the switch takes the first menu page). A malformed entry fails loudly, naming the module.
+     *
+     * @return array{0: string, 1: string, 2: string, 3: string}|null
+     */
+    public function getViewAreaEntry(string $moduleKey): ?array
+    {
+        $cfg   = $this->getModuleConfig($moduleKey);
+        $entry = ($cfg instanceof Config) ? $cfg->get('viewAreaEntry', null) : null;
+        if ($entry === null) {
+            return null;
+        }
+        $valid = is_array($entry) && array_is_list($entry) && count($entry) === 4;
+        foreach ($valid ? $entry : [] as $part) {
+            $valid = $valid && is_string($part) && $part !== '';
+        }
+        if (!$valid) {
+            throw new \RuntimeException("❌ viewAreaEntry of module '{$moduleKey}' must be [module, group, controller, action].");
+        }
+        return $entry;
+    }
+
+    /**
      * Navigation slots of a view-area environment as an ordered map
      * fullSlug => label, where fullSlug = `{moduleKey}-{slotKey}` (config
      * `navSlots`). A slot is a render area; WHERE it renders is a layout

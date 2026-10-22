@@ -501,12 +501,23 @@ class NavigationService
     }
 
     /**
-     * Entry URL of a view-area module: the first navigable entry found by scanning
+     * Entry URL of a view-area module: its declared entry page (`viewAreaEntry`) when reachable,
+     * else the first navigable entry found by scanning
      * its render-slots (config order), then the tree-roots within each slot. Ref
      * entries resolve to target URL + `?via=<refId>`. Empty string = none.
      */
     private function resolveViewAreaUrl(string $moduleKey, ?callable $allows): string
     {
+        // A declared entry page wins (config `viewAreaEntry` — the backend's dashboard, owner
+        // 2026-10-22) when the caller's access rule lets the user reach it; it needs no menu entry.
+        $declared = $this->moduleManager->getViewAreaEntry($moduleKey);
+        if ($declared !== null) {
+            [$module, $group, $controller, $action] = $declared;
+            $probe = new Navigation(['module' => $module, 'group' => $group, 'controller' => $controller, 'action' => $action]);
+            if ($allows === null || $allows($probe)) {
+                return '/' . implode('/', $declared);
+            }
+        }
         foreach (array_keys($this->moduleManager->getNavSlots($moduleKey)) as $slot) {
             foreach ($this->getBySlot($slot) as $root) {
                 $nav = $this->firstNavigableInclusive($root, $allows);
