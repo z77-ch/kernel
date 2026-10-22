@@ -29,6 +29,8 @@
  *                                 script[data-tree-picker-data] → search + one level at a time (see «tree picker»)
  *   [data-pick-list]              a searching choice list: [data-pick-search] types, ↑/↓ move over
  *                                 [data-pick-item], Enter picks (see «pick list»)
+ *   [data-menu-open="<url>"]      a row's ⋮: GET <url>, the answer's items open as a context menu at
+ *                                 the trigger; Esc, a click outside or on an item closes it (see «context menu»)
  *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»);
  *     [data-window-with="a b"]    the form fields a, b ride along as query parameters
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
@@ -2973,6 +2975,165 @@ _Z77.core.stickyTop = (function () {
     return { init: init };
 })();
 
+/* ── context menu ──────────────────────────────────────────────────────────
+ * A row's ⋮ opens its actions as a CONTEXT MENU that hangs at the ⋮ — no dialog, no header,
+ * no «Schliessen», no ×, no full screen (owner 2026-10-22). The server still decides what the
+ * menu offers (the row's `actions` endpoint renders the items); the script only places,
+ * opens and closes it (Rule 7).
+ *
+ * Contract:
+ *   [data-menu-open="<url>"]   a trigger (a <button type="button">; carry aria-haspopup="menu"
+ *                              aria-expanded="false"): GET <url> in fetch mode, the answer's HTML
+ *                              (a server-rendered fragment — the same channel the popup takes)
+ *                              becomes the menu. Delegated on `document`: a replaced or inserted
+ *                              row needs no wiring. Without the script the button does nothing.
+ *   In the answer: role="menu" on the root; the items are its <a href> and <button>s
+ *   (role="menuitem"; a <form>'s submit button counts — «Jetzt starten»); a checkbox (a real
+ *   switch row — the Drive's «Aktiv») takes the focus too but keeps the menu open when it toggles;
+ *   any other content (a note) is shown, never focused. The fragment is wired like popup content (`wire()`):
+ *   `data-fetch-get` / `data-fetch-post` inside work, from inside a window with that window as
+ *   context. An error status or an envelope (session expired, «nicht gefunden») goes through
+ *   the envelope dispatch — no menu opens.
+ *
+ * ONE menu at a time: opening another closes the first, a second click on the same ⋮ closes it.
+ * Placed `position: fixed` from the ⋮'s getBoundingClientRect — «eher unten rechts» (owner
+ * 2026-10-22): below it, opening to the right (left edges aligned); up when there is no room
+ * below; to the left (right edges aligned) when it would leave the viewport on the right;
+ * clamped to the viewport with a 4px margin. A fixed box does not follow a scrolling list, so it CLOSES on a scroll outside itself
+ * and on a resize (it never floats away from its row). Appended to the ⋮'s <dialog> when it
+ * stands in one (the top layer), else to <body> (above the windows: `.z77-menu` in the host CSS).
+ * Closes on Esc, a click outside, Tab, and a click on an item — after the item's own behaviour
+ * ran (a dialog opens, a link navigates, a form posts). Keys: the first item takes the focus;
+ * ↑/↓ wrap, Home/End; Enter/Space activate; the focus goes back to the ⋮ on close (not after a
+ * click outside, a scroll or a resize — the focus stays where the user is).
+ */
+_Z77.core.menu = (function () {
+    var ITEMS = 'a[href], button:not([disabled]), input[type="checkbox"]:not([disabled])';   // the focus moves over these
+    var ACTS  = 'a[href], button';   // a click on one of these closes the menu (a switch keeps it)
+    var _el = null;        // the open menu
+    var _trigger = null;   // its ⋮
+    var _ticket = 0;       // the latest request — an answer for a menu closed or replaced meanwhile is dropped
+
+    function isOpen() { return !!_el; }
+
+    function _items() {
+        return _el ? Array.prototype.slice.call(_el.querySelectorAll(ITEMS)).filter(function (i) { return !i.hidden; }) : [];
+    }
+
+    function close(refocus) {
+        _ticket++;
+        if (!_el) return;
+        var el = _el, trigger = _trigger;
+        _el = null;
+        _trigger = null;
+        if (el.parentNode) el.parentNode.removeChild(el);
+        trigger.setAttribute('aria-expanded', 'false');
+        if (refocus && trigger.isConnected) trigger.focus();
+    }
+
+    /* Below the ⋮, opening to the right; flipped up / to the left when out of view. */
+    function _place(el, trigger) {
+        var t = trigger.getBoundingClientRect();
+        var w = el.offsetWidth, h = el.offsetHeight, gap = 2, edge = 4;
+        var vw = document.documentElement.clientWidth || window.innerWidth;
+        var vh = window.innerHeight || document.documentElement.clientHeight;
+        var left = t.left;
+        if (left + w > vw - edge) left = t.right - w;
+        left = Math.max(edge, Math.min(left, vw - w - edge));
+        var top = t.bottom + gap;
+        if (top + h > vh - edge && t.top - gap - h >= edge) top = t.top - gap - h;
+        el.style.left = Math.round(left) + 'px';
+        el.style.top = Math.round(Math.max(edge, top)) + 'px';
+    }
+
+    function _show(trigger, html, url) {
+        var extracted = _Z77.core.fetch.extractEnvelope(html);
+        var win = _Z77.core.windows.of(trigger);
+        var ctx = win ? { window: win.getAttribute('data-z77-window') } : undefined;
+        var el = document.createElement('div');
+        el.className = 'z77-menu';
+        el.setAttribute('data-z77-menu', '');
+        el.innerHTML = extracted.html;
+        (trigger.closest('dialog') || document.body).appendChild(el);
+        _el = el;
+        _trigger = trigger;
+        trigger.setAttribute('aria-expanded', 'true');
+        _Z77.core.wire(el, url, ctx);
+        _place(el, trigger);
+        el.addEventListener('keydown', _keys);
+        var first = _items()[0];
+        if (first) first.focus();
+        if (extracted.envelope) _Z77.core.fetch.handleEnvelope(extracted.envelope, url, ctx);
+    }
+
+    function open(trigger) {
+        var url = trigger.getAttribute('data-menu-open');
+        if (!url) return null;
+        close(false);
+        var ticket = _ticket;
+        return _Z77.core.busy.guard(trigger, null, function () {
+            return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } }).then(function (r) {
+                var ct = r.headers.get('content-type') || '';
+                if (r.ok && ct.indexOf('text/html') !== -1) return r.text();
+                return _Z77.core.fetch.unusable(r, url).then(function () { return null; });
+            }).then(function (html) {
+                if (html === null || ticket !== _ticket || !trigger.isConnected) return;
+                _show(trigger, html, url);
+            }, function () {
+                _Z77.core.message.show('error', _Z77.core.i18n.t('js.connectionError', 'Verbindungsfehler'));
+            });
+        });
+    }
+
+    function _keys(e) {
+        var items = _items();
+        var at = items.indexOf(document.activeElement);
+        var next;
+        if (e.key === 'ArrowDown') next = at < 0 ? 0 : (at + 1) % items.length;
+        else if (e.key === 'ArrowUp') next = at < 0 ? items.length - 1 : (at - 1 + items.length) % items.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        else if (e.key === 'Tab') { e.preventDefault(); close(true); return; }
+        else if (e.key === ' ' && at >= 0 && items[at].tagName === 'A') { e.preventDefault(); items[at].click(); return; }
+        else return;
+        e.preventDefault();
+        if (items[next]) items[next].focus();
+    }
+
+    function bind() {
+        document.addEventListener('click', function (e) {
+            var t = e.target;
+            if (!t || !t.closest) return;
+            if (_el && _el.contains(t)) {
+                // The item's own behaviour first (its listener, a submit, a link) — then close.
+                if (t.closest(ACTS)) setTimeout(function () { close(true); }, 0);
+                return;
+            }
+            var opener = t.closest('[data-menu-open]');
+            if (opener) {
+                e.preventDefault();
+                if (_trigger === opener) close(true);
+                else open(opener);
+                return;
+            }
+            if (_el && t.isConnected) close(false);
+        });
+        // Capture: Esc closes the menu before a window or the dialog under it sees the key.
+        document.addEventListener('keydown', function (e) {
+            if (e.key !== 'Escape' || !_el) return;
+            e.preventDefault();
+            e.stopPropagation();
+            close(true);
+        }, true);
+        document.addEventListener('scroll', function (e) {
+            if (_el && !(e.target && e.target.nodeType === 1 && _el.contains(e.target))) close(false);
+        }, true);
+        window.addEventListener('resize', function () { close(false); });
+    }
+
+    return { bind: bind, open: open, close: close, isOpen: isOpen };
+})();
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.triggers.bind();
@@ -2986,6 +3147,7 @@ document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.datedRates.bind();
     _Z77.core.priceMode.bind();
     _Z77.core.windows.bind();
+    _Z77.core.menu.bind();
     _Z77.core.help.bind();
     _Z77.core.region.bind();
     _Z77.core.submitNavigate.bind();
