@@ -31,7 +31,7 @@ class BackendUser
     private string $initials = '';
 
     /**
-     * The person's full name («Peter Ruepp»), display data like the initials — shown where the
+     * The person's full name («Max Muster»), display data like the initials — shown where the
      * backend says who is signed in (the dashboard, owner 2026-10-22). Optional: a file written
      * before the field has no key and reads ''.
      */
