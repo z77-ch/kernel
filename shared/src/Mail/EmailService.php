@@ -147,6 +147,19 @@ final class EmailService
     }
 
     /**
+     * The HTML a template mail renders to — the body template inside the shared
+     * `emails/layout`, both override-first — WITHOUT sending it. For a caller that
+     * stores a mail and sends it later: module-mailing's outbox renders at queue
+     * time, so the stored row is exactly what goes out and what its screen shows
+     * (2026-10-22). Null for a text-only message. A missing template throws, as
+     * in {@see send()} (programmer error).
+     */
+    public function renderBody(EmailMessage $email): ?string
+    {
+        return $this->renderHtml($email);
+    }
+
+    /**
      * Where a form mail would go right now — resolved exactly as {@see sendForm()}
      * resolves it (active backend record first, else emailConfig; default route),
      * for a screen that says «goes to …» next to its send button. Reading the
