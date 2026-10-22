@@ -113,7 +113,7 @@ class DataCache
         }
 
         // 2. APCu
-        if (function_exists('apcu_fetch')) {
+        if (self::apcuOn()) {
             $value = apcu_fetch($key, $success);
             if ($success && $value !== false) {
                 $this->localCache[$key] = $value;
@@ -137,7 +137,7 @@ class DataCache
      */
     public function flush(): void
     {
-        if (!function_exists('apcu_store')) {
+        if (!self::apcuOn()) {
             return;
         }
         foreach ($this->toCache as $key => $entry) {
@@ -154,7 +154,7 @@ class DataCache
      */
     public function clear(?string $classPrefix = null): void
     {
-        if (!function_exists('apcu_delete') || !function_exists('apcu_cache_info')) {
+        if (!self::apcuOn()) {
             return;
         }
         $info = apcu_cache_info();
@@ -187,6 +187,18 @@ class DataCache
         $this->syncWithStamp();
     }
 
+    /**
+     * APCu usable in THIS process — loaded AND enabled. `function_exists()` alone is not enough:
+     * on the CLI the extension is often loaded with `apc.enable_cli=0` (cyon), where
+     * `apcu_cache_info()` warns «No APC info available» and the store/fetch calls do nothing
+     * (CACHE-APCU-CLI-001). One answer per process.
+     */
+    private static function apcuOn(): bool
+    {
+        static $on = null;
+        return $on ??= function_exists('apcu_enabled') && apcu_enabled();
+    }
+
     private function stampKey(): string
     {
         return "{$this->poolPrefix}::__stamp";
@@ -201,7 +213,7 @@ class DataCache
 
     private function syncWithStamp(): void
     {
-        if ($this->stampPath === null || !function_exists('apcu_fetch')) {
+        if ($this->stampPath === null || !self::apcuOn()) {
             return;
         }
         $onDisk = $this->stampMtime();
@@ -230,7 +242,7 @@ class DataCache
         if (!@touch($this->stampPath, $next)) {
             return; // cache dir unwritable — same failure class as PageCache writes, must not kill the request
         }
-        if (function_exists('apcu_store')) {
+        if (self::apcuOn()) {
             apcu_store($this->stampKey(), $next, 0);
         }
     }
@@ -262,7 +274,7 @@ class DataCache
      */
     public function debug(string $message = '', bool $limited = true): void
     {
-        if (!function_exists('apcu_cache_info') || !function_exists('apcu_sma_info')) {
+        if (!self::apcuOn()) {
             debug('APCu is not installed or enabled.');
             return;
         }
