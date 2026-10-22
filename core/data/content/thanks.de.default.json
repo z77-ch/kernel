@@ -1,0 +1,15 @@
+{
+    "slug": "thanks",
+    "language": "de",
+    "title": "Danke",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Kontakt",
+            "title": "Danke für Ihre Nachricht",
+            "subline": "Ein Satz, was jetzt passiert, zum Beispiel bis wann eine Antwort kommt."
+        }
+    ]
+}

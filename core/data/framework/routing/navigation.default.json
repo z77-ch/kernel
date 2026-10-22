@@ -118,5 +118,20 @@
         "param": "",
         "sort_key": 1,
         "parent_id": null
+    },
+    {
+        "id": 13,
+        "key": null,
+        "name": "Thanks",
+        "module": "frontend",
+        "group": "main",
+        "controller": "index",
+        "action": "thanks",
+        "slot": "frontend-route",
+        "ref": null,
+        "active": true,
+        "param": "",
+        "sort_key": 0,
+        "parent_id": null
     }
 ]

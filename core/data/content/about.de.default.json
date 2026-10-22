@@ -6,38 +6,33 @@
     "blocks": [
         {
             "type": "hero",
-            "eyebrow": "Über uns",
-            "title": "Eine Person, ein Framework, kein Lock-in.",
-            "subline": "z77 ist die zweite Generation eines Frameworks, das seit 15+ Jahren für Schweizer Kundenprojekte gebaut wird. Diesmal Open Source, damit Nachfolger:innen mitlesen können."
+            "key": "hero",
+            "eyebrow": "Porträt",
+            "title": "Wer hinter dem Angebot steht",
+            "subline": "Ein Satz, der Ihre Haltung oder Ihre Geschichte zusammenfasst."
         },
         {
-            "type": "prose-section",
-            "eyebrow": "Mission",
-            "title": "Lesbarkeit über Eleganz.",
-            "lead": "Wir schreiben PHP so, dass jemand in fünf Jahren noch versteht, was passiert. Keine versteckten Magic-Methods, keine Frameworks im Framework, keine Abstraktionen auf Vorrat."
-        },
-        {
-            "type": "prose-section",
-            "eyebrow": "Standort",
-            "title": "Built in Switzerland.",
-            "lead": "Datenhaltung, Hosting und Kommunikation laufen über Schweizer Anbieter. DSGVO- und revDSG-konform."
-        },
-        {
-            "type": "features",
-            "eyebrow": "Prinzipien",
-            "title": "Wenige, dafür konsequent.",
-            "items": [
-                {
-                    "number": "Werkzeug",
-                    "title": "PHP 8.4, kein Composer-Zoo.",
-                    "text": "Wenige, geprüfte Abhängigkeiten. Sass für CSS, sonst Vanilla."
-                },
-                {
-                    "number": "Haltung",
-                    "title": "Dokumentation ist Teil des Codes.",
-                    "text": "Jeder Arbeitsbereich hat eine Topic-Doc. Kein Wissen lebt nur im Kopf."
-                }
+            "type": "text-section",
+            "key": "text",
+            "eyebrow": "Geschichte",
+            "title": "Wie alles angefangen hat",
+            "paras": [
+                "Zwei, drei Absätze zu Ihrer Geschichte: Wann und warum ist das Unternehmen entstanden?",
+                "Was unterscheidet Sie von anderen Anbietern? Konkrete Beispiele wirken stärker als Adjektive."
             ]
+        },
+        {
+            "type": "image-text",
+            "key": "image",
+            "eyebrow": "Team",
+            "title": "Die Menschen dahinter",
+            "paras": [
+                "Stellen Sie die Personen vor, mit denen Kundinnen und Kunden zu tun haben.",
+                "Das Bild ersetzen Sie, indem Sie im Feld «Bild» die Adresse eines eigenen Bildes eintragen. Ohne Bild steht der Text allein."
+            ],
+            "image": "/assets/frontend/images/placeholder.svg",
+            "alt": "Platzhalter: Beschreiben Sie hier in einem Satz, was auf Ihrem Bild zu sehen ist.",
+            "position": ""
         }
     ]
 }

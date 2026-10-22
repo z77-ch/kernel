@@ -1,0 +1,39 @@
+{
+    "slug": "services",
+    "language": "en",
+    "title": "Services",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Services",
+            "title": "Your offer at a glance",
+            "subline": "One sentence that sums up why customers come to you."
+        },
+        {
+            "type": "cards",
+            "key": "cards",
+            "eyebrow": "Offer",
+            "title": "What customers get from you",
+            "items": [
+                {
+                    "title": "Service 1",
+                    "text": "What customers gain from it, in one sentence."
+                },
+                {
+                    "title": "Service 2",
+                    "text": "What customers gain from it, in one sentence."
+                },
+                {
+                    "title": "Service 3",
+                    "text": "What customers gain from it, in one sentence."
+                },
+                {
+                    "title": "Service 4",
+                    "text": "One to six cards are possible — add or remove them in the backend under Webseiten › Inhalte."
+                }
+            ]
+        }
+    ]
+}

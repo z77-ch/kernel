@@ -47,5 +47,12 @@
         "path": "/privacy",
         "is_canonical": true,
         "active": true
+    },
+    {
+        "id": 8,
+        "navigation_id": 13,
+        "path": "/thanks",
+        "is_canonical": true,
+        "active": true
     }
 ]

@@ -1,0 +1,39 @@
+{
+    "slug": "services",
+    "language": "de",
+    "title": "Leistungen",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Leistungen",
+            "title": "Ihr Angebot im Überblick",
+            "subline": "Ein Satz, der zusammenfasst, wofür Kunden zu Ihnen kommen."
+        },
+        {
+            "type": "cards",
+            "key": "cards",
+            "eyebrow": "Angebot",
+            "title": "Was Kunden bei Ihnen bekommen",
+            "items": [
+                {
+                    "title": "Leistung 1",
+                    "text": "Was Kunden davon haben, in einem Satz."
+                },
+                {
+                    "title": "Leistung 2",
+                    "text": "Was Kunden davon haben, in einem Satz."
+                },
+                {
+                    "title": "Leistung 3",
+                    "text": "Was Kunden davon haben, in einem Satz."
+                },
+                {
+                    "title": "Leistung 4",
+                    "text": "Eine bis sechs Karten sind möglich — hinzufügen oder entfernen im Backend unter Webseiten › Inhalte."
+                }
+            ]
+        }
+    ]
+}

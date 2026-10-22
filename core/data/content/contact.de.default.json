@@ -1,0 +1,25 @@
+{
+    "slug": "contact",
+    "language": "de",
+    "title": "Kontakt",
+    "active": true,
+    "blocks": [
+        {
+            "type": "text-section",
+            "key": "intro",
+            "eyebrow": "Kontakt",
+            "title": "Wie man Sie erreicht",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Firmenname, Strasse und Nummer, PLZ und Ort.",
+                "E-Mail: [name@example.com](mailto:name@example.com) · Telefon: [+41 00 000 00 00](tel:+41000000000)"
+            ]
+        },
+        {
+            "type": "form",
+            "key": "form",
+            "eyebrow": "Formular",
+            "title": "Eine Nachricht schreiben",
+            "text": "Ein Satz, was nach dem Absenden passiert, zum Beispiel bis wann eine Antwort kommt."
+        }
+    ]
+}

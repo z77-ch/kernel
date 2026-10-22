@@ -1,0 +1,14 @@
+{
+    "slug": "footer",
+    "language": "de",
+    "title": "Fusszeile",
+    "active": true,
+    "blocks": [
+        {
+            "type": "footer",
+            "key": "footer",
+            "tagline": "Ein Satz, der Ihr Angebot beschreibt.",
+            "copyright": "Ihr Firmenname"
+        }
+    ]
+}

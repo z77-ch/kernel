@@ -1,0 +1,71 @@
+{
+    "slug": "legal",
+    "language": "de",
+    "title": "Impressum",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Rechtliches",
+            "title": "Impressum",
+            "subline": "Die Abschnitte unten sind eine Gliederung. Ersetzen Sie jeden durch Ihre Angaben; einen Abschnitt, der nicht zutrifft, leeren Sie (Titel und Absätze) — er wird dann nicht angezeigt."
+        },
+        {
+            "type": "text-section",
+            "key": "address",
+            "title": "Kontaktadresse",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Firmenname, Strasse und Nummer, PLZ und Ort, Land, E-Mail-Adresse."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "representatives",
+            "title": "Vertretungsberechtigte Personen",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Vor- und Nachname der Personen, die das Unternehmen vertreten, mit Funktion."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "register",
+            "title": "Handelsregistereintrag",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: eingetragener Firmenname, Handelsregisteramt, Unternehmens-Identifikationsnummer (UID)."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "vat",
+            "title": "Mehrwertsteuernummer",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Mehrwertsteuernummer — oder den Abschnitt leeren, wenn sie nicht zutrifft."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "disclaimer",
+            "title": "Haftungsausschluss",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Ihr Haftungsausschluss für die Inhalte dieser Website."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "links",
+            "title": "Haftung für Links",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: Ihr Hinweis zur Verantwortung für verlinkte Websites Dritter."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "copyright",
+            "title": "Urheberrechte",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: wem die Rechte an Texten, Bildern und Dateien dieser Website gehören."
+            ]
+        }
+    ]
+}

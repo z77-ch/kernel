@@ -1,0 +1,87 @@
+{
+    "slug": "privacy",
+    "language": "en",
+    "title": "Privacy policy",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Legal",
+            "title": "Privacy policy",
+            "subline": "The sections below are an outline. Replace each with your details and have the text reviewed by an expert; empty a section that does not apply (title and paragraphs) — it is then not shown."
+        },
+        {
+            "type": "text-section",
+            "key": "controller",
+            "title": "Controller",
+            "paras": [
+                "Replace with your details: who is responsible for processing personal data — company name, address, email address for privacy requests."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "visit",
+            "title": "Data collected when visiting the website",
+            "paras": [
+                "Replace with your details: which data arise when the website is accessed (for example server logs), what for and how long they are kept."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "cookies",
+            "title": "Cookies",
+            "paras": [
+                "Replace with your details: which cookies the website sets and what for."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "contact",
+            "title": "Contact form and email",
+            "paras": [
+                "Replace with your details: which details the contact form and emails collect, what they are used for and how long they are kept."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "thirdParty",
+            "title": "Third-party services",
+            "paras": [
+                "Replace with your details: which third-party services are embedded (for example statistics, maps, fonts) — or empty the section."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "abroad",
+            "title": "Disclosure abroad",
+            "paras": [
+                "Replace with your details: whether personal data are disclosed abroad, to which countries and with which safeguards."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "retention",
+            "title": "Retention period",
+            "paras": [
+                "Replace with your details: how long which data are kept."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "rights",
+            "title": "Your rights",
+            "paras": [
+                "Replace with your details: which rights data subjects have (for example access, correction, erasure) and where to send a request."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "changes",
+            "title": "Changes",
+            "paras": [
+                "Replace with your details: that this policy may be updated, and the date of the current version."
+            ]
+        }
+    ]
+}

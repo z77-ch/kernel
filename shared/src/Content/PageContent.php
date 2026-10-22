@@ -15,10 +15,11 @@ use Z77\Shared\Services\ContentService;
  *   - the content preview: `?preview=<key>` renders the variant set
  *     (ContentPreview::key(), ADR-044 addendum) — called directly, the service
  *     ignores previews, silently;
- *   - a loud failure: a page whose document is missing or inactive throws. A
- *     designed page without its text is a deploy error (the documents go to
- *     the shared data/content/ BEFORE the release), and an exception says so
- *     where an empty page would hide it;
+ *   - a loud failure: a page whose document is missing or inactive throws
+ *     (view()). A designed page without its text is a deploy error (the
+ *     documents go to the shared data/content/ BEFORE the release), and an
+ *     exception says so where an empty page would hide it. find() is the
+ *     quiet variant for a page that may be deleted on purpose;
  *   - the page editor (ADR-045 §4): when PageEditing::active() says so (a
  *     user with at least `editor`, a full page, the switch «Seite bearbeiten»
  *     on) the view marks its slots — ContentView::editAttribute() then returns
@@ -38,11 +39,24 @@ final class PageContent
      */
     public static function view(string $slug): ContentView
     {
-        $language = DI::getRequest()->getLanguage();
-        $preview  = ContentPreview::key();
-        $view     = ContentService::create()->view($slug, $language, $preview);
+        return self::find($slug) ?? throw new \RuntimeException(
+            "Content document '{$slug}' (" . DI::getRequest()->getLanguage() . ') is missing or inactive in data/content/.'
+        );
+    }
+
+    /**
+     * Like view(), but null instead of the exception — for a page that may be
+     * deleted on purpose (the frontend starter pages: delete the document and
+     * the menu entry and the page is gone, the controller answers 404) and for a
+     * layout element that renders without its text (the starter footer). Same
+     * language, preview and page-editor handling as view().
+     */
+    public static function find(string $slug): ?ContentView
+    {
+        $preview = ContentPreview::key();
+        $view    = ContentService::create()->view($slug, DI::getRequest()->getLanguage(), $preview);
         if ($view === null) {
-            throw new \RuntimeException("Content document '{$slug}' ({$language}) is missing or inactive in data/content/.");
+            return null;
         }
 
         return PageEditing::active()

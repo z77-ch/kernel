@@ -1,0 +1,71 @@
+{
+    "slug": "legal",
+    "language": "en",
+    "title": "Legal notice",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Legal",
+            "title": "Legal notice",
+            "subline": "The sections below are an outline. Replace each with your details; empty a section that does not apply (title and paragraphs) — it is then not shown."
+        },
+        {
+            "type": "text-section",
+            "key": "address",
+            "title": "Contact address",
+            "paras": [
+                "Replace with your details: company name, street and number, postcode and town, country, email address."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "representatives",
+            "title": "Authorised representatives",
+            "paras": [
+                "Replace with your details: first and last name of the people who represent the company, with their role."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "register",
+            "title": "Commercial register entry",
+            "paras": [
+                "Replace with your details: registered company name, commercial register office, company identification number (UID)."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "vat",
+            "title": "VAT number",
+            "paras": [
+                "Replace with your details: VAT number — or empty the section if it does not apply."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "disclaimer",
+            "title": "Disclaimer",
+            "paras": [
+                "Replace with your details: your disclaimer for the content of this website."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "links",
+            "title": "Liability for links",
+            "paras": [
+                "Replace with your details: your note on responsibility for linked third-party websites."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "copyright",
+            "title": "Copyright",
+            "paras": [
+                "Replace with your details: who holds the rights to the texts, images and files of this website."
+            ]
+        }
+    ]
+}

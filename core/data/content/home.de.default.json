@@ -6,38 +6,48 @@
     "blocks": [
         {
             "type": "hero",
-            "eyebrow": "z77 · Open Source",
-            "title": "Klares Framework für klare Projekte.",
-            "subline": "Ein schlankes PHP-Framework, das lieber lesbar als clever ist. Gebaut für Solo-Entwickler und kleine Teams, die Ownership über ihren Code behalten wollen."
+            "key": "hero",
+            "eyebrow": "Startseite",
+            "title": "Ihr Hauptversprechen in einem Satz",
+            "subline": "Zwei, drei Sätze, wer Sie sind und was Sie anbieten."
         },
         {
-            "type": "features",
-            "eyebrow": "Was wir machen",
-            "title": "Drei Schwerpunkte, klar getrennt.",
+            "type": "text-section",
+            "key": "intro",
+            "eyebrow": "Einleitung",
+            "title": "Worum es auf dieser Website geht",
+            "paras": [
+                "Ein kurzer Absatz für Besucherinnen und Besucher, die zum ersten Mal hier sind: Für wen ist das Angebot, und welche Frage beantwortet es?",
+                "Die Texte ändern Sie im Backend unter Webseiten › Inhalte oder direkt auf der Seite mit «Seite bearbeiten»."
+            ]
+        },
+        {
+            "type": "cards",
+            "key": "cards",
+            "eyebrow": "Angebot",
+            "title": "Was Sie anbieten",
             "items": [
                 {
-                    "number": "01",
-                    "title": "Webentwicklung",
-                    "text": "PHP-Backend, sauberes MVC, eigene Datenmodelle. Keine fremden Abhängigkeiten, die niemand mehr versteht."
+                    "title": "Leistung 1",
+                    "text": "Was Kunden davon haben, in einem Satz."
                 },
                 {
-                    "number": "02",
-                    "title": "Beratung",
-                    "text": "Code-Reviews, Architektur-Sparring, Übergaben. Wir hinterlassen Dokumentation, nicht Magie."
+                    "title": "Leistung 2",
+                    "text": "Was Kunden davon haben, in einem Satz."
                 },
                 {
-                    "number": "03",
-                    "title": "Betrieb",
-                    "text": "Deployment, Monitoring, Updates. Langfristig wartbar statt kurzfristig fancy."
+                    "title": "Leistung 3",
+                    "text": "Was Kunden davon haben, in einem Satz."
                 }
             ]
         },
         {
-            "type": "prose-section",
-            "variant": "dark",
-            "eyebrow": "Prinzip",
-            "title": "Open Source, weil Transparenz Vertrauen schafft.",
-            "lead": "Geld wird durch die Anwendung verdient, nicht durch das Framework. Was öffentlich ist, muss verständlich sein — das zwingt zu sauberer Doku und gibt Nachfolger:innen eine echte Chance."
+            "type": "cta",
+            "key": "cta",
+            "title": "Der nächste Schritt für Ihre Besucher",
+            "text": "Ein Satz, der zur Kontaktaufnahme einlädt.",
+            "label": "Kontakt aufnehmen",
+            "href": "/contact"
         }
     ]
 }

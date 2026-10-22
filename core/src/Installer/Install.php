@@ -54,6 +54,12 @@ class Install
     private const DENY_TEMPLATE         = __DIR__ . '/../../res/htaccess-deny';
     private const DENY_DIRS             = ['data', 'config', 'logs'];
 
+    // Data directories whose seeds are starter content (the frontend starter
+    // pages): written on the first install only, while `data/<dir>` is absent —
+    // never again, so a page the project deleted does not come back
+    // (writeDataFilesFrom(), owner 2026-10-22).
+    private const STARTER_DATA_DIRS     = ['content'];
+
     private const AUTH_DIR              = 'data/framework/auth';
     private const BACKEND_USERS_FILE      = 'backendUsers.json';
     private const SETUP_TOKEN_FILE      = 'SETUP_TOKEN';
@@ -1607,10 +1613,30 @@ class Install
      * `data/documents/folders.default.json`) never reached a project. The kernel is
      * not special-cased anymore. On a rel-path collision across packages the first
      * package wins (and seed-once protects existing runtime data either way).
+     *
+     * Starter content (STARTER_DATA_DIRS, owner 2026-10-22) is seeded on the FIRST
+     * install only: while `data/<dir>` does not exist yet. Per-file seed-once
+     * would bring a page back that the project deleted (its documents are
+     * "missing" again); the starter pages are the customer's from the first
+     * install on (ADR-050 — same reason they are not navigation seeds). An
+     * existing installation therefore never receives new starter documents.
      */
     private function writeDataFiles(): void
     {
-        foreach ($this->frameworkDataRoots() as $base) {
+        $this->writeDataFilesFrom($this->frameworkDataRoots());
+    }
+
+    /** @param list<string> $roots absolute package data roots (see frameworkDataRoots()) */
+    private function writeDataFilesFrom(array $roots): void
+    {
+        // Decided BEFORE the first write: seeding the first file creates the dir.
+        $starterOpen = [];
+        foreach (self::STARTER_DATA_DIRS as $dir) {
+            $starterOpen[$dir] = !is_dir($this->trailingSlash($this->baseDir) . 'data/' . $dir);
+        }
+        $reported = [];
+
+        foreach ($roots as $base) {
             $it = new \RecursiveIteratorIterator(
                 new \RecursiveDirectoryIterator($base, \FilesystemIterator::SKIP_DOTS)
             );
@@ -1624,6 +1650,15 @@ class Install
                 $subDir   = trim(dirname($relPath), '.\\/');
                 $relDir   = 'data' . ($subDir !== '' ? '/' . $subDir : '');
                 $fileName = substr($file->getFilename(), 0, -strlen('.default.json')) . '.json';
+
+                $top = explode('/', $subDir)[0];
+                if (isset($starterOpen[$top]) && !$starterOpen[$top]) {
+                    if (!isset($reported[$top])) {
+                        $reported[$top] = true;
+                        $this->io->write("Skipped: starter content data/{$top}/ — seeded on the first install only");
+                    }
+                    continue;
+                }
 
                 $this->writeDataFile($relDir, $fileName, $file->getPathname());
             }

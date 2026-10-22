@@ -1,0 +1,38 @@
+{
+    "slug": "about",
+    "language": "en",
+    "title": "About",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Profile",
+            "title": "Who is behind the offer",
+            "subline": "One sentence that sums up your attitude or your story."
+        },
+        {
+            "type": "text-section",
+            "key": "text",
+            "eyebrow": "Story",
+            "title": "How it all began",
+            "paras": [
+                "Two or three paragraphs on your story: when and why was the business founded?",
+                "What sets you apart from other providers? Concrete examples work better than adjectives."
+            ]
+        },
+        {
+            "type": "image-text",
+            "key": "image",
+            "eyebrow": "Team",
+            "title": "The people behind it",
+            "paras": [
+                "Introduce the people customers deal with.",
+                "Replace the image by entering the address of your own image in the field «Bild». Without an image the text stands alone."
+            ],
+            "image": "/assets/frontend/images/placeholder.svg",
+            "alt": "Placeholder: describe in one sentence what your image shows.",
+            "position": ""
+        }
+    ]
+}

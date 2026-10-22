@@ -74,7 +74,7 @@ function raw(?string $value): string
 /**
  * Translates a UI string key against the current language's dictionary
  * (`data/framework/i18n/{lang}.json`), falling back to the default language and
- * finally to the key itself. Use in templates: <?= e(t('footer.tagline')) ?>.
+ * finally to the key itself. Use in templates: <?= e(t('footer.pages')) ?>.
  *
  * Returns the raw translation — NOT escaped — so the caller controls escaping
  * (wrap in e() for text, leave raw only for trusted markup). Placeholders use the

@@ -1,0 +1,14 @@
+{
+    "slug": "footer",
+    "language": "en",
+    "title": "Footer",
+    "active": true,
+    "blocks": [
+        {
+            "type": "footer",
+            "key": "footer",
+            "tagline": "One sentence that describes your offer.",
+            "copyright": "Your company name"
+        }
+    ]
+}

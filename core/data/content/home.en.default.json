@@ -1,0 +1,53 @@
+{
+    "slug": "home",
+    "language": "en",
+    "title": "Home",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Home",
+            "title": "Your main promise in one sentence",
+            "subline": "Two or three sentences on who you are and what you offer."
+        },
+        {
+            "type": "text-section",
+            "key": "intro",
+            "eyebrow": "Introduction",
+            "title": "What this website is about",
+            "paras": [
+                "A short paragraph for first-time visitors: who is the offer for, and which question does it answer?",
+                "Change the texts in the backend under Webseiten › Inhalte, or right on the page with «Seite bearbeiten»."
+            ]
+        },
+        {
+            "type": "cards",
+            "key": "cards",
+            "eyebrow": "Offer",
+            "title": "What you offer",
+            "items": [
+                {
+                    "title": "Service 1",
+                    "text": "What customers gain from it, in one sentence."
+                },
+                {
+                    "title": "Service 2",
+                    "text": "What customers gain from it, in one sentence."
+                },
+                {
+                    "title": "Service 3",
+                    "text": "What customers gain from it, in one sentence."
+                }
+            ]
+        },
+        {
+            "type": "cta",
+            "key": "cta",
+            "title": "The next step for your visitors",
+            "text": "One sentence that invites them to get in touch.",
+            "label": "Get in touch",
+            "href": "/contact"
+        }
+    ]
+}

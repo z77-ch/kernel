@@ -1,0 +1,87 @@
+{
+    "slug": "privacy",
+    "language": "de",
+    "title": "Datenschutz",
+    "active": true,
+    "blocks": [
+        {
+            "type": "hero",
+            "key": "hero",
+            "eyebrow": "Rechtliches",
+            "title": "Datenschutzerklärung",
+            "subline": "Die Abschnitte unten sind eine Gliederung. Ersetzen Sie jeden durch Ihre Angaben und lassen Sie den Text fachlich prüfen; einen Abschnitt, der nicht zutrifft, leeren Sie (Titel und Absätze) — er wird dann nicht angezeigt."
+        },
+        {
+            "type": "text-section",
+            "key": "controller",
+            "title": "Verantwortliche Stelle",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: wer für die Bearbeitung der Personendaten verantwortlich ist — Firmenname, Adresse, E-Mail-Adresse für Anfragen zum Datenschutz."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "visit",
+            "title": "Daten beim Besuch der Website",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: welche Daten beim Aufruf der Website anfallen (zum Beispiel Server-Logs), wozu und wie lange sie aufbewahrt werden."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "cookies",
+            "title": "Cookies",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: welche Cookies die Website setzt und wozu."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "contact",
+            "title": "Kontaktformular und E-Mail",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: welche Angaben das Kontaktformular und E-Mails erfassen, wozu sie verwendet und wie lange sie aufbewahrt werden."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "thirdParty",
+            "title": "Dienste Dritter",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: welche Dienste Dritter eingebunden sind (zum Beispiel Statistik, Karten, Schriften) — oder den Abschnitt leeren."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "abroad",
+            "title": "Bekanntgabe ins Ausland",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: ob Personendaten ins Ausland bekanntgegeben werden, in welche Länder und mit welchen Garantien."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "retention",
+            "title": "Aufbewahrungsdauer",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: wie lange welche Daten aufbewahrt werden."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "rights",
+            "title": "Ihre Rechte",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: welche Rechte betroffene Personen haben (zum Beispiel Auskunft, Berichtigung, Löschung) und wohin sie ihre Anfrage richten."
+            ]
+        },
+        {
+            "type": "text-section",
+            "key": "changes",
+            "title": "Änderungen",
+            "paras": [
+                "Durch Ihre Angaben ersetzen: dass diese Erklärung angepasst werden kann, und das Datum des aktuellen Stands."
+            ]
+        }
+    ]
+}
