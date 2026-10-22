@@ -2859,10 +2859,49 @@ _Z77.core.pickList = (function () {
  *                            script only toggles (first user: the order's address cards,
  *                            2026-10-18). Without the script the case of the rendered choice stays
  *                            shown.
+ *   select[data-range-presets]  a choice of named date ranges (the financial reports' «Zeitraum»,
+ *                            owner 2026-10-22): each option carries `data-from` / `data-to`;
+ *                            picking one fills the date fields named by the select's
+ *                            `data-range-from` / `data-range-to` (element ids; «from» optional —
+ *                            a «Stichtag» has none), and editing such a date selects the option
+ *                            that agrees with the dates, else the option without dates («Eigene
+ *                            Daten»). The server resolves the choice on its own — without the
+ *                            script the form still says what it shows after the submit.
  */
 _Z77.core.triggers = (function () {
     function _select(el) {
         if (el && typeof el.select === 'function') el.select();
+    }
+
+    function _rangeField(select, attr) {
+        var id = select.getAttribute(attr);
+        return id ? document.getElementById(id) : null;
+    }
+
+    /* The chosen option's dates into the fields — the option without dates keeps them. */
+    function _fillRange(select) {
+        var opt = select.options[select.selectedIndex];
+        if (!opt || !opt.hasAttribute('data-to')) return;
+        var from = _rangeField(select, 'data-range-from');
+        var to = _rangeField(select, 'data-range-to');
+        if (from) from.value = opt.getAttribute('data-from');
+        if (to) to.value = opt.getAttribute('data-to');
+    }
+
+    /* After a date was edited: keep the choice while it agrees, else the first that does, else none. */
+    function _matchRange(select) {
+        var from = _rangeField(select, 'data-range-from');
+        var to = _rangeField(select, 'data-range-to');
+        function agrees(o) {
+            return o.hasAttribute('data-to') && (!to || o.getAttribute('data-to') === to.value)
+                && (!from || o.getAttribute('data-from') === from.value);
+        }
+        var current = select.options[select.selectedIndex];
+        if (current && agrees(current)) return;
+        for (var i = 0; i < select.options.length; i++) {
+            if (agrees(select.options[i])) { select.selectedIndex = i; return; }
+        }
+        select.value = '';
     }
 
     function bind() {
@@ -2888,6 +2927,14 @@ _Z77.core.triggers = (function () {
                 // «dirty forms») — the case shown again takes them back.
                 el.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = el.hidden; });
             });
+        });
+        document.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t.matches) return;
+            if (t.matches('select[data-range-presets]')) { _fillRange(t); return; }
+            if (!t.matches('input[type="date"]') || !t.form || !t.id) return;
+            var select = t.form.querySelector('select[data-range-presets]');
+            if (select && (select.getAttribute('data-range-to') === t.id || select.getAttribute('data-range-from') === t.id)) _matchRange(select);
         });
     }
 
