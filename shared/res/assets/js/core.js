@@ -14,8 +14,23 @@
  *   [data-copy="<selector>"]      any clickable → copies the named element's text
  *   [data-select-on-focus]        a readonly field selects its whole text on focus / click
  *   [data-print]                  any clickable → window.print()
+ *   select[data-switch]           shows the [data-switch-case] of its value in its [data-switch-scope] (see «small triggers»)
+ *   form[data-dirty="clean|dirty"] knows unsaved changes; its [data-dirty-submit] follows (see «dirty forms»)
+ *   [data-fetch-get][data-popup-refresh="<region>"]  the popup it opens reloads that fetch region on close (see «popup»)
  *   [data-fill-url="<url>"]       a choice fills fields of its [data-fill-scope] (see «fill»)
- *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»)
+ *   [data-rows="<prefix>"]        rows to add, remove, drag and indent — [data-row], [data-row-grip],
+ *                                 [data-row-indent], [data-row-no], [data-row-remove],
+ *                                 template[data-row-template], [data-row-add] (see «rows»)
+ *   textarea[data-autosize]       grows with its text; ="title" shows the first line as a title (see «autosize»)
+ *   [data-sum]                    a live total of the lines inside it, display only (see «line sums»)
+ *   select[data-rate-schedule-ref] its options' rates follow a date field of the form (see «dated rates»)
+ *   [data-price-mode]             its rows convert their prices when the price mode changes (see «price mode»)
+ *   [data-tree-picker]            a tree filter as a field: <details> + the JSON island
+ *                                 script[data-tree-picker-data] → search + one level at a time (see «tree picker»)
+ *   [data-pick-list]              a searching choice list: [data-pick-search] types, ↑/↓ move over
+ *                                 [data-pick-item], Enter picks (see «pick list»)
+ *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»);
+ *     [data-window-with="a b"]    the form fields a, b ride along as query parameters
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
  *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
  *   form[target="_blank"][data-submit-navigate="<url>"]
@@ -194,10 +209,33 @@ _Z77.core.popup = (function () {
         if (root.open && typeof root.close === 'function') root.close();
     }
 
+    /* [data-popup-refresh="<region>"] on the trigger that opened the popup: when the popup closes
+     * (saved, cancelled, Esc), that fetch region — in the trigger's window, else the page —
+     * reloads from its `data-fetch-region-src`, its own fields' values riding along (the user's
+     * current choice stays). First user: the order's «Debitor anpassen» → «Zahlungskonditionen»
+     * (2026-10-18). The region reloads read-only; nothing is saved by it. */
+    var _refreshFrom = null;
+    function refreshOnClose(trigger) { _refreshFrom = trigger; }
+    function _refreshAfterClose() {
+        var trigger = _refreshFrom;
+        _refreshFrom = null;
+        if (!trigger || !trigger.isConnected) return;
+        var name = trigger.getAttribute('data-popup-refresh');
+        var scope = _Z77.core.windows.of(trigger) || document;
+        var region = scope.querySelector('[data-fetch-region="' + name + '"]');
+        if (!region) return;
+        var url = new URL(region.getAttribute('data-fetch-region-src') || window.location.href, window.location.href);
+        region.querySelectorAll('[name]').forEach(function (f) {
+            if (!f.disabled && typeof f.value === 'string') url.searchParams.set(f.name, f.value);
+        });
+        _Z77.core.region.load(region, url.toString());
+    }
+
     function bindBackdrop() {
         var root = _root();
         if (!root || root._z77PopupBound) return;
         root._z77PopupBound = true;
+        root.addEventListener('close', _refreshAfterClose);
         // No close-on-backdrop-click: an edit is only discarded via the explicit
         // cancel control ([data-popup-close]) so a stray click — or a text
         // selection dragged onto the backdrop — never loses the form.
@@ -207,7 +245,7 @@ _Z77.core.popup = (function () {
         });
     }
 
-    return { show: show, close: close, bindBackdrop: bindBackdrop };
+    return { show: show, close: close, bindBackdrop: bindBackdrop, refreshOnClose: refreshOnClose };
 })();
 
 /* ── clipboard channel ──────────────────────────────────────────────────────
@@ -449,6 +487,13 @@ _Z77.core.busy = (function () {
 /* `ctx` (optional): {window: id} when the container is a window's body (ADR-047) — a
  * request fired from inside a window answers INTO that window. */
 _Z77.core.wire = function (container, defaultPostUrl, ctx) {
+    _Z77.core.dirty.track(container);
+    _Z77.core.rows.init(container);
+    _Z77.core.autosize.init(container);
+    // A tree picker in fetched content (a window, a popup, a swapped region) is enhanced like
+    // one on the page — otherwise its fallback list stays and a choice loads the whole page.
+    _Z77.core.treePicker.init(container);
+    _Z77.core.stickyTop.init(container);
     container.querySelectorAll('[data-fetch-post]').forEach(function (form) {
         var url = form.dataset.fetchPost || defaultPostUrl;
         if (!url) return;
@@ -463,6 +508,7 @@ _Z77.core.wire = function (container, defaultPostUrl, ctx) {
     });
     container.querySelectorAll('[data-fetch-get]').forEach(function (el) {
         el.addEventListener('click', function () {
+            if (el.hasAttribute('data-popup-refresh')) _Z77.core.popup.refreshOnClose(el);
             _Z77.core.busy.guard(el, el, function () {
                 return _Z77.core.fetch.get(el.dataset.fetchGet, ctx);
             });
@@ -729,6 +775,53 @@ _Z77.core.fetch = (function () {
         el.textContent = '';
         el.appendChild(_wiredFragment(p.html, p.origin));
     });
+    /* {action: 'set-value', target, value, untouched?, origin?} — a field takes a value the server
+     * decided (first user: the debtor's price mode on a customer choice, owner 2026-10-18) and fires
+     * a bubbling `change` when it changed, so everything that follows the field runs as on a
+     * choice by hand. Only `.value` is written (Rule 7: no markup from data).
+     * `untouched` (the «Betreffname» of a new document, owner 2026-10-21): written ONLY while the
+     * field still holds what the server last put there — its `data-prefill`; what the user typed
+     * stays. The new value becomes the field's `data-prefill`. */
+    registerCommand('set-value', function (p) {
+        var el = _find(p);
+        if (!el || !('value' in el)) return;
+        if (p.untouched) {
+            if (!el.hasAttribute('data-prefill') || el.value !== el.getAttribute('data-prefill')) return;
+            el.setAttribute('data-prefill', String(p.value));
+        }
+        if (el.value === String(p.value)) return;
+        el.value = String(p.value);
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    /* {action: 'focus', target, origin?} — the field to go on with after a choice in another
+     * window (first user: the order row's quantity after «Artikel wählen …», 2026-10-19). Runs
+     * after `close-modal`, which hands the focus to the window below. */
+    registerCommand('focus', function (p) {
+        var el = _find(p);
+        if (el && typeof el.focus === 'function') el.focus();
+    });
+    /* {action: 'add-row', target, kind, values?, focus?, origin?} — a row added to the
+     * [data-rows] container `target` from its template `kind`, as its [data-row-add] button does
+     * (core.js «rows»); `values` = { selector inside the new row: value } — each field takes
+     * `.value` and fires a bubbling `change` (so «fill» runs as on a choice by hand); `focus` = a
+     * selector inside the new row. First user: «+ Artikel» → the article picker (2026-10-19).
+     * Without `focus` the focus stays where it was (the picker that stays open for the next
+     * pick, 2026-10-20) — `rows.add` would otherwise move it into the new row behind. */
+    registerCommand('add-row', function (p) {
+        var box = _find(p);
+        var keep = document.activeElement;
+        var row = box ? _Z77.core.rows.add(box, p.kind) : null;
+        if (!row) return;
+        Object.keys(p.values || {}).forEach(function (selector) {
+            var field = row.querySelector(selector);
+            if (!field || !('value' in field)) return;
+            field.value = String(p.values[selector]);
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        var next = p.focus ? row.querySelector(p.focus) : null;
+        if (next && typeof next.focus === 'function') next.focus();
+        else if (!p.focus && keep && keep.isConnected && typeof keep.focus === 'function') keep.focus();
+    });
     registerCommand('scroll-to', function (p) {
         var el = _find(p);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -875,7 +968,9 @@ _Z77.core.fetch = (function () {
  * answers the page's `main` (fetch skeleton), in which the region with the
  * same name is looked up and swapped in. The address bar follows
  * (history.replaceState), so a reload or a bookmark shows the same state.
- * Focus returns to the element with the same id when there is one. When the
+ * Focus returns to the element with the same id when there is one; a focused
+ * text field keeps what was typed during the load (and fires `input` when that
+ * differs from the answer — «pick list» searches again). When the
  * answer carries no such region, the browser simply navigates there.
  */
 _Z77.core.region = (function () {
@@ -892,6 +987,7 @@ _Z77.core.region = (function () {
         // a half-filled form. It says so instead.
         var host = _Z77.core.windows.of(region);
         function fail() {
+            region.removeAttribute('aria-busy');
             if (host) _Z77.core.message.show('error', _Z77.core.i18n.t('js.requestFailed', 'Anfrage fehlgeschlagen'));
             else window.location.href = url;
         }
@@ -906,6 +1002,11 @@ _Z77.core.region = (function () {
                 var doc = new DOMParser().parseFromString(html, 'text/html');
                 var fresh = doc.querySelector('[data-fetch-region="' + name + '"]');
                 if (!fresh) { fail(); return; }
+                // What was typed while the load ran stays (a search as you type, «pick list»):
+                // the focused text field keeps its value and fires `input`, so its own logic
+                // follows the newer text.
+                var typing = focusId ? document.getElementById(focusId) : null;
+                var typed = typing && typing.tagName === 'INPUT' && /^(text|search)$/.test(typing.type) ? typing.value : null;
                 region.replaceWith(fresh);
                 if (!host) history.replaceState(history.state, '', url);
                 // The new content is live like a popup's body: its ⋮, switches, fetch forms and
@@ -917,6 +1018,10 @@ _Z77.core.region = (function () {
                 if (focusId) {
                     var el = fresh.querySelector('#' + CSS.escape(focusId));
                     if (el) {
+                        if (typed !== null && el.value !== typed) {
+                            el.value = typed;
+                            el.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
                         el.focus();
                         if (typeof el.setSelectionRange === 'function' && typeof el.value === 'string') {
                             try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text field */ }
@@ -968,6 +1073,12 @@ _Z77.core.region = (function () {
  *   [data-origin="<name>"]      (optional, on the trigger) the origin to report; default: the
  *                               window the trigger sits in (`window:<id>`), else the fetch
  *                               region (`region:<name>`), else `page`. Sent as `_origin`.
+ *   [data-window-with="a b"]    (optional, on the trigger) the fields named a, b of the trigger's
+ *                               form ride along as query parameters, with their value AT THE
+ *                               CLICK (first user: the article picker gets the order's date and
+ *                               price mode, 2026-10-19 — like «fill»'s `data-fill-with`)
+ *   [autofocus]                 inside the content: takes the focus when the window opens or
+ *                               loads (else the window itself)
  *   In the controller's answer, on the content's root element:
  *   [data-window="<mask>"]              the mask (form) this window is
  *   [data-window-entity="<type>:<id>"]  the record it shows
@@ -975,10 +1086,15 @@ _Z77.core.region = (function () {
  *   [data-window-width="<length>"]      (optional) the width the controller wants for this content
  *                                       (e.g. `62rem`; rem/ch/px/%/vw) — a phone ignores it
  *   [data-window-confirm-close="…"]     ask this question before closing (the controller's call)
+ *   [data-window-dismiss]               a chooser without edits: a click outside the window closes
+ *                                       it too (first user: the article picker, 2026-10-20) — an
+ *                                       edit window never gets it (no form is lost by a stray click)
  *   Inside a window:
  *   a[data-window-link]         loads its href into THIS window (read view ↔ edit form)
  *   [data-window-close]         closes this window (and its children); so does
  *                               [data-popup-close] inside a window, × and Esc
+ *   [data-window-full]          toggles full screen (`is-full`, aria-pressed follows) — the icon
+ *                               every window carries in its title bar (owner 2026-10-17)
  *   <form method="post">        is sent by fetch as FormData to its action; the answer is HTML
  *                               (this window's new content, e.g. errors) or an envelope
  *
@@ -1063,6 +1179,21 @@ _Z77.core.windows = (function () {
         return hit;
     }
 
+    /* The full-screen icon of the title bar (the owner's draft, 2026-10-17): four corners pointing
+     * out, pointing in while the window is full. Built node by node — no markup from a string. */
+    var _FULL_OUT = 'M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4';
+    var _FULL_IN  = 'M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4';
+    function _fullIcon() {
+        var ns = 'http://www.w3.org/2000/svg';
+        var svg = document.createElementNS(ns, 'svg');
+        svg.setAttribute('viewBox', '0 0 16 16');
+        svg.setAttribute('aria-hidden', 'true');
+        var path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', _FULL_OUT);
+        svg.appendChild(path);
+        return svg;
+    }
+
     function _build(parentId, origin) {
         var win = document.createElement('section');
         win.className = 'z77-window';
@@ -1084,7 +1215,17 @@ _Z77.core.windows = (function () {
         close.setAttribute('data-window-close', '');
         close.setAttribute('aria-label', _Z77.core.i18n.t('common.close', 'Schliessen'));
         close.textContent = '×';
+        var fullLabel = _Z77.core.i18n.t('common.fullscreen', 'Vollbild');
+        var full = document.createElement('button');
+        full.type = 'button';
+        full.className = 'z77-window__full';
+        full.setAttribute('data-window-full', '');
+        full.setAttribute('aria-label', fullLabel);
+        full.setAttribute('aria-pressed', 'false');
+        full.title = fullLabel;
+        full.appendChild(_fullIcon());
         head.appendChild(title);
+        head.appendChild(full);
         head.appendChild(close);
         var body = document.createElement('div');
         body.className = 'z77-window__body';
@@ -1109,7 +1250,7 @@ _Z77.core.windows = (function () {
             btn.setAttribute('aria-label', label);
             btn.title = label;
             btn.textContent = label;
-            head.insertBefore(btn, head.querySelector('.z77-window__close'));
+            head.insertBefore(btn, head.querySelector('.z77-window__full') || head.querySelector('.z77-window__close'));
         } else if (!has && btn) {
             btn.parentNode.removeChild(btn);
         }
@@ -1177,7 +1318,7 @@ _Z77.core.windows = (function () {
             if (layer.hidden) { layer.hidden = false; _inert(true); }
             fill(win, html, target);
             front(win);
-            win.focus();
+            _focusIn(win);
             return win;
         }).catch(function () { window.location.href = url; });
     }
@@ -1189,7 +1330,28 @@ _Z77.core.windows = (function () {
             if (html === null || !win.isConnected) return;
             fill(win, html, target);
             front(win);
+            var auto = win.querySelector('[autofocus]');
+            if (auto) auto.focus();
         });
+    }
+
+    /* The content's [autofocus] field (a picker's search), else the window itself. */
+    function _focusIn(win) {
+        var auto = win.querySelector('[autofocus]');
+        (auto && typeof auto.focus === 'function' ? auto : win).focus();
+    }
+
+    /* The trigger's URL with its [data-window-with] fields as they stand now. */
+    function _withFields(opener, url) {
+        var names = (opener.getAttribute('data-window-with') || '').split(/\s+/).filter(Boolean);
+        var form = opener.form || opener.closest('form');
+        if (!names.length || !form) return url;
+        var u = new URL(url, window.location.href);
+        names.forEach(function (name) {
+            var el = form.elements.namedItem(name);
+            if (el && typeof el.value === 'string') u.searchParams.set(name, el.value);
+        });
+        return u.toString();
     }
 
     /* Closes a window and the windows opened from it. `force` skips the controller's question. */
@@ -1202,6 +1364,9 @@ _Z77.core.windows = (function () {
         }
         var ask = win.querySelector('[data-window-confirm-close]');
         if (!force && ask && !window.confirm(ask.getAttribute('data-window-confirm-close'))) return false;
+        // Unsaved changes (form[data-dirty], «dirty forms») — asked once, unless the controller asked above.
+        if (!force && !ask && _Z77.core.dirty.isDirty(win)
+            && !window.confirm(_Z77.core.i18n.t('js.window.discard_changes', 'Ungespeicherte Änderungen verwerfen?'))) return false;
         win.parentNode.removeChild(win);
         var rest = all();
         if (!rest.length) { _layer.hidden = true; _inert(false); }
@@ -1231,11 +1396,18 @@ _Z77.core.windows = (function () {
     function bind() {
         document.addEventListener('click', function (e) {
             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            // A chooser closes on a click outside it — not on one into the message channels, and
+            // not on a target a re-render just removed (it is no longer anywhere).
+            if (e.target.isConnected && !e.target.closest('#messages, #flash-messages, [data-z77-help]')) {
+                all().forEach(function (w) {
+                    if (!w.contains(e.target) && w.querySelector('[data-window-dismiss]')) close(w);
+                });
+            }
             var opener = e.target.closest('[data-window-open]');
             if (opener) {
                 e.preventDefault();
                 var parent = of(opener);
-                open(opener.getAttribute('data-window-open'), {
+                open(_withFields(opener, opener.getAttribute('data-window-open')), {
                     origin: _originOf(opener),
                     parent: parent ? parent.getAttribute('data-z77-window') : ''
                 });
@@ -1245,6 +1417,15 @@ _Z77.core.windows = (function () {
             if (!win) return;
             var link = e.target.closest('a[data-window-link]');
             if (link) { e.preventDefault(); load(win, link.href); return; }
+            var fullBtn = e.target.closest('[data-window-full]');
+            if (fullBtn) {
+                var isFull = win.classList.toggle('is-full');
+                fullBtn.setAttribute('aria-pressed', String(isFull));
+                var fullPath = fullBtn.querySelector('path');
+                if (fullPath) fullPath.setAttribute('d', isFull ? _FULL_IN : _FULL_OUT);
+                front(win);
+                return;
+            }
             if (e.target.closest('[data-window-close], [data-popup-close]')) { close(win); return; }
             front(win);
         });
@@ -1268,7 +1449,8 @@ _Z77.core.windows = (function () {
             });
         });
         document.addEventListener('keydown', function (e) {
-            if (e.key !== 'Escape' || !all().length || document.querySelector('dialog[open]')) return;
+            // A control that used Esc itself (an open tree picker closes its popover) keeps the window.
+            if (e.key !== 'Escape' || e.defaultPrevented || !all().length || document.querySelector('dialog[open]')) return;
             var win = _layer.querySelector('.is-front') || all()[all().length - 1];
             if (win) { e.preventDefault(); close(win); }
         });
@@ -1551,9 +1733,11 @@ _Z77.core.submitNavigate = (function () {
  *   [data-fill-with="a b"]        optional: the form fields named a, b ride along (?a=…&b=…)
  *   [data-fill-scope]             the ancestor whose fields are filled (a line row)
  *   [data-fill-key="<key>"]       a field inside the scope the answer may set
- * The answer is a fetch envelope; `data.fill` = { key: value } sets those fields, `data.lock` =
- * { key: true|false } locks a field (a select disabled, an input read-only) or frees it. Flashes
- * and an error status go the envelope's usual way; an error fills nothing.
+ * The answer is a fetch envelope; `data.fill` = { key: value } sets those fields (each then fires
+ * a bubbling `input` event), `data.lock` = { key: true|false } locks a field (a select disabled,
+ * an input read-only) or frees it. Flashes and an error status go the envelope's usual way; an
+ * error fills nothing. «price mode» asks the same source with `prices=1` and reads only
+ * `data.prices` = { net: '…', gross: '…' } — the exact prices of the choice in both modes.
  */
 _Z77.core.fill = (function () {
     function _apply(scope, data) {
@@ -1566,12 +1750,15 @@ _Z77.core.fill = (function () {
                 if (field.tagName === 'SELECT') field.disabled = !!lock[key];
                 else field.readOnly = !!lock[key];
             }
+            // A written value is an edit like a typed one: «dirty forms», «autosize» and «line
+            // sums» follow it (2026-10-18).
+            if (Object.prototype.hasOwnProperty.call(fill, key)) field.dispatchEvent(new Event('input', { bubbles: true }));
         });
     }
 
-    function _request(source) {
-        var scope = source.closest('[data-fill-scope]');
-        if (!scope) return;
+    /* The request a source makes — `value` + its `data-fill-with` fields + $extra; the promise of
+     * the envelope. Also asked by «price mode» (with `prices=1`). */
+    function ask(source, extra) {
         var params = new URLSearchParams();
         params.set('value', source.value.trim());
         var form = source.form;
@@ -1579,8 +1766,15 @@ _Z77.core.fill = (function () {
             var el = name && form ? form.elements.namedItem(name) : null;
             if (el && typeof el.value === 'string') params.set(name, el.value);
         });
+        Object.keys(extra || {}).forEach(function (key) { params.set(key, extra[key]); });
         var url = source.getAttribute('data-fill-url');
-        _Z77.core.fetch.get(url + (url.indexOf('?') === -1 ? '?' : '&') + params.toString()).then(function (env) {
+        return _Z77.core.fetch.get(url + (url.indexOf('?') === -1 ? '?' : '&') + params.toString());
+    }
+
+    function _request(source) {
+        var scope = source.closest('[data-fill-scope]');
+        if (!scope) return;
+        ask(source).then(function (env) {
             if (env && env.status === 'success') _apply(scope, env.data);
         });
     }
@@ -1591,7 +1785,1064 @@ _Z77.core.fill = (function () {
         });
     }
 
+    return { bind: bind, ask: ask };
+})();
+
+/* ── dirty forms ────────────────────────────────────────────────────────────
+ * A form that knows whether it holds unsaved changes (owner 2026-10-18): its save is quiet while
+ * there is nothing to save and calls when there is; a window asks before it drops changes. The
+ * script only compares and shows — the server saves and checks whatever comes (Rule 7). Without
+ * the script the save stays a plain, active button.
+ *
+ * Contract:
+ *   form[data-dirty="clean|dirty"]  tracked; the server's value is the START: 'dirty' = what the
+ *                                   form shows is not saved (a new record, an answer with errors)
+ *                                   and stays dirty; 'clean' = compared with the state at load
+ *   [data-dirty-submit]             the save inside it: `aria-disabled` follows, and while clean
+ *                                   it does not submit (a click, Enter) — other submits pass
+ *   input[type=hidden][name="_dirty_base"]  optional: carries the hash of the LOADED state
+ *                                   through a POST that re-renders without saving (the server
+ *                                   echoes the posted value) — set back, the form is clean again
+ * The state is written back to `data-dirty` (CSS styles the save from it). Compared are the
+ * named fields a submit would send, without `_…`, `csrf_token`, `entity_csrf` and `version`;
+ * a field set back to its old value makes the form clean again. A part the server replaces
+ * (`replace-html`) is compared too (MutationObserver).
+ */
+_Z77.core.dirty = (function () {
+    var SKIP = { csrf_token: 1, entity_csrf: 1, version: 1 };
+
+    function _snapshot(form) {
+        var parts = [];
+        var els = form.elements;
+        for (var i = 0; i < els.length; i++) {
+            var el = els[i];
+            if (!el.name || el.disabled || el.name.charAt(0) === '_' || SKIP[el.name]) continue;
+            if (/^(submit|button|reset|file)$/.test(el.type)) continue;
+            if ((el.type === 'checkbox' || el.type === 'radio') && !el.checked) continue;
+            if (el.tagName === 'SELECT' && el.multiple) {
+                for (var j = 0; j < el.options.length; j++) {
+                    if (el.options[j].selected) parts.push(el.name + '=' + el.options[j].value);
+                }
+                continue;
+            }
+            parts.push(el.name + '=' + el.value);
+        }
+        return parts.join('\n');
+    }
+
+    /* FNV-1a, 32 bit, hex — short enough to ride along in a hidden field. */
+    function _hash(text) {
+        var h = 0x811c9dc5;
+        for (var i = 0; i < text.length; i++) {
+            h ^= text.charCodeAt(i);
+            h = Math.imul(h, 0x01000193) >>> 0;
+        }
+        return ('0000000' + h.toString(16)).slice(-8);
+    }
+
+    function _update(form) {
+        if (form._z77DirtyBase === undefined) return;
+        var dirty = form._z77DirtySticky || _hash(_snapshot(form)) !== form._z77DirtyBase;
+        form.setAttribute('data-dirty', dirty ? 'dirty' : 'clean');
+        form.querySelectorAll('[data-dirty-submit]').forEach(function (b) {
+            b.setAttribute('aria-disabled', dirty ? 'false' : 'true');
+        });
+    }
+
+    /* Starts tracking every form[data-dirty] in container (wire() calls it for new content). */
+    function track(container) {
+        var forms = Array.prototype.slice.call(container.querySelectorAll('form[data-dirty]'));
+        if (container.matches && container.matches('form[data-dirty]')) forms.push(container);
+        forms.forEach(function (form) {
+            if (form._z77DirtyBase !== undefined) return;
+            form._z77DirtySticky = form.getAttribute('data-dirty') === 'dirty';
+            // The state the form was LOADED with travels through a server round trip that does
+            // not save («+ Weitere Zeilen», «anpassen», errors): the hidden `_dirty_base` keeps
+            // its hash, the server hands it back, and the comparison stays with the saved state.
+            var carry = form.querySelector('input[name="_dirty_base"]');
+            form._z77DirtyBase = carry && /^[0-9a-f]{8}$/.test(carry.value) ? carry.value : _hash(_snapshot(form));
+            if (carry) carry.value = form._z77DirtyBase;
+            if (window.MutationObserver) {
+                new MutationObserver(function () { _update(form); }).observe(form, { childList: true, subtree: true });
+            }
+            _update(form);
+        });
+    }
+
+    /* Whether scope holds a form with unsaved changes. */
+    function isDirty(scope) {
+        return !!(scope && scope.querySelector('form[data-dirty="dirty"]'));
+    }
+
+    function bind() {
+        ['input', 'change'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                var form = e.target.form || (e.target.closest && e.target.closest('form[data-dirty]'));
+                if (form) _update(form);
+            });
+        });
+        // Capture phase: a clean save never reaches the fetch submit of a window or region.
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (form.getAttribute && form.getAttribute('data-dirty') === 'clean'
+                && e.submitter && e.submitter.hasAttribute('data-dirty-submit')) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+            }
+        }, true);
+        track(document);
+    }
+
+    return { bind: bind, track: track, isDirty: isDirty };
+})();
+
+/* ── rows ───────────────────────────────────────────────────────────────────
+ * Form rows the user adds, removes and puts in order (first user: the positions of an order,
+ * owner 2026-10-18). Adding and removing stay SUBMITS for a page without the script — the server
+ * answers with the changed rows; the script does the same in place. A new row is a clone of a
+ * server-rendered <template>, never markup built from data (Rule 7). The server judges the rows
+ * it receives; the order and the indent are only what the user arranged.
+ *
+ * Contract:
+ *   [data-rows="<prefix>"]        the container; its DIRECT children [data-row] are the rows. After
+ *                                 every change the field names `<prefix>[<n>][…]` are renumbered
+ *                                 0…n-1 in DOM order (the server reads the rows in posted order)
+ *   [data-row]                    one row
+ *     [data-row-grip]             a button: drag it (pointer) or press Alt+↑ / Alt+↓ on it to move
+ *                                 the row. Render it `hidden` — the script reveals it
+ *     [data-row-indent]           a checkbox: checked = the row is indented beneath the nearest
+ *                                 row above that is not; a row that is not indented moves together
+ *                                 with the indented rows below it
+ *     [data-row-no]               the position number: «1», «1.1» (textContent)
+ *     [data-row-remove]           a button (a submit without the script): removes its row
+ *   template[data-row-template="<kind>"]  inside the container: the row to clone; `__i__` in the
+ *                                 name / id / for / href / data-window-open attributes of the clone
+ *                                 becomes a unique key (`n1`, `n2` …)
+ *   [data-row-add="<kind>"]       a button of the same form (a submit without the script): appends
+ *                                 a clone of that template and focuses its first field — so does the
+ *                                 command `add-row` (a choice in another window, «fetch» commands)
+ * After every change the container fires a bubbling `input` event: «dirty forms» and «line sums»
+ * follow — a move IS a change (the names carry the index), moved back the form is clean again.
+ * Rows being dragged carry `data-row-dragging`. A control in a disabled fieldset does nothing.
+ */
+_Z77.core.rows = (function () {
+    var _seq = 0;
+
+    function _rows(box) {
+        return Array.prototype.filter.call(box.children, function (el) { return el.hasAttribute('data-row'); });
+    }
+
+    function _indented(row) {
+        var flag = row.querySelector('[data-row-indent]');
+        return !!(flag && flag.checked);
+    }
+
+    /* What moves with rows[i]: the row itself and — when it is not indented — the indented rows below. */
+    function _unit(rows, i) {
+        var unit = [rows[i]];
+        if (_indented(rows[i])) return unit;
+        for (var j = i + 1; j < rows.length && _indented(rows[j]); j++) unit.push(rows[j]);
+        return unit;
+    }
+
+    /* What the unit at i passes going up: the row above (an indented row moves alone), else the whole unit above. */
+    function _above(rows, i) {
+        if (i === 0) return [];
+        if (_indented(rows[i])) return [rows[i - 1]];
+        var j = i - 1;
+        while (j > 0 && _indented(rows[j])) j--;
+        return rows.slice(j, i);
+    }
+
+    function _below(rows, i) {
+        var next = i + _unit(rows, i).length;
+        if (next >= rows.length) return [];
+        return _indented(rows[i]) ? [rows[next]] : _unit(rows, next);
+    }
+
+    /* A row of a subgrid list is `display: contents` — no box of its own; its children have one. */
+    function _middle(unit) {
+        var top = Infinity, bottom = -Infinity;
+        unit.forEach(function (row) {
+            [row].concat(Array.prototype.slice.call(row.children)).forEach(function (el) {
+                var b = el.getBoundingClientRect();
+                if (b.height) { top = Math.min(top, b.top); bottom = Math.max(bottom, b.bottom); }
+            });
+        });
+        return (top + bottom) / 2;
+    }
+
+    /* One step up (-1) or down (+1). The NEIGHBOUR changes sides, so the moved rows stay in the
+     * document — pointer capture and focus survive. True when something moved. */
+    function _step(row, dir) {
+        var box = row.parentNode, rows = _rows(box), i = rows.indexOf(row);
+        var unit = _unit(rows, i);
+        if (dir < 0) {
+            var above = _above(rows, i), after = unit[unit.length - 1].nextSibling;
+            above.forEach(function (el) { box.insertBefore(el, after); });
+            return above.length > 0;
+        }
+        var below = _below(rows, i);
+        below.forEach(function (el) { box.insertBefore(el, unit[0]); });
+        return below.length > 0;
+    }
+
+    function _renumber(box) {
+        var prefix = box.getAttribute('data-rows');
+        var pattern = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[[^\\]]*\\]');
+        var main = 0, sub = 0;
+        _rows(box).forEach(function (row, n) {
+            row.querySelectorAll('[name]').forEach(function (field) {
+                field.name = field.name.replace(pattern, prefix + '[' + n + ']');
+            });
+            // As the server prints it: an indented row counts under its parent; one without a parent counts as a row.
+            if (_indented(row) && main > 0) { sub++; } else { main++; sub = 0; }
+            var no = row.querySelector('[data-row-no]');
+            if (no) no.textContent = sub ? main + '.' + sub : String(main);
+        });
+    }
+
+    function _changed(box) {
+        _renumber(box);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    function _add(button) {
+        var form = button.form || button.closest('form');
+        var tpl = form && form.querySelector('template[data-row-template="' + button.getAttribute('data-row-add') + '"]');
+        var box = tpl && tpl.closest('[data-rows]');
+        return !!(box && add(box, button.getAttribute('data-row-add')));
+    }
+
+    /* Appends a clone of box's template `kind`, focuses its first field; returns the row (null
+     * without such a template). Also the `add-row` command's way in. */
+    function add(box, kind) {
+        var tpl = box && box.querySelector('template[data-row-template="' + kind + '"]');
+        if (!tpl || tpl.closest('[data-rows]') !== box || !tpl.content.firstElementChild) return null;
+        var row = tpl.content.firstElementChild.cloneNode(true);
+        var key = 'n' + (++_seq);
+        [row].concat(Array.prototype.slice.call(row.querySelectorAll('*'))).forEach(function (el) {
+            ['name', 'id', 'for', 'href', 'data-window-open'].forEach(function (attr) {
+                var value = el.getAttribute(attr);
+                if (value && value.indexOf('__i__') !== -1) el.setAttribute(attr, value.split('__i__').join(key));
+            });
+        });
+        box.appendChild(row);
+        init(row);
+        _Z77.core.autosize.init(row);
+        _changed(box);
+        var first = row.querySelector('input:not([type="hidden"]):not([type="checkbox"]), textarea, select');
+        if (first) first.focus();
+        return row;
+    }
+
+    function _remove(button) {
+        var row = button.closest('[data-row]');
+        var box = row && row.parentNode;
+        if (!box || !box.hasAttribute('data-rows')) return false;
+        var rows = _rows(box), i = rows.indexOf(row);
+        var next = rows[i + 1] || rows[i - 1];
+        box.removeChild(row);
+        _changed(box);
+        var focus = next && next.querySelector('[data-row-remove]');
+        if (focus) focus.focus();
+        return true;
+    }
+
+    function _drag(grip, e) {
+        var row = grip.closest('[data-row]');
+        var box = row && row.parentNode;
+        if (!box || !box.hasAttribute('data-rows')) return;
+        var moved = false;
+        var mark = function (on) {
+            var rows = _rows(box);
+            _unit(rows, rows.indexOf(row)).forEach(function (el) { el.toggleAttribute('data-row-dragging', on); });
+        };
+        var move = function (ev) {
+            var rows = _rows(box), i = rows.indexOf(row);
+            var above = _above(rows, i), below = _below(rows, i);
+            if (above.length && ev.clientY < _middle(above)) moved = _step(row, -1) || moved;
+            else if (below.length && ev.clientY > _middle(below)) moved = _step(row, 1) || moved;
+        };
+        var end = function () {
+            grip.removeEventListener('pointermove', move);
+            grip.removeEventListener('pointerup', end);
+            grip.removeEventListener('pointercancel', end);
+            mark(false);
+            if (moved) _changed(box);
+        };
+        grip.setPointerCapture(e.pointerId);
+        mark(true);
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', end);
+        grip.addEventListener('pointercancel', end);
+    }
+
+    /* Reveals the grips (rendered `hidden`, so a page without the script shows no dead control). */
+    function init(container) {
+        var grips = container.querySelectorAll('[data-row-grip][hidden]');
+        for (var i = 0; i < grips.length; i++) grips[i].hidden = false;
+        if (container.matches && container.matches('[data-row-grip][hidden]')) container.hidden = false;
+    }
+
+    function bind() {
+        document.addEventListener('click', function (e) {
+            if (!e.target.closest) return;
+            var add = e.target.closest('[data-row-add]');
+            var remove = add ? null : e.target.closest('[data-row-remove]');
+            var button = add || remove;
+            if (!button || button.matches(':disabled')) return;
+            if (add ? _add(add) : _remove(remove)) e.preventDefault();   // done here — no submit
+        });
+        document.addEventListener('pointerdown', function (e) {
+            var grip = e.target.closest && e.target.closest('[data-row-grip]');
+            if (!grip || grip.matches(':disabled') || e.button !== 0) return;
+            e.preventDefault();
+            _drag(grip, e);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+            var grip = e.target.closest && e.target.closest('[data-row-grip]');
+            var row = grip && !grip.matches(':disabled') ? grip.closest('[data-row]') : null;
+            if (!row || !row.parentNode.hasAttribute('data-rows')) return;
+            e.preventDefault();
+            if (_step(row, e.key === 'ArrowUp' ? -1 : 1)) { _changed(row.parentNode); grip.focus(); }
+        });
+        document.addEventListener('change', function (e) {
+            var box = e.target.matches && e.target.matches('[data-row-indent]') ? e.target.closest('[data-rows]') : null;
+            if (box) _renumber(box);
+        });
+        init(document);
+    }
+
+    return { bind: bind, init: init, add: add };
+})();
+
+/* ── autosize ───────────────────────────────────────────────────────────────
+ * A text field as tall as its text (first user: the order line's text, whose article fill brings
+ * the name and a description below it, 2026-10-18). Looks only — nothing is sent or decided.
+ *
+ * Contract:
+ *   textarea[data-autosize]          grows and shrinks with its text, no scrollbar. The server sets
+ *                                    `rows` to the number of lines, so it fits without the script;
+ *                                    CSS `field-sizing: content` does it alone where it exists
+ *   textarea[data-autosize="title"]  shows its FIRST line as a title: a mirror lies over the field
+ *                                    (`[data-autosize-mirror]`, aria-hidden, the field's classes) and
+ *                                    paints the text — the first line in `[data-autosize-title]`, the
+ *                                    rest after it; the field's parent gets `[data-autosize-on]`, CSS
+ *                                    turns the field's own ink transparent. Caret, selection and
+ *                                    input stay the field's. The mirror's text is set by textContent.
+ */
+_Z77.core.autosize = (function () {
+    var _native = !!(window.CSS && CSS.supports && CSS.supports('field-sizing', 'content'));
+
+    function _size(el) {
+        if (_native || !el.isConnected || !el.offsetParent) return;   // hidden: sized when typed in
+        el.style.height = 'auto';
+        el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px';
+    }
+
+    function _mirror(el) {
+        var host = el.parentNode;
+        var mirror = host && host.querySelector('[data-autosize-mirror]');
+        if (!host) return;
+        if (!mirror) {
+            mirror = document.createElement('span');
+            mirror.className = el.className;   // the field's box: padding, border width, font
+            mirror.setAttribute('data-autosize-mirror', '');
+            mirror.setAttribute('aria-hidden', 'true');
+            mirror.appendChild(document.createElement('span')).setAttribute('data-autosize-title', '');
+            mirror.appendChild(document.createTextNode(''));
+            host.appendChild(mirror);
+            host.setAttribute('data-autosize-on', '');
+        }
+        var text = el.value, cut = text.indexOf('\n');
+        mirror.firstChild.textContent = cut === -1 ? text : text.slice(0, cut + 1);
+        // A trailing line break needs a character after it to take its line.
+        mirror.lastChild.textContent = (cut === -1 ? '' : text.slice(cut + 1)) + (/\n$/.test(text) ? ' ' : '');
+        mirror.scrollTop = el.scrollTop;
+    }
+
+    function _update(el) {
+        if (el.getAttribute('data-autosize') === 'title') _mirror(el);
+        _size(el);
+    }
+
+    /* Wires the fields in container (also a fragment not yet in the page — sized a frame later). */
+    function init(container) {
+        var list = Array.prototype.slice.call(container.querySelectorAll('textarea[data-autosize]'));
+        if (container.matches && container.matches('textarea[data-autosize]')) list.push(container);
+        list.forEach(function (el) { if (el.getAttribute('data-autosize') === 'title') _mirror(el); });
+        if (list.length) window.requestAnimationFrame(function () { list.forEach(_size); });
+    }
+
+    function bind() {
+        ['input', 'focusin'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                if (e.target.matches && e.target.matches('textarea[data-autosize]')) _update(e.target);
+            });
+        });
+        // A field that scrolls after all (narrowed, not sized yet) keeps its mirror in step.
+        document.addEventListener('scroll', function (e) {
+            var el = e.target;
+            if (el.matches && el.matches('textarea[data-autosize="title"]')) _mirror(el);
+        }, true);
+        init(document);
+    }
+
+    return { bind: bind, init: init };
+})();
+
+/* ── line sums ──────────────────────────────────────────────────────────────
+ * A live total of document lines while they are typed (first user: the order's positions, owner
+ * 2026-10-18). DISPLAY ONLY: the stored total is the server's (debtor's preview, D11) — this
+ * shows what the rows add up to now, without the rounding, until the save answers. Nothing is
+ * sent (Rule 7).
+ *
+ * Contract:
+ *   [data-sum]                    the scope; recomputed on every input / change inside it
+ *     [data-sum-mode]             optional select: 'gross' = the prices include VAT
+ *     [data-row]                  a line — it counts with a [data-sum-qty] and a [data-sum-price]:
+ *       [data-sum-qty] [data-sum-price] [data-sum-discount]  fields (the discount in percent)
+ *       [data-sum-rate]           the VAT rate in percent: `data-rate` of the selected <option> of
+ *                                 a select, else of the element itself; none = no VAT
+ *       [data-sum-amount]         the line amount (textContent), empty while a value is no number
+ *     [data-sum-net] [data-sum-gross]  the totals (textContent)
+ *     [data-sum-taxes]            emptied and refilled with clones of its
+ *       template[data-sum-tax]    whose [data-sum-tax-rate] [data-sum-tax-base] [data-sum-tax-amount]
+ *                                 get the numbers — one per rate, in the order the rates appear
+ *     [data-sum-stored]           hidden once the sum is live (the server's alone: the rounding)
+ *     [data-sum-live]             shown once the sum is live (the label saying so)
+ * Numbers read Swiss style («1'234.50», a comma as the point) and print with «'» and two decimals.
+ */
+_Z77.core.sums = (function () {
+    function _num(value) {
+        var v = String(value || '').trim().replace(/['’\s]/g, '').replace(',', '.');
+        return /^-?(\d+\.?\d*|\.\d+)$/.test(v) ? parseFloat(v) : null;
+    }
+
+    function _round(n) { return Math.round(n * 100) / 100; }
+
+    function _fmt(n) {
+        var s = _round(n).toFixed(2), sign = '';
+        if (s.charAt(0) === '-') { sign = s === '-0.00' ? '' : '-'; s = s.slice(1); }
+        var parts = s.split('.');
+        return sign + parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, "'") + '.' + parts[1];
+    }
+
+    function _rate(el) {
+        if (!el) return '';
+        var source = el.tagName === 'SELECT' ? el.options[el.selectedIndex] : el;
+        return (source && source.getAttribute('data-rate')) || '';
+    }
+
+    function _set(scope, selector, text) {
+        scope.querySelectorAll(selector).forEach(function (el) { el.textContent = text; });
+    }
+
+    function update(scope) {
+        var modeField = scope.querySelector('[data-sum-mode]');
+        var gross = !!(modeField && modeField.value === 'gross');
+        var rates = [], sums = {};
+        scope.querySelectorAll('[data-row]').forEach(function (row) {
+            var qty = row.querySelector('[data-sum-qty]'), price = row.querySelector('[data-sum-price]');
+            if (!qty || !price) return;
+            var q = _num(qty.value), p = _num(price.value);
+            var discountField = row.querySelector('[data-sum-discount]');
+            var d = discountField && discountField.value.trim() !== '' ? _num(discountField.value) : 0;
+            var out = row.querySelector('[data-sum-amount]');
+            if (q === null || p === null || d === null) { if (out) out.textContent = ''; return; }
+            var amount = _round(q * p * (1 - d / 100));
+            if (out) out.textContent = _fmt(amount);
+            var rate = _rate(row.querySelector('[data-sum-rate]'));
+            if (!(rate in sums)) { sums[rate] = 0; rates.push(rate); }
+            sums[rate] += amount;
+        });
+        var net = 0, tax = 0, lines = [];
+        rates.forEach(function (rate) {
+            var r = (_num(rate) || 0) / 100;
+            var base = gross ? _round(sums[rate] / (1 + r)) : _round(sums[rate]);
+            var vat = gross ? _round(sums[rate] - base) : _round(base * r);
+            net += base;
+            tax += vat;
+            if (rate !== '') lines.push([rate, base, vat]);
+        });
+        _set(scope, '[data-sum-net]', _fmt(net));
+        _set(scope, '[data-sum-gross]', _fmt(net + tax));
+        var taxes = scope.querySelector('[data-sum-taxes]');
+        var tpl = taxes && taxes.querySelector('template[data-sum-tax]');
+        if (tpl) {
+            Array.prototype.slice.call(taxes.children).forEach(function (el) { if (el !== tpl) taxes.removeChild(el); });
+            lines.forEach(function (line) {
+                var el = tpl.content.firstElementChild.cloneNode(true);
+                _set(el, '[data-sum-tax-rate]', line[0]);
+                _set(el, '[data-sum-tax-base]', _fmt(line[1]));
+                _set(el, '[data-sum-tax-amount]', _fmt(line[2]));
+                taxes.appendChild(el);
+            });
+        }
+        scope.querySelectorAll('[data-sum-stored]').forEach(function (el) { el.hidden = true; });
+        scope.querySelectorAll('[data-sum-live]').forEach(function (el) { el.hidden = false; });
+    }
+
+    function bind() {
+        ['input', 'change'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                var scope = e.target.closest && e.target.closest('[data-sum]');
+                if (scope) update(scope);
+            });
+        });
+    }
+
+    return { bind: bind, update: update };
+})();
+
+/* ── dated rates ────────────────────────────────────────────────────────────
+ * Options whose RATE depends on a date field of the form (first user: the order's VAT per row —
+ * the SERVICE date decides the rate, owner 2026-10-18). The server renders the rates for the date
+ * it knew; when the date changes, the options are re-labelled from the schedule at once, and
+ * «line sums» / «price mode» read the new `data-rate`. Display only — the save resolves the rate
+ * itself (Rule 7).
+ *
+ * Contract:
+ *   script[type="application/json"][data-rate-schedule="<name>"]
+ *                                 inside a form: { option value: [[valid from 'Y-m-d', rate], …] }
+ *                                 oldest first; `data-rate-date="a b"` = the form fields that hold
+ *                                 the date, the first non-empty one counts
+ *   select[data-rate-schedule-ref="<name>"]  its options get `data-rate` and the label «<rate> %»
+ *                                 for that date (no rate in effect: the value as label, no rate)
+ *     [data-rate-keep-label]      optional: only `data-rate` follows, the labels stay (a CODE picker —
+ *                                 the invoice editor's MWST code, owner 2026-10-19)
+ * Re-applied when a date field changes and when rows are added ([data-rows] fires `input`).
+ */
+_Z77.core.datedRates = (function () {
+    function _at(list, date) {
+        var hit = null;
+        (list || []).forEach(function (entry) { if (entry[0] <= date) hit = entry[1]; });
+        return hit;
+    }
+
+    function apply(island) {
+        var form = island.closest('form');
+        if (!form) return;
+        var schedule;
+        try { schedule = JSON.parse(island.textContent) || {}; } catch (e) { return; }
+        var date = '';
+        (island.getAttribute('data-rate-date') || '').split(/\s+/).some(function (name) {
+            var field = name ? form.elements.namedItem(name) : null;
+            date = field && typeof field.value === 'string' ? field.value.trim() : '';
+            return date !== '';
+        });
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+        var name = island.getAttribute('data-rate-schedule');
+        form.querySelectorAll('select[data-rate-schedule-ref="' + name + '"]').forEach(function (select) {
+            var before = select.selectedIndex >= 0 ? select.options[select.selectedIndex].getAttribute('data-rate') : null;
+            var keep = select.hasAttribute('data-rate-keep-label');
+            Array.prototype.forEach.call(select.options, function (option) {
+                if (!option.value || !Object.prototype.hasOwnProperty.call(schedule, option.value)) return;
+                var rate = _at(schedule[option.value], date);
+                if (rate === null) { option.removeAttribute('data-rate'); if (!keep) option.textContent = option.value; }
+                else { option.setAttribute('data-rate', rate); if (!keep) option.textContent = rate + ' %'; }
+            });
+            var after = select.selectedIndex >= 0 ? select.options[select.selectedIndex].getAttribute('data-rate') : null;
+            if (after !== before) select.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+    }
+
+    function _islandsFor(target) {
+        var form = target.form || (target.closest && target.closest('form'));
+        if (!form) return [];
+        return Array.prototype.filter.call(form.querySelectorAll('script[data-rate-schedule]'), function (island) {
+            if (target.hasAttribute && target.hasAttribute('data-rows')) return true;
+            return target.name && (' ' + (island.getAttribute('data-rate-date') || '') + ' ').indexOf(' ' + target.name + ' ') !== -1;
+        });
+    }
+
+    function bind() {
+        ['change', 'input'].forEach(function (type) {
+            document.addEventListener(type, function (e) {
+                if (e.target.tagName === 'SELECT' && e.target.hasAttribute('data-rate-schedule-ref')) return;   // our own echo
+                _islandsFor(e.target).forEach(apply);
+            });
+        });
+    }
+
+    return { bind: bind, apply: apply };
+})();
+
+/* ── price mode ─────────────────────────────────────────────────────────────
+ * Prices that follow a change of the price mode (owner 2026-10-18 — before, an article price
+ * filled under «netto» kept its number under «brutto»: an article of 16.65 gross was billed
+ * 15.40 incl. VAT). Users: the order window, debtor's invoice editor (2026-10-19 — no article
+ * source, every price converts with its row's rate). A change converts every row IN PLACE at once, without a question. The script
+ * only helps: the SERVER converts again at the save whenever the posted prices are in another
+ * mode than the select (no script, a stale client — Rule 7); the hidden «shown» field tells it.
+ *
+ * Contract:
+ *   [data-price-mode]                 the scope (the rows with their price-mode select)
+ *     select[data-price-mode-select]  'net' | 'gross' — a change converts the rows
+ *     input[data-price-mode-shown]    hidden and NAMED (posted): the mode the prices are in —
+ *                                     rendered by the server, written here once a change is done
+ *     [data-row]                      a line:
+ *       [data-price-mode-price]       its price field (empty or not an amount: left as it is)
+ *       [data-price-mode-rate]        the VAT rate in percent: `data-rate` of the selected
+ *                                     <option> of a select, else of the element itself
+ *       [data-fill-url]               optional, the row's «fill» source: with a value it is asked
+ *                                     (`prices=1`); `data.prices` = { net, gross } are the exact
+ *                                     prices — a price EQUAL to the old mode's becomes the new
+ *                                     mode's (an article: 16.65 gross, not 15.40 × 1.081)
+ * Any other price (typed by hand, no source, no answer) is converted with its row's rate — in
+ * cents, r = the rate in hundredths of a percent, rounded half away from zero, the server's rule
+ * (module-vat `VatCalculator::convertPrice()`): net → gross c × (10000 + r) / 10000, gross → net
+ * c × 10000 / (10000 + r). A row without a rate keeps its price. The rows of one change are
+ * written together, with the shown mode, when every answer is in — never half converted; a price
+ * typed while the answers were on their way is left as typed. Changes are worked off in turn.
+ * Every written field fires `input` («line sums», «dirty forms» follow).
+ */
+_Z77.core.priceMode = (function () {
+    var MODES = { net: 1, gross: 1 };
+    var _queue = Promise.resolve();
+
+    /* «16.65», «1'234.5», «-3,20» → cents; null for anything that is no amount of two decimals. */
+    function _cents(value) {
+        var v = String(value == null ? '' : value).trim().replace(/['’\s]/g, '').replace(',', '.');
+        var m = /^(-?)(\d*)(?:\.(\d{0,2}))?$/.exec(v);
+        if (!m || (m[2] === '' && !m[3])) return null;
+        var c = parseInt(m[2] || '0', 10) * 100 + parseInt(((m[3] || '') + '00').slice(0, 2), 10);
+        return m[1] === '-' ? -c : c;
+    }
+
+    function _decimal(c) {
+        var a = Math.abs(c);
+        return (c < 0 ? '-' : '') + Math.floor(a / 100) + '.' + ('0' + (a % 100)).slice(-2);
+    }
+
+    /* num / den, rounded half away from zero (den > 0). */
+    function _divide(num, den) {
+        var a = Math.abs(num), q = Math.floor(a / den);
+        if (2 * (a - q * den) >= den) q++;
+        return num < 0 ? -q : q;
+    }
+
+    /* The rate in hundredths of a percent («8.1» → 810), null without one. */
+    function _rate(el) {
+        if (!el) return null;
+        var source = el.tagName === 'SELECT' ? el.options[el.selectedIndex] : el;
+        var v = parseFloat(String((source && source.getAttribute('data-rate')) || '').replace(',', '.'));
+        return isNaN(v) ? null : Math.round(v * 100);
+    }
+
+    function _convert(scope) {
+        var select = scope.querySelector('[data-price-mode-select]');
+        var shown = scope.querySelector('[data-price-mode-shown]');
+        if (!select || !shown) return Promise.resolve();
+        var from = shown.value, to = select.value;
+        if (from === to || !MODES[from] || !MODES[to]) return Promise.resolve();
+        var jobs = [];
+        scope.querySelectorAll('[data-row]').forEach(function (row) {
+            var price = row.querySelector('[data-price-mode-price]');
+            var c = price ? _cents(price.value) : null;
+            if (c === null) return;
+            var before = price.value;
+            var r = _rate(row.querySelector('[data-price-mode-rate]'));
+            var byRate = r === null ? null : (to === 'gross' ? _divide(c * (10000 + r), 10000) : _divide(c * 10000, 10000 + r));
+            var source = row.querySelector('[data-fill-url]');
+            var asked = source && source.value.trim() !== '' && _Z77.core.fill
+                ? _Z77.core.fill.ask(source, { prices: '1' }).catch(function () { return null; })
+                : Promise.resolve(null);
+            jobs.push(asked.then(function (env) {
+                var prices = env && env.status === 'success' && env.data ? env.data.prices : null;
+                var exact = prices && _cents(prices[from]) === c ? _cents(prices[to]) : null;
+                return { field: price, before: before, next: exact !== null ? exact : byRate };
+            }));
+        });
+        return Promise.all(jobs).then(function (results) {
+            results.forEach(function (res) {
+                if (res.next === null || res.field.value !== res.before) return;
+                res.field.value = _decimal(res.next);
+                res.field.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+            shown.value = to;
+            shown.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+    }
+
+    function bind() {
+        document.addEventListener('change', function (e) {
+            if (!e.target.matches || !e.target.matches('select[data-price-mode-select]')) return;
+            var scope = e.target.closest('[data-price-mode]');
+            if (!scope) return;
+            _queue = _queue.then(function () { return _convert(scope); }).catch(function () {});
+        });
+    }
+
     return { bind: bind };
+})();
+
+/* ── tree picker ────────────────────────────────────────────────────────────
+ * A FILTER over a long tree as a field (first user: the product group of the article list,
+ * owner 2026-10-18 — a few hundred groups on up to four levels, which a flat list of links
+ * cannot carry). The server renders `Z77\Shared` `partials/treePicker`; without this script it
+ * is a <details> whose panel lists every node as an indented link — it works as it is. The
+ * script replaces that list by a popover: a search over ALL levels and ONE level at a time.
+ * Rule 7: every row is a LINK to the address the server built; the server validates the
+ * filter. Nothing here decides anything — it only shows the same links another way.
+ *
+ * Contract:
+ *   [data-tree-picker]                 the root; holds the <details> (its <summary> is the field)
+ *   [data-tree-picker-fallback]        inside the <details>: the list of links the script replaces
+ *   script[type="application/json"][data-tree-picker-data]   the data island (never HTML):
+ *       { value: id|null,
+ *         all:   { label, href, count? },
+ *         nodes: [{ id, parent: id|null, name, count?, note?, href }]   — in tree order,
+ *         text:  { search, top, allIn: "…%s…", open, hits: "%d …", max: "%d …", none, level: "%d …", foot } }
+ * The root gets [data-tree-picker-on] once enhanced. The popover opens at the level of the
+ * chosen node; the path line leads back. A row: the name (a link — the filter), the count, «›»
+ * (its children; disabled without). Typing searches every level: each word must appear in the
+ * node's path and at least one in its own name; own-name hits first, then shallow first, at
+ * most 50; matches are <mark> elements. Keys in the search: ↑/↓ move, → opens, ← goes up,
+ * Enter follows the active row's link, Esc closes. A click outside closes — a click on an
+ * element a re-render just removed (›, the path) is NOT outside (`isConnected`).
+ * Inside a fetch region (the article picker's window, 2026-10-19) the links carry
+ * `data-fetch-region-link`: a choice reloads only that region (Enter clicks the link, so it
+ * takes the same way).
+ * Rows are built with createElement / textContent only.
+ */
+_Z77.core.treePicker = (function () {
+    var LIMIT = 50;
+
+    function _key(id) { return id === null || id === undefined ? '' : String(id); }
+
+    /* Pure: nodes → { nodes, byId, kids (parent key → children, '' = roots), path (key → nodes, root first) }. */
+    function index(nodes) {
+        var idx = { nodes: nodes || [], byId: {}, kids: {}, path: {} };
+        idx.nodes.forEach(function (n) { idx.byId[_key(n.id)] = n; });
+        idx.nodes.forEach(function (n) {
+            var parent = idx.byId[_key(n.parent)] ? _key(n.parent) : '';
+            (idx.kids[parent] = idx.kids[parent] || []).push(n);
+        });
+        idx.nodes.forEach(function (n) {
+            var chain = [];
+            for (var x = n, guard = 64; x && guard-- > 0; x = idx.byId[_key(x.parent)] || null) chain.unshift(x);
+            idx.path[_key(n.id)] = chain;
+        });
+        return idx;
+    }
+
+    function _words(query) {
+        return String(query || '').toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    }
+
+    /* Pure: the hits of query over every level → { nodes (at most limit), total }. */
+    function search(idx, query, limit) {
+        var words = _words(query), hits = [];
+        if (!words.length) return { nodes: [], total: 0 };
+        idx.nodes.forEach(function (n) {
+            var chain = idx.path[_key(n.id)] || [n];
+            var full = chain.map(function (x) { return x.name; }).join(' ').toLocaleLowerCase();
+            var name = String(n.name).toLocaleLowerCase();
+            if (!words.every(function (w) { return full.indexOf(w) !== -1; })) return;
+            var own = words.filter(function (w) { return name.indexOf(w) !== -1; }).length;
+            if (!own) return;
+            hits.push({ node: n, rank: own === words.length ? 0 : 1, depth: chain.length });
+        });
+        hits.sort(function (a, b) {
+            return a.rank - b.rank || a.depth - b.depth || String(a.node.name).localeCompare(String(b.node.name), 'de');
+        });
+        return { nodes: hits.slice(0, limit || LIMIT).map(function (h) { return h.node; }), total: hits.length };
+    }
+
+    /* Pure: where the words of query lie in name → sorted, non-overlapping [start, end] pairs. */
+    function marks(name, query) {
+        var lower = String(name).toLocaleLowerCase(), ranges = [], out = [], end = 0;
+        _words(query).forEach(function (w) {
+            var at = lower.indexOf(w);
+            if (at !== -1) ranges.push([at, at + w.length]);
+        });
+        ranges.sort(function (a, b) { return a[0] - b[0] || b[1] - a[1]; });
+        ranges.forEach(function (r) { if (r[0] >= end) { out.push(r); end = r[1]; } });
+        return out;
+    }
+
+    function _fmt(text, value) { return String(text || '').replace(/%[sd]/, value); }
+
+    function _el(tag, cls, text) {
+        var el = document.createElement(tag);
+        if (cls) el.className = cls;
+        if (text !== undefined && text !== null) el.textContent = text;
+        return el;
+    }
+
+    function _enhance(root) {
+        var island = root.querySelector('script[type="application/json"][data-tree-picker-data]');
+        var details = root.querySelector('details');
+        var fallback = root.querySelector('[data-tree-picker-fallback]');
+        var data;
+        if (!island || !details || !fallback) return;
+        try { data = JSON.parse(island.textContent); } catch (e) { return; }
+        if (!data || !Array.isArray(data.nodes) || !data.all) return;
+
+        var text = data.text || {};
+        var inRegion = !!root.closest('[data-fetch-region]');
+        var idx = index(data.nodes);
+        var chosen = idx.byId[_key(data.value)] || null;
+        var summary = details.querySelector('summary');
+        var pop = _el('div', 'be-tree-picker__panel be-tree-picker__pop');
+        var find = _el('div', 'be-tree-picker__search');
+        var input = _el('input');
+        var trail = _el('div', 'be-tree-picker__path');
+        var list = _el('div', 'be-tree-picker__list');
+        var foot = _el('div', 'be-tree-picker__foot');
+        var info = _el('span');
+        var browse = '';      // the level shown: the parent's key, '' = the top
+        var items = [];       // the rows shown: [{ node|null, own }]
+        var active = 0;
+
+        input.type = 'search';
+        input.autocomplete = 'off';
+        input.placeholder = text.search || '';
+        input.setAttribute('aria-label', text.search || '');
+        find.appendChild(input);
+        foot.appendChild(info);
+        if (text.foot) foot.appendChild(_el('span', null, text.foot));
+        pop.appendChild(find);
+        pop.appendChild(trail);
+        pop.appendChild(list);
+        pop.appendChild(foot);
+        fallback.replaceWith(pop);
+        root.setAttribute('data-tree-picker-on', '');
+
+        function hasKids(node) { return !!(node && idx.kids[_key(node.id)]); }
+
+        function level(key) {
+            browse = key;
+            active = 0;
+            input.value = '';
+            render();
+            input.focus();
+        }
+
+        function step(label, key) {
+            var b = _el('button', 'be-tree-picker__step', label);
+            b.type = 'button';
+            b.addEventListener('click', function () { level(key); });
+            return b;
+        }
+
+        function name(node, query) {
+            var span = _el('span', 'be-tree-picker__name'), at = 0, label = String(node.name);
+            marks(label, query).forEach(function (r) {
+                span.appendChild(document.createTextNode(label.slice(at, r[0])));
+                span.appendChild(_el('mark', null, label.slice(r[0], r[1])));
+                at = r[1];
+            });
+            span.appendChild(document.createTextNode(label.slice(at)));
+            if (node.note) span.appendChild(_el('span', 'be-tree-picker__note', ' (' + node.note + ')'));
+            return span;
+        }
+
+        function row(item, i, query) {
+            var node = item.node;
+            var line = _el('div', 'be-tree-picker__row');
+            var pick = _el('a', 'be-tree-picker__pick');
+            var into = _el('button', 'be-tree-picker__in', '›');
+            var count = node ? node.count : data.all.count;
+            if (i === active) line.setAttribute('data-active', '');
+            pick.href = node ? node.href : data.all.href;
+            if (inRegion) pick.setAttribute('data-fetch-region-link', '');
+            if (node === chosen) pick.setAttribute('aria-current', 'true');
+            if (!node) pick.appendChild(_el('span', 'be-tree-picker__name', data.all.label));
+            else if (item.own) pick.appendChild(_el('span', 'be-tree-picker__name', _fmt(text.allIn, node.name)));
+            else pick.appendChild(name(node, query));
+            if (query && node && idx.path[_key(node.id)].length > 1) {
+                var above = idx.path[_key(node.id)].slice(0, -1).map(function (x) { return x.name; });
+                pick.appendChild(_el('span', 'be-tree-picker__where', above.join(' › ')));
+            }
+            line.appendChild(pick);
+            line.appendChild(_el('span', 'be-tree-picker__count', count === undefined || count === null ? '' : String(count)));
+            into.type = 'button';
+            into.title = text.open || '';
+            into.setAttribute('aria-label', (text.open || '') + (node ? ': ' + node.name : ''));
+            into.disabled = item.own || !hasKids(node);
+            into.addEventListener('click', function () { level(_key(node.id)); });
+            line.appendChild(into);
+            return line;
+        }
+
+        function render() {
+            var query = input.value.trim();
+            list.replaceChildren();
+            trail.replaceChildren();
+            if (query) {
+                var found = search(idx, query, LIMIT);
+                items = found.nodes.map(function (n) { return { node: n, own: false }; });
+                trail.appendChild(_el('span', null, !found.total ? text.none : found.total > LIMIT ? _fmt(text.max, LIMIT) : _fmt(text.hits, found.total)));
+                info.textContent = '';
+            } else {
+                var here = browse !== '' ? idx.byId[browse] || null : null;
+                var chain = here ? idx.path[browse] : [];
+                var kids = idx.kids[here ? browse : ''] || [];
+                if (!chain.length) trail.appendChild(_el('span', 'be-tree-picker__here', data.all.label));
+                else trail.appendChild(step(text.top || data.all.label, ''));
+                chain.forEach(function (n, i) {
+                    trail.appendChild(_el('span', 'be-tree-picker__sep', '›'));
+                    trail.appendChild(i === chain.length - 1 ? _el('span', 'be-tree-picker__here', n.name) : step(n.name, _key(n.id)));
+                });
+                items = [{ node: here, own: !!here }].concat(kids.map(function (n) { return { node: n, own: false }; }));
+                info.textContent = _fmt(text.level, kids.length);
+            }
+            active = Math.max(0, Math.min(active, items.length - 1));
+            items.forEach(function (item, i) { list.appendChild(row(item, i, query)); });
+            var current = list.children[active];
+            if (current && typeof current.scrollIntoView === 'function') current.scrollIntoView({ block: 'nearest' });
+        }
+
+        function open() {
+            browse = chosen && idx.byId[_key(chosen.parent)] ? _key(chosen.parent) : '';
+            input.value = '';
+            active = 0;
+            render();
+            items.forEach(function (item, i) { if (chosen && item.node === chosen && !item.own) active = i; });
+            if (active) render();
+            input.focus();
+        }
+
+        function close() {
+            details.open = false;
+            if (summary) summary.focus();
+        }
+
+        details.addEventListener('toggle', function () { if (details.open) open(); });
+        input.addEventListener('input', function () { active = 0; render(); });
+        input.addEventListener('keydown', function (e) {
+            var query = input.value.trim(), item = items[active];
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                active = Math.max(0, Math.min(items.length - 1, active + (e.key === 'ArrowDown' ? 1 : -1)));
+                render();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                var link = list.children[active] && list.children[active].querySelector('a');
+                if (link) link.click();   // the link's own way: a page load, or the region's reload
+            } else if (e.key === 'ArrowRight' && !query && item && !item.own && hasKids(item.node)) {
+                e.preventDefault();
+                level(_key(item.node.id));
+            } else if (e.key === 'ArrowLeft' && !query && browse !== '') {
+                e.preventDefault();
+                var up = idx.byId[browse];
+                level(up && idx.byId[_key(up.parent)] ? _key(up.parent) : '');
+            }
+        });
+        root.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && details.open) { e.preventDefault(); close(); }
+        });
+    }
+
+    /* Enhances the pickers in container — each once. */
+    function init(container) {
+        var roots = Array.prototype.slice.call(container.querySelectorAll('[data-tree-picker]'));
+        roots.forEach(function (root) { if (!root.hasAttribute('data-tree-picker-on')) _enhance(root); });
+    }
+
+    function bind() {
+        // A click outside an open picker closes it. A click whose target a re-render has just
+        // removed (› or a step of the path) is no longer in the page — and not outside.
+        document.addEventListener('click', function (e) {
+            if (!e.target || !e.target.isConnected) return;
+            document.querySelectorAll('[data-tree-picker-on] details[open]').forEach(function (d) {
+                var root = d.closest('[data-tree-picker]');
+                if (root && !root.contains(e.target)) d.open = false;
+            });
+        });
+        init(document);
+    }
+
+    return { bind: bind, init: init, index: index, search: search, marks: marks };
+})();
+
+/* ── pick list ──────────────────────────────────────────────────────────────
+ * A list to choose ONE entry from by keyboard (first user: «Artikel wählen …», the article picker
+ * over the order window, owner 2026-10-19): type to search, ↑/↓ to move, Enter to pick, Esc
+ * closes the window («windows»). The server searches and judges the choice; the script only
+ * submits the search form and clicks the chosen button (Rule 7) — without it the form searches
+ * on Enter and every button picks.
+ *
+ * Contract:
+ *   [data-pick-list]            the container — its search and list are a fetch region, so a
+ *                               search reloads only the list (and the field keeps what was typed
+ *                               meanwhile, «fetch regions»)
+ *   input[data-pick-search]     the search field of a GET form (`data-fetch-region-form`): typing
+ *                               searches after a short pause; ↑/↓ move the active item; Enter
+ *                               picks the active item — or searches first while the list does
+ *                               not show the typed text yet, and waits while it loads
+ *   [data-pick-item]            a submit button per entry (the choice); the active one carries
+ *                               [data-pick-active] — the server marks the first
+ * The focus stays in the search field; a click on an item picks it as well.
+ */
+_Z77.core.pickList = (function () {
+    var DELAY_MS = 250;
+    var _timer = null;
+
+    function _items(list) {
+        return Array.prototype.slice.call(list.querySelectorAll('[data-pick-item]'));
+    }
+
+    function _search(field) {
+        clearTimeout(_timer);
+        _timer = null;
+        var form = field.form;
+        if (!form) return;
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }
+
+    /* Pure: the active index after a step of dir (-1 / +1) from at (-1 = none) over n items. */
+    function step(at, dir, n) {
+        if (n < 1) return -1;
+        return Math.max(0, Math.min(n - 1, at < 0 ? (dir > 0 ? 0 : n - 1) : at + dir));
+    }
+
+    function _move(list, dir) {
+        var items = _items(list), at = -1;
+        items.forEach(function (b, i) { if (b.hasAttribute('data-pick-active')) at = i; });
+        var next = step(at, dir, items.length);
+        if (next < 0) return;
+        items.forEach(function (b, i) { b.toggleAttribute('data-pick-active', i === next); });
+        if (typeof items[next].scrollIntoView === 'function') items[next].scrollIntoView({ block: 'nearest' });
+    }
+
+    function _field(e) {
+        var field = e.target;
+        return field && field.matches && field.matches('input[data-pick-search]') && field.closest('[data-pick-list]') ? field : null;
+    }
+
+    function bind() {
+        document.addEventListener('input', function (e) {
+            var field = _field(e);
+            if (!field) return;
+            clearTimeout(_timer);
+            _timer = setTimeout(function () { _search(field); }, DELAY_MS);
+        });
+        document.addEventListener('keydown', function (e) {
+            var field = _field(e);
+            if (!field || e.isComposing) return;
+            var list = field.closest('[data-pick-list]');
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                _move(list, e.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            if (_timer) { _search(field); return; }   // the list does not show the typed text yet
+            if (list.querySelector('[data-fetch-region][aria-busy="true"]')) return;   // … nor while it loads
+            var active = list.querySelector('[data-pick-item][data-pick-active]') || _items(list)[0];
+            if (active) active.click();
+            else _search(field);
+        });
+    }
+
+    return { bind: bind, step: step };
 })();
 
 /* ── small triggers ────────────────────────────────────────────────────────
@@ -1602,6 +2853,12 @@ _Z77.core.fill = (function () {
  *                            without this script shows no dead button.
  *   [data-select-on-focus]   a readonly field (a link to copy) selects its whole text when it
  *                            is focused or clicked.
+ *   select[data-switch]      shows, inside its nearest [data-switch-scope], only the
+ *                            [data-switch-case="<value>"] of the chosen value (`hidden` on the
+ *                            others; their fields disabled) — the server renders every case, the
+ *                            script only toggles (first user: the order's address cards,
+ *                            2026-10-18). Without the script the case of the rendered choice stays
+ *                            shown.
  */
 _Z77.core.triggers = (function () {
     function _select(el) {
@@ -1620,15 +2877,67 @@ _Z77.core.triggers = (function () {
         document.addEventListener('focusin', function (e) {
             if (e.target.matches && e.target.matches('[data-select-on-focus]')) _select(e.target);
         });
+        document.addEventListener('change', function (e) {
+            if (!e.target.matches || !e.target.matches('select[data-switch]')) return;
+            var scope = e.target.closest('[data-switch-scope]');
+            if (!scope) return;
+            var value = e.target.value;
+            scope.querySelectorAll('[data-switch-case]').forEach(function (el) {
+                el.hidden = el.getAttribute('data-switch-case') !== value;
+                // A hidden case's fields are not part of the form (not sent, not compared by
+                // «dirty forms») — the case shown again takes them back.
+                el.querySelectorAll('input, select, textarea').forEach(function (f) { f.disabled = el.hidden; });
+            });
+        });
     }
 
     return { bind: bind };
 })();
 
+/* ── sticky top under the action bar ──────────────────────────────────────
+ * A form's action bar (`.z77-form-actions`, ADR-049) sticks at the top of its scroll area; a
+ * second sticky block in the same form (the order's positions head, owner 2026-10-20) must stick
+ * BELOW it, not under it. The bar's height is not fixed (it wraps, «2 Fehler» comes and goes),
+ * so this publishes it as `--z77-form-actions-h` on the bar's parent; CSS uses
+ * `top: var(--z77-form-actions-h, 0px)`. The bar's own `top` counts in: in a window it sticks
+ * ABOVE the body's content edge (a negative top, `_windows-host.scss`), so its bottom is higher.
+ * Geometry only — without the script the block sticks at 0.
+ */
+_Z77.core.stickyTop = (function () {
+    var _observer = typeof ResizeObserver === 'function'
+        ? new ResizeObserver(function (entries) { entries.forEach(function (entry) { _publish(entry.target); }); })
+        : null;
+
+    function _publish(bar) {
+        var top = parseFloat(getComputedStyle(bar).top) || 0;
+        if (bar.parentElement) bar.parentElement.style.setProperty('--z77-form-actions-h', (bar.offsetHeight + top) + 'px');
+    }
+
+    /* Publishes (and follows) the height of every top action bar in container — each once. */
+    function init(container) {
+        container.querySelectorAll('.z77-form-actions:not(.z77-form-actions--end)').forEach(function (bar) {
+            if (bar._z77StickyTop) return;
+            bar._z77StickyTop = true;
+            _publish(bar);
+            if (_observer) _observer.observe(bar);
+        });
+    }
+
+    return { init: init };
+})();
+
 /* ── boot ───────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.triggers.bind();
+    _Z77.core.dirty.bind();
     _Z77.core.fill.bind();
+    _Z77.core.rows.bind();
+    _Z77.core.autosize.bind();
+    _Z77.core.treePicker.bind();
+    _Z77.core.pickList.bind();
+    _Z77.core.sums.bind();
+    _Z77.core.datedRates.bind();
+    _Z77.core.priceMode.bind();
     _Z77.core.windows.bind();
     _Z77.core.help.bind();
     _Z77.core.region.bind();

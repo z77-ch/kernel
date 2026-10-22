@@ -3,7 +3,10 @@ namespace Z77\Shared\ValueObjects;
 
 final class UserPreferences
 {
-    private string $palette   = 'werkbank';
+    /** The backend palette of a user who has not picked one (ADR-051 addendum 2026-10-17). */
+    public const DEFAULT_PALETTE = 'salbei';
+
+    private string $palette   = self::DEFAULT_PALETTE;
     private bool   $darkMode  = false;
     private float  $fontScale = 1.0;
 
@@ -18,7 +21,7 @@ final class UserPreferences
 
     public function __construct(array $data = [])
     {
-        $this->palette   = $data['palette']    ?? 'werkbank';
+        $this->palette   = $data['palette']    ?? self::DEFAULT_PALETTE;
         $this->darkMode  = (bool) ($data['dark_mode']  ?? false);
         $this->fontScale = (float) ($data['font_scale'] ?? 1.0);
         $this->fontScale = max(1.0, min(1.4, $this->fontScale));

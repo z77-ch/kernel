@@ -85,6 +85,13 @@ class BackendUserValidator extends EntityValidator
         }
     }
 
+    public function validateName(string $name): void
+    {
+        if (mb_strlen(trim($name)) > BackendUser::NAME_LENGTH) {
+            $this->addFieldError('name', 'Der Name hat höchstens ' . BackendUser::NAME_LENGTH . ' Zeichen.');
+        }
+    }
+
     public function validateInitials(string $initials): void
     {
         $initials = trim($initials);

@@ -20,6 +20,7 @@ final class BackupService
 {
     private const DEFAULT_DIR       = 'backup';
     private const DEFAULT_RETENTION = ['data' => 10, 'db' => 10, 'full' => 5];
+    private const DEFAULT_MAX_AGE_DAYS = 1;
 
     /**
      * `var` — the whole tree, not `var/cache`. Everything below `var/` is
@@ -187,6 +188,31 @@ final class BackupService
         }
     }
 
+    /**
+     * After how many days without a new backup the backend dashboard asks for
+     * one (ADR-052, owner 2026-10-22: daily — default 1). The policy key
+     * `maxAgeDays` of `config/client/backup.inc.php`, the one place (Rule 2);
+     * a value below 1 is read as 1.
+     */
+    public function maxAgeDays(): int
+    {
+        return max(1, (int)($this->config['maxAgeDays'] ?? self::DEFAULT_MAX_AGE_DAYS));
+    }
+
+    /** The newest backup of any type, or null when there is none. */
+    public function latest(): ?BackupEntry
+    {
+        $latest  = null;
+        $history = $this->history();
+        foreach (BackupType::cases() as $type) {
+            $newest = $history->scan($type)[0] ?? null;
+            if ($newest !== null && ($latest === null || $newest->getCreatedAt() > $latest->getCreatedAt())) {
+                $latest = $newest;
+            }
+        }
+
+        return $latest;
+    }
     public function backupRoot(): string
     {
         $dir = trim((string)($this->config['dir'] ?? self::DEFAULT_DIR), '/');

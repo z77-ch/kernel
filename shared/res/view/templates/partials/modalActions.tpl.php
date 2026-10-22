@@ -20,6 +20,9 @@
  *                                Closes the popup (`data-popup-close`); inside an ADR-047 window
  *                                hand in $cancelHref instead — a link the window follows.
  * @var string      $cancelHref   optional: cancel as a link (window read view); gets data-window-link
+ * @var string      $cancelKind   'ghost' (default) | 'quiet' — a text button at the row's end behind a
+ *                                thin rule (the order window, 2026-10-18; pair it with a
+ *                                `.z77-form-actions__spacer` in `extra`)
  * @var string      $extra        raw HTML of further controls (already escaped by the caller)
  * @var array       $errors       ['count' => int, 'target' => first invalid field id] → partials/formErrorsLink
  * @var bool        $end          true → `--end`: the bar at the bottom. ADR-049 allows this for
@@ -31,6 +34,8 @@ $kind        = ($kind ?? 'primary') === 'danger' ? 'danger' : 'primary';
 $submitAttrs = (array) ($submitAttrs ?? []);
 $cancel      = (string) ($cancel ?? 'Abbrechen');
 $cancelHref  = (string) ($cancelHref ?? '');
+$cancelQuiet = ($cancelKind ?? 'ghost') === 'quiet';
+$cancelClass = $cancelQuiet ? 'be-btn be-btn--quiet' : 'be-btn be-btn--ghost';
 $extra       = (string) ($extra ?? '');
 $errors      = (array) ($errors ?? []);
 $end         = (bool) ($end ?? false);
@@ -49,10 +54,13 @@ foreach ($submitAttrs as $name => $value) {
     <button type="submit" class="be-btn be-btn--<?= $kind ?>"<?= $attrs ?>><?= e($submit) ?></button>
     <?php endif; ?>
     <?= $extra ?>
+    <?php if ($cancel !== '' && $cancelQuiet): ?>
+    <span class="z77-form-actions__sep" aria-hidden="true"></span>
+    <?php endif; ?>
     <?php if ($cancel !== '' && $cancelHref !== ''): ?>
-    <a class="be-btn be-btn--ghost" href="<?= e($cancelHref) ?>" data-window-link><?= e($cancel) ?></a>
+    <a class="<?= $cancelClass ?>" href="<?= e($cancelHref) ?>" data-window-link><?= e($cancel) ?></a>
     <?php elseif ($cancel !== ''): ?>
-    <button type="button" class="be-btn be-btn--ghost" data-popup-close><?= e($cancel) ?></button>
+    <button type="button" class="<?= $cancelClass ?>" data-popup-close><?= e($cancel) ?></button>
     <?php endif; ?>
     <?php if (($errors['count'] ?? 0) > 0): ?>
     <?= $this->partial('partials/formErrorsLink', ['count' => (int) $errors['count'], 'target' => (string) ($errors['target'] ?? '')], 'Z77\\Shared') ?>

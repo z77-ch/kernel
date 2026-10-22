@@ -122,10 +122,18 @@ final class ListState
         return $this->query(['sort' => $sort, 'dir' => $descending ? 'desc' : 'asc']);
     }
 
-    /** The query without any search value — «Suche zurücksetzen». */
-    public function resetQuery(): string
+    /** A column search or a sort other than the default is set — «Zurücksetzen» has something to undo. */
+    public function isChanged(): bool
     {
-        return $this->query(array_fill_keys($this->definition->searchKeys(), null));
+        return $this->isActive()
+            || $this->sort !== $this->definition->defaultSort
+            || $this->descending !== $this->definition->descendingFirst($this->definition->defaultSort);
+    }
+
+    /** The query without any search value and with the default sort — «Zurücksetzen»; the extras stay. */
+    public function defaultQuery(): string
+    {
+        return $this->query(array_fill_keys($this->definition->searchKeys(), null) + ['sort' => '', 'dir' => '']);
     }
 
     /** `asc` / `desc` for the sorted column's `data-sort`, null for the others. */

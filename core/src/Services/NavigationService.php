@@ -11,6 +11,9 @@ use Z77\Shared\Tree\TreeService;
 
 class NavigationService
 {
+    /** Session slot of the ref cursor memory: target id => ref id (NAV-VIA-001). */
+    public const VIA_SESSION_KEY = 'nav.via';
+
     private ?Navigation $current   = null;
     private ?Navigation $uiCurrent = null;
 
@@ -96,23 +99,98 @@ class NavigationService
     }
 
     /**
-     * Sets $uiCurrent from a ref id (typically the `?via=` query param). The ref
-     * must exist, must actually be a ref entry, and its target must equal the
-     * current routing entry — otherwise the hint is silently ignored.
+     * Sets $uiCurrent from a ref id (typically the `?via=` query param) and the
+     * session-sticky ref memory (NAV-VIA-001). The ref must exist, be active,
+     * and target the screen's entry — `$current`, or on a sub-page the sibling
+     * fallback — otherwise the hint is silently ignored. Rules in {@see refCursorIn()}.
+     *
+     * `$current` is never touched (canonical path, SEO).
+     *
+     * @param array<int, int> $memory target id => ref id, as stored under {@see VIA_SESSION_KEY}
+     * @return array<int, int> the memory to store back
      */
-    public function resolveUiCurrent(?int $refId): void
+    public function resolveUiCurrent(?int $refId, array $memory = []): array
     {
         // Starts on the sub-page fallback, not on null: `resolveCurrent()` sets
         // it only when nothing matched, so a page WITH its own entry is
         // unaffected (fallback stays null, cursor falls through to $current).
         $this->uiCurrent = $this->cursorFallback;
-        if ($refId === null || $refId <= 0 || $this->current === null) return;
 
-        $refEntry = $this->findById($refId);
-        if ($refEntry === null) return;
-        if ($refEntry->getRef() !== $this->current->getId()) return;
+        [$ref, $memory] = self::refCursorIn(
+            $this->current ?? $this->cursorFallback,
+            $refId,
+            $memory,
+            fn(int $id): ?Navigation => $this->findById($id)
+        );
+        if ($ref !== null) {
+            $this->uiCurrent = $ref;
+        }
+        return $memory;
+    }
 
-        $this->uiCurrent = $refEntry;
+    /**
+     * The ref cursor rule (NAV-VIA-001), pure so it can be tested without a
+     * navigation store (tests/backend-access.php). `via` = the menu node one
+     * came through; it holds until another menu path to the same screen is taken.
+     *
+     *   - `via` names an active ref to the target → that ref is the cursor, remembered
+     *   - `via` equals the target's own id        → no ref cursor, memory for the target cleared
+     *     (the regular menu link carries it, {@see isRefTarget()})
+     *   - no (valid) `via`                         → the remembered ref, if it still
+     *     exists, is active and targets the screen; a stale memory is dropped silently
+     *
+     * @param array<int, int>              $memory   target id => ref id
+     * @param callable(int): ?Navigation   $findById
+     * @return array{0: ?Navigation, 1: array<int, int>} the ref carrying the cursor (null = none), the updated memory
+     */
+    public static function refCursorIn(?Navigation $target, ?int $via, array $memory, callable $findById): array
+    {
+        $targetId = $target?->getId();
+        if ($targetId === null || $target->getRef() !== null) {
+            return [null, $memory];
+        }
+
+        if ($via === $targetId) {
+            unset($memory[$targetId]);
+            return [null, $memory];
+        }
+
+        $refTo = static fn(?Navigation $e): bool => $e !== null && $e->getRef() === $targetId && $e->isActive();
+
+        if ($via !== null && $via > 0 && $refTo($ref = $findById($via))) {
+            $memory[$targetId] = $via;
+            return [$ref, $memory];
+        }
+
+        $remembered = $memory[$targetId] ?? null;
+        if ($remembered === null) {
+            return [null, $memory];
+        }
+        $ref = is_int($remembered) && $remembered > 0 ? $findById($remembered) : null;
+        if ($refTo($ref)) {
+            return [$ref, $memory];
+        }
+        unset($memory[$targetId]);
+        return [null, $memory];
+    }
+
+    /**
+     * True when at least one active ref points at this regular entry. Its own menu
+     * link then carries `?via=<own id>` — the «forget» signal of {@see refCursorIn()},
+     * so leaving through the regular entry ends the ref cursor (NAV-VIA-001).
+     */
+    public function isRefTarget(Navigation $entry): bool
+    {
+        $id = $entry->getId();
+        if ($id === null || $entry->getRef() !== null) {
+            return false;
+        }
+        foreach ($this->getAll() as $other) {
+            if ($other->getRef() === $id && $other->isActive()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

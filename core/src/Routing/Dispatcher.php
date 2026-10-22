@@ -15,6 +15,7 @@ use Z77\Core\Config\AuthRole,
     Z77\Core\Http\Response\PageCacheStatus,
     Z77\Core\Http\Response\ResponseInterface,
     Z77\Core\Libraries\CacheManager,
+    Z77\Core\Services\NavigationService,
     Z77\Core\Services\RequestGuardInterface,
     Z77\Shared\Attributes\Fetch,
     Z77\Shared\Attributes\HttpMethod,
@@ -178,7 +179,9 @@ class Dispatcher
                 return $cached;
             }
             // Cache miss despite policy expecting a hit — render and store.
-            $this->resolveNavigation();
+            // Without the session ref memory: this render enters the SHARED
+            // cache, one visitor's menu path must not become everyone's.
+            $this->resolveNavigation(refMemory: false);
             $response = $controller->run();
             $this->tryStore($decision, $response);
             return $response;
@@ -205,7 +208,12 @@ class Dispatcher
      * fresh response is still served, only its caching is skipped — the request
      * succeeds even when the cache backend does not.
      */
-    private function resolveNavigation(): void
+    /**
+     * Resolves the routing entry and the UI cursor. A valid `?via=` is remembered
+     * per target in the session and applied to later requests on that screen
+     * without `via` (NAV-VIA-001). `$refMemory = false` neither reads nor writes it.
+     */
+    private function resolveNavigation(bool $refMemory = true): void
     {
         $request = DI::getRequest();
         $navigationService = DI::getInstance()->get('NavigationService');
@@ -217,8 +225,13 @@ class Dispatcher
             $request->getQueryParameters()
         );
 
-        $via = $request->getGetParameter('via');
-        $navigationService->resolveUiCurrent($via !== null ? (int)$via : null);
+        $via     = $request->getGetParameter('via');
+        $session = DI::getInstance()->get('SessionManager');
+        $memory  = $refMemory ? $session->get(NavigationService::VIA_SESSION_KEY, []) : [];
+        $memory  = $navigationService->resolveUiCurrent($via !== null ? (int)$via : null, is_array($memory) ? $memory : []);
+        if ($refMemory) {
+            $session->set(NavigationService::VIA_SESSION_KEY, $memory);
+        }
     }
 
     private function tryStore(PageCacheDecision $decision, mixed $response): void

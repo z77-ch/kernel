@@ -71,6 +71,28 @@
     text-overflow: ellipsis;
     white-space:   nowrap;
 }
+// Full screen (the ⤢ in the title bar, core.js `data-window-full`): the window takes the whole
+// layer, above its siblings; a second click gives it back its place.
+.z77-window.is-full {
+    position:   fixed;
+    inset:      0;
+    z-index:    3;
+    width:      100%;
+    max-height: none;
+    transform:  none;
+}
+// The icon of the full-screen button: a line drawing in the text colour.
+.z77-window__full { display: inline-grid; place-items: center; }
+.z77-window__full svg {
+    width:           16px;
+    height:          16px;
+    fill:            none;
+    stroke:          currentColor;
+    stroke-width:    1.6;
+    stroke-linecap:  round;
+    stroke-linejoin: round;
+}
+.z77-window__full,
 .z77-window__close {
     flex:       none;
     border:     0;

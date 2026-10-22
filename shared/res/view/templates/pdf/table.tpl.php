@@ -10,8 +10,12 @@
  *
  * Context:
  *   - `columns`   list<array{label: string, width: float, align?: 'L'|'R'|'C'}> — widths in mm
- *   - `rows`      list<array{cells: list<string>, bold?: bool, indent?: float, muted?: bool, rule?: bool}>
- *                 `indent` shifts the first cell (a sub-line); `rule` draws a line ABOVE the row (a totals row)
+ *   - `rows`      list<array{cells: list<string>, bold?: bool, indent?: float, muted?: bool, rule?: bool, lead?: bool}>
+ *                 `indent` shifts the first cell (a sub-line); `rule` draws a line ABOVE the row (a totals row);
+ *                 `lead` prints the FIRST line of the wrapping cell bold and the rest in the row's style
+ *                 (a document line: its title, then its description — owner 2026-10-18).
+ *                 Any other key of a row is carried data the partial does not draw — e.g. `code`
+ *                 (a document line's code, owner 2026-10-22): an OVERRIDE of this partial may print it.
  *   - `x`, `y`    where the table starts (default: the cursor)
  *   - `fontSize`  points (default 9); `lineHeight` mm (default 4.5)
  *   - `wrap`      int|null, the index of the column that wraps (default 0); `indent` applies to it.
@@ -56,8 +60,23 @@ $wrapWidth = $wrap === null ? 0.0 : (float) $columns[$wrap]['width'];
 foreach ($rows as $row) {
     $cells  = array_values($row['cells']);
     $indent = (float) ($row['indent'] ?? 0);
-    $pdf->font(!empty($row['bold']) ? 'B' : '', $fontSize);
-    $lines  = $wrap === null ? 1 : $pdf->lineCount((string) ($cells[$wrap] ?? ''), $wrapWidth - 2 * $pad - $indent);
+    $style  = !empty($row['bold']) ? 'B' : '';
+    $inner  = $wrapWidth - 2 * $pad - $indent;
+    // `lead`: the wrapping cell's first line in bold, the rest in the row's style — a document
+    // line's title above its description (owner 2026-10-18).
+    $lead   = null;
+    if (!empty($row['lead']) && $wrap !== null) {
+        $parts = preg_split('/\R/u', (string) ($cells[$wrap] ?? ''), 2) ?: [''];
+        $lead  = [$parts[0], trim($parts[1] ?? '', "\r\n")];
+    }
+    if ($lead !== null) {
+        $lines = $pdf->font('B', $fontSize)->lineCount($lead[0], $inner);
+        $pdf->font($style, $fontSize);
+        $lines += $lead[1] !== '' ? $pdf->lineCount($lead[1], $inner) : 0;
+    } else {
+        $pdf->font($style, $fontSize);
+        $lines = $wrap === null ? 1 : $pdf->lineCount((string) ($cells[$wrap] ?? ''), $inner);
+    }
     $height = $lines * $lineHeight + 1;
 
     // A row never splits; a row that does not fit moves to a new page, the header with it.
@@ -76,7 +95,13 @@ foreach ($rows as $row) {
     foreach ($columns as $i => $column) {
         $w    = (float) $column['width'];
         $text = (string) ($cells[$i] ?? '');
-        if ($i === $wrap) {
+        if ($i === $wrap && $lead !== null) {
+            $below = $pdf->font('B', $fontSize)->paragraph($cx + $pad + $indent, $y + 0.5, $inner, $lead[0], $lineHeight);
+            $pdf->font($style, $fontSize);
+            if ($lead[1] !== '') {
+                $pdf->paragraph($cx + $pad + $indent, $below, $inner, $lead[1], $lineHeight);
+            }
+        } elseif ($i === $wrap) {
             $pdf->paragraph($cx + $pad + $indent, $y + 0.5, $w - 2 * $pad - $indent, $text, $lineHeight);
         } elseif ($text !== '') {
             $shift = $wrap === null && $i === 0 ? $indent : 0.0;

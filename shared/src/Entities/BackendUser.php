@@ -30,6 +30,16 @@ class BackendUser
     #[Clean('text')]
     private string $initials = '';
 
+    /**
+     * The person's full name («Peter Ruepp»), display data like the initials — shown where the
+     * backend says who is signed in (the dashboard, owner 2026-10-22). Optional: a file written
+     * before the field has no key and reads ''.
+     */
+    #[Clean('text')]
+    private string $name = '';
+
+    public const NAME_LENGTH = 80;
+
     /** bcrypt hash — never mapped from the edit form; set via the controller from the plaintext `password` field. */
     private string $passwordHash = '';
 
@@ -56,6 +66,7 @@ class BackendUser
     public function getId(): ?int               { return $this->id; }
     public function getUsername(): string       { return $this->username; }
     public function getInitials(): string       { return $this->initials; }
+    public function getName(): string           { return $this->name; }
     public function getPasswordHash(): string   { return $this->passwordHash; }
     public function getRoles(): array           { return $this->roles; }
     public function getPreferences(): array     { return $this->preferences; }
@@ -64,6 +75,7 @@ class BackendUser
 
     public function setUsername(string $username): void       { $this->username = $username; }
     public function setInitials(string $initials): void       { $this->initials = $initials; }
+    public function setName(string $name): void               { $this->name = trim($name); }
     public function setPasswordHash(string $hash): void       { $this->passwordHash = $hash; }
     public function setRoles(array $roles): void              { $this->roles = $roles; }
     public function setPreferences(array $preferences): void  { $this->preferences = $preferences; }

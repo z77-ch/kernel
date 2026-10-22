@@ -19,20 +19,31 @@ use Z77\Core\DI;
  * `partials/helpTrigger`, HELP-002); a click opens the help window (core.js
  * `_Z77.core.help`). Nothing attached → nothing rendered.
  *
+ * A LIST screen attaches with `toolbar: true` (owner 2026-10-20, HELP-003): the trigger then
+ * stands at the right end of the list's toolbar (backend shell, slot hc2) instead of the top
+ * bar — one help button per page, beside the tabs and tools it explains. The base controller
+ * hands the choice to the view as `helpInToolbar`.
+ *
  * One help per answer: a second attach replaces the first — the controller decides.
  */
 class HelpService
 {
     private ?array $attached = null;
 
-    public function attach(string $path, string $nameSpace, array $context = [], string $title = ''): void
+    public function attach(string $path, string $nameSpace, array $context = [], string $title = '', bool $toolbar = false): void
     {
-        $this->attached = ['path' => $path, 'nameSpace' => $nameSpace, 'context' => $context, 'title' => $title];
+        $this->attached = ['path' => $path, 'nameSpace' => $nameSpace, 'context' => $context, 'title' => $title, 'toolbar' => $toolbar];
     }
 
     public function has(): bool
     {
         return $this->attached !== null;
+    }
+
+    /** Whether the trigger stands in the list's toolbar instead of the top bar (HELP-003). */
+    public function inToolbar(): bool
+    {
+        return $this->attached['toolbar'] ?? false;
     }
 
     public function title(): string

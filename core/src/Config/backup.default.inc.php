@@ -30,6 +30,12 @@ return [
         'full' => ['last' => 1, 'weekly' => 4, 'monthly' => 6],
     ],
 
+    // After how many days without a new backup (any type) the backend dashboard
+    // shows «Letztes Backup vor N Tagen» to whoever may open the backup screen
+    // (ADR-052; owner 2026-10-22: daily). Seed-once: an installation whose config
+    // predates 2026-10-22 has no key here and falls back to 1 in code.
+    'maxAgeDays'   => 1,
+
     // Project-relative paths excluded from the `full` backup. vendor/ and
     // node_modules/ are regenerable from composer.lock / package-lock.json;
     // var/ is scratch space the installation rebuilds by itself (page cache,

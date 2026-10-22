@@ -188,9 +188,11 @@ abstract class AbstractBaseController
         }
 
         // Help the action attached (ADR-048): HtmlView appends it to `main` — page and fetch
-        // mode alike, so a window gets it too; a skeleton reads `helpBlock` for the «i».
+        // mode alike, so a window gets it too; a skeleton reads `helpBlock` for its trigger and
+        // `helpInToolbar` for where it stands (top bar, or a list's toolbar — HELP-003).
         if ($this->help->has()) {
-            $context['helpBlock'] = $this->help->render();
+            $context['helpBlock']     = $this->help->render();
+            $context['helpInToolbar'] = $this->help->inToolbar();
         }
 
         $response = new HtmlResponse($this->layoutManager, $context);

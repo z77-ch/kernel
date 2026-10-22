@@ -34,3 +34,13 @@
     cursor:      pointer;
     font-weight: 600;
 }
+// Two groups in one row (2026-10-18): what one DOES in the record left, what leads OUT of it
+// right — a caller puts `__spacer` into its `extra` between them. `__sep` is the thin rule before
+// a quiet cancel (`cancelKind` 'quiet' of partials/modalActions).
+.z77-form-actions__spacer { flex: 1 1 auto; }
+.z77-form-actions__sep {
+    width:      1px;
+    align-self: stretch;
+    margin:     .15rem 0;
+    background: var(--z77-form-actions-line);
+}
