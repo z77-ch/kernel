@@ -16,13 +16,14 @@
  * @var string      $submit       label of the primary submit button; '' renders none
  * @var string      $kind         'primary' (default) | 'danger' — the submit's look
  * @var array       $submitAttrs  further attributes of the submit (e.g. ['name' => 'op', 'value' => 'save', 'form' => 'id'])
- * @var string      $cancel       label of the cancel button ('Abbrechen' default; '' renders none).
+ * @var string      $cancel       label of the cancel button ('Schliessen' default; '' renders none).
  *                                Closes the popup (`data-popup-close`); inside an ADR-047 window
  *                                hand in $cancelHref instead — a link the window follows.
  * @var string      $cancelHref   optional: cancel as a link (window read view); gets data-window-link
- * @var string      $cancelKind   'ghost' (default) | 'quiet' — a text button at the row's end behind a
- *                                thin rule (the order window, 2026-10-18; pair it with a
- *                                `.z77-form-actions__spacer` in `extra`)
+ * @var string      $cancelKind   'quiet' (default, owner 2026-10-22: every dialog and window closes
+ *                                with «Schliessen» RIGHT-aligned behind a thin rule, as the order
+ *                                window since 2026-10-18 — a spacer is added unless `extra` brings
+ *                                its own) | 'ghost' — the outlined button right after the controls
  * @var string      $extra        raw HTML of further controls (already escaped by the caller)
  * @var array       $errors       ['count' => int, 'target' => first invalid field id] → partials/formErrorsLink
  * @var bool        $end          true → `--end`: the bar at the bottom. ADR-049 allows this for
@@ -32,9 +33,9 @@
 $submit      = (string) ($submit ?? 'Speichern');
 $kind        = ($kind ?? 'primary') === 'danger' ? 'danger' : 'primary';
 $submitAttrs = (array) ($submitAttrs ?? []);
-$cancel      = (string) ($cancel ?? 'Abbrechen');
+$cancel      = (string) ($cancel ?? 'Schliessen');
 $cancelHref  = (string) ($cancelHref ?? '');
-$cancelQuiet = ($cancelKind ?? 'ghost') === 'quiet';
+$cancelQuiet = ($cancelKind ?? 'quiet') === 'quiet';
 $cancelClass = $cancelQuiet ? 'be-btn be-btn--quiet' : 'be-btn be-btn--ghost';
 $extra       = (string) ($extra ?? '');
 $errors      = (array) ($errors ?? []);
@@ -55,6 +56,7 @@ foreach ($submitAttrs as $name => $value) {
     <?php endif; ?>
     <?= $extra ?>
     <?php if ($cancel !== '' && $cancelQuiet): ?>
+    <?php if (!str_contains($extra, 'z77-form-actions__spacer')): ?><span class="z77-form-actions__spacer"></span><?php endif; ?>
     <span class="z77-form-actions__sep" aria-hidden="true"></span>
     <?php endif; ?>
     <?php if ($cancel !== '' && $cancelHref !== ''): ?>
