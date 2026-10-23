@@ -9,7 +9,8 @@ use Z77\Core\DI;
  * configured transport (`transport`: 'smtp' → {@see SmtpTransport}, 'mail' →
  * {@see PhpMailTransport}, 'file' → {@see FileTransport}, development only),
  * holds the installation's default sender, and sends a
- * {@see Message} (filling in the default From when the message has none). When mail is not
+ * {@see Message} (filling in the default From when the message has none, and the named inline
+ * images of its HTML — {@see InlineImages}). When mail is not
  * configured (file absent or `enabled = false`) the mailer is in an unconfigured state and
  * {@see send()} throws a clear error rather than failing deep in the transport layer.
  *
@@ -22,6 +23,7 @@ final class Mailer
         private ?MailTransport $transport,
         private string $fromAddress = '',
         private string $fromName = '',
+        private ?InlineImages $inlineImages = null,
     ) {}
 
     public static function create(): self
@@ -77,6 +79,13 @@ final class Mailer
         // message carries (a sender identity, `Message::fromName()`) wins over the config's.
         if ($message->getFromAddress() === '' && $this->fromAddress !== '') {
             $message->from($this->fromAddress, $message->getFromName() !== '' ? $message->getFromName() : $this->fromName);
+        }
+
+        // Inline images (the e-mail logo, 2026-10-23) are resolved HERE, at send time — the one
+        // place the outbox and EmailService::send() both pass, so a logo changed after a mail
+        // was queued is the one that goes out. A body without a slot never loads the registry.
+        if (InlineImages::hasSlots($message->getHtmlBody())) {
+            ($this->inlineImages ?? InlineImages::fromModules(DI::getModuleManager()))->embedInto($message);
         }
 
         $built = MimeMessage::build($message);

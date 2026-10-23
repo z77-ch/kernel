@@ -30,6 +30,8 @@ final class Message
     private ?string $htmlBody = null;
     /** @var list<Attachment> */
     private array $attachments = [];
+    /** @var list<Attachment> inline parts (with a Content-ID), shown by the HTML body */
+    private array $embedded = [];
 
     public function from(string $address, string $name = ''): self
     {
@@ -79,8 +81,35 @@ final class Message
 
     public function attach(Attachment $attachment): self
     {
-        $this->attachments[] = $attachment;
+        if ($attachment->isInline()) {
+            $this->embedded[] = $attachment;
+        } else {
+            $this->attachments[] = $attachment;
+        }
         return $this;
+    }
+
+    /**
+     * Embeds a file as an INLINE part (2026-10-23, the e-mail logo): the HTML body shows it
+     * as `<img src="cid:{$cid}">` — {@see MimeMessage} wraps HTML + inline parts into a
+     * `multipart/related`. An inline image travels with the mail, so the client shows it
+     * without loading anything remote (no tracking-pixel prompt, works offline). The MIME
+     * type comes from the image header (`getimagesize()`), anything else is
+     * `application/octet-stream`. Without an HTML body the part is not sent (nothing could
+     * show it).
+     *
+     * @throws \InvalidArgumentException the file is not readable, or the cid has a bad shape
+     */
+    public function embed(string $path, string $cid): self
+    {
+        $bytes = is_file($path) && is_readable($path) ? @file_get_contents($path) : false;
+        if ($bytes === false) {
+            throw new \InvalidArgumentException("Inline file is not readable: '{$path}'.");
+        }
+        $info = @getimagesizefromstring($bytes);
+        $mime = is_array($info) && isset($info['mime']) ? (string) $info['mime'] : 'application/octet-stream';
+
+        return $this->attach(new Attachment(basename($path), $mime, $bytes, $cid));
     }
 
     // ── getters (used by MimeMessage) ────────────────────────────────────────────
@@ -99,6 +128,8 @@ final class Message
     public function getHtmlBody(): ?string { return $this->htmlBody; }
     /** @return list<Attachment> */
     public function getAttachments(): array { return $this->attachments; }
+    /** @return list<Attachment> the inline parts, each with a Content-ID */
+    public function getEmbedded(): array { return $this->embedded; }
 
     /** All envelope recipients (to + cc + bcc), de-duplicated. @return list<string> */
     public function getRecipients(): array

@@ -9,6 +9,11 @@ namespace Z77\Shared\Mail;
  *   text only, no attachments        → single `text/plain` body
  *   text + html, no attachments      → `multipart/alternative`
  *   any body + attachments           → `multipart/mixed` wrapping the body part
+ *   html + inline parts (`embed()`)  → the html leaf becomes `multipart/related`
+ *                                      (html + the parts its `cid:` images name)
+ *
+ * So the fullest mail reads: mixed [ alternative [ text, related [ html, image ] ], pdf ].
+ * Inline parts without an HTML body are left out — nothing could show them.
  *
  * Text bodies are quoted-printable (readable on the wire; spam filters score base64 text
  * parts — `MIME_BASE64_TEXT`), attachments base64, lines wrapped at 76 chars, CRLF
@@ -92,7 +97,20 @@ final class MimeMessage
             return $text;
         }
 
-        $html     = $this->leaf('text/html; charset=UTF-8', $m->getHtmlBody());
+        $html = $this->leaf('text/html; charset=UTF-8', $m->getHtmlBody());
+        if ($m->getEmbedded() !== []) {
+            // The HTML and the parts it shows by `cid:` belong together (RFC 2387): a client
+            // that picks the HTML alternative resolves the images inside this related part.
+            $parts = [$html];
+            foreach ($m->getEmbedded() as $inline) {
+                $parts[] = $this->inlinePart($inline);
+            }
+            $related = $this->boundary('rel');
+            $html    = [
+                'headers' => ['Content-Type: multipart/related; type="text/html"; boundary="' . $related . '"'],
+                'body'    => $this->multipartBody($related, $parts),
+            ];
+        }
         $boundary = $this->boundary('alt');
         return [
             'headers' => ['Content-Type: multipart/alternative; boundary="' . $boundary . '"'],
@@ -132,6 +150,25 @@ final class MimeMessage
                 'Content-Type: ' . $a->mimeType . '; name="' . $a->filename . '"',
                 'Content-Transfer-Encoding: base64',
                 'Content-Disposition: attachment; filename="' . $a->filename . '"',
+            ],
+            'body' => $this->base64($a->bytes),
+        ];
+    }
+
+    /**
+     * An inline part of the related HTML: addressed by its Content-ID, shown in place —
+     * `inline` keeps clients from listing it among the attachments.
+     *
+     * @return array{headers: list<string>, body: string}
+     */
+    private function inlinePart(Attachment $a): array
+    {
+        return [
+            'headers' => [
+                'Content-Type: ' . $a->mimeType . '; name="' . $a->filename . '"',
+                'Content-Transfer-Encoding: base64',
+                'Content-ID: <' . $a->contentId . '>',
+                'Content-Disposition: inline; filename="' . $a->filename . '"',
             ],
             'body' => $this->base64($a->bytes),
         ];

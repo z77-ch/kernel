@@ -6,9 +6,10 @@ namespace Z77\Shared\Mail;
  * Derives the plain-text alternative of a template-rendered HTML mail body
  * (port of the proven wdv-6.2.2 `Email::preparePlainText()`).
  *
- * Conversion contract with the templates: a `<tr data-str="new-line">` row, a
- * closing block element (`</p>`, `</h1>`–`</h6>`, `</li>`, `</tr>`) or a `<br>`
- * becomes a line break; `</td>` cells are separated by a space; a link whose
+ * Conversion contract with the templates: a closing paragraph or heading
+ * (`</p>`, `</h1>`–`</h6>`) or list (`</ul>`, `</ol>`) becomes a BLANK line (the paragraph gap); a
+ * `<tr data-str="new-line">` row, `</li>`, `</tr>` or a `<br>` a single line
+ * break; never more than one blank line in a row; `</td>` cells are separated by a space; a link whose
  * text is not its address keeps the address in parentheses (`label (href)`),
  * so a button link is still a link in the text part — and the text and HTML
  * halves carry the SAME number of URLs, which spam filters compare
@@ -86,10 +87,14 @@ final class HtmlToText
             $text
         ) ?? $text;
 
-        // Closing block elements break the line; inline links end with a space.
+        // A paragraph or heading ENDS with a blank line — the text half reads in paragraphs, as
+        // the HTML half shows them (2026-10-23: a document mail arrived as «Guten Tag / Im
+        // Anhang … / Freundliche Grüsse …» without a gap). A list item, a row and a `<br>`
+        // break the line only: the lines of a greeting block stay together. Inline links end
+        // with a space.
         $text = str_replace(
-            ['</p>', '</h1>', '</h2>', '</h3>', '</h4>', '</h5>', '</h6>', '</li>', '</a>'],
-            ["\r\n", "\r\n", "\r\n", "\r\n", "\r\n", "\r\n", "\r\n", "\r\n", ' '],
+            ['</p>', '</h1>', '</h2>', '</h3>', '</h4>', '</h5>', '</h6>', '</ul>', '</ol>', '</li>', '</a>'],
+            ["\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n\r\n", "\r\n", ' '],
             $text
         );
 
@@ -105,6 +110,11 @@ final class HtmlToText
         // only one: a space INSIDE a sentence looks the same to a pass that
         // runs earlier (MAIL-TEXT-001).
         $text = preg_replace('/^[ \t]+/m', '', $text) ?? $text;
+
+        // At most ONE blank line in a row: a paragraph inside a table cell, or two block ends
+        // after each other (`</p></td></tr>`), would otherwise stack the gaps. Trailing blanks
+        // of a line go with it.
+        $text = preg_replace('/[ \t]*\r\n(?:[ \t]*\r\n)+/', "\r\n\r\n", $text) ?? $text;
 
         if ($this->replacements !== []) {
             $text = preg_replace(
