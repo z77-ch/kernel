@@ -40,7 +40,7 @@ final class Message
 
     /**
      * The From DISPLAY NAME only (2026-10-23, the sender identity): the address stays unset, so
-     * the `Mailer` fills in the installation's account — «Peter Ruepp <no-reply@…>».
+     * the `Mailer` fills in the installation's account — «Max Muster <no-reply@…>».
      */
     public function fromName(string $name): self
     {

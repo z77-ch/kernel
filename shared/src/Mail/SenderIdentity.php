@@ -84,7 +84,7 @@ final class SenderIdentity
         return ['name' => $this->name, 'email' => $this->email];
     }
 
-    /** «Peter Ruepp <peter.ruepp@z77.ch>» — the choice on a send page, the outbox window. */
+    /** «Max Muster <max.muster@example.ch>» — the choice on a send page, the outbox window. */
     public function label(): string
     {
         return $this->name === '' ? $this->email : $this->name . ' <' . $this->email . '>';
