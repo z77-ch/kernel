@@ -24,6 +24,7 @@ final class Message
     /** @var list<string> */
     private array $bcc = [];
     private string $replyTo = '';
+    private string $replyToName = '';
     private string $subject = '';
     private string $textBody = '';
     private ?string $htmlBody = null;
@@ -37,13 +38,24 @@ final class Message
         return $this;
     }
 
+    /**
+     * The From DISPLAY NAME only (2026-10-23, the sender identity): the address stays unset, so
+     * the `Mailer` fills in the installation's account — «Peter Ruepp <no-reply@…>».
+     */
+    public function fromName(string $name): self
+    {
+        $this->fromName = $this->assertHeaderSafe($name);
+        return $this;
+    }
+
     public function to(string ...$addresses): self    { return $this->add('to', $addresses); }
     public function cc(string ...$addresses): self    { return $this->add('cc', $addresses); }
     public function bcc(string ...$addresses): self   { return $this->add('bcc', $addresses); }
 
-    public function replyTo(string $address): self
+    public function replyTo(string $address, string $name = ''): self
     {
-        $this->replyTo = $this->assertEmail($address);
+        $this->replyTo     = $this->assertEmail($address);
+        $this->replyToName = $this->assertHeaderSafe($name);
         return $this;
     }
 
@@ -81,6 +93,7 @@ final class Message
     /** @return list<string> */
     public function getBcc(): array { return $this->bcc; }
     public function getReplyTo(): string { return $this->replyTo; }
+    public function getReplyToName(): string { return $this->replyToName; }
     public function getSubject(): string { return $this->subject; }
     public function getTextBody(): string { return $this->textBody; }
     public function getHtmlBody(): ?string { return $this->htmlBody; }

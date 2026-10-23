@@ -17,7 +17,10 @@ use Z77\Core\Http\RequestMode;
  * The reserved keys `sort`, `dir` and `page` are the list's own; a column
  * key is `f_…`; an extra is anything else, with its allowed values — the
  * first is the default (`'view' => ['open', 'overdue', 'all']`, a flag
- * `'all' => ['', '1']`).
+ * `'all' => ['', '1']`) — or, for a value no list can enumerate (an id that
+ * narrows the list to one run, a batch), a PATTERN: a regular expression the
+ * value must match, the default '' = not narrowed (`'batch' =>
+ * '/^[0-9a-f]{32}$/'`, owner 2026-10-23). Anything else is the default.
  */
 final class ListDefinition
 {
@@ -35,13 +38,13 @@ final class ListDefinition
     /** @var array<string, bool> sort key → descending first */
     private array $sorts = [];
 
-    /** @var array<string, list<string>> extra key → allowed values, the first is the default */
+    /** @var array<string, list<string>|string> extra key → allowed values (the first is the default) or a pattern (default '') */
     private array $extras;
 
     /**
      * @param string $id       the list's name — the id of its search form, the prefix of its inputs (`{id}-{key}`), its fetch region (`{id}-list`)
      * @param list<Column> $columns
-     * @param array<string, list<string>> $extras
+     * @param array<string, list<string>|string> $extras allowed values, or a regex for a free value
      */
     public function __construct(
         public readonly string $id,
@@ -81,6 +84,12 @@ final class ListDefinition
             if (!is_string($key) || !preg_match('/^[a-z][a-z0-9_]*$/', $key) || in_array($key, self::RESERVED, true) || str_starts_with($key, 'f_')) {
                 throw new \InvalidArgumentException("'{$key}' cannot be an extra key — reserved or shaped like a search field");
             }
+            if (is_string($allowed)) {
+                if (@preg_match($allowed, '') === false || preg_match($allowed, '') === 1) {
+                    throw new \InvalidArgumentException("Extra '{$key}' names a pattern that is a valid regex and does not match '' (the default)");
+                }
+                continue;
+            }
             if (!is_array($allowed) || $allowed === [] || array_filter($allowed, static fn($v) => !is_string($v)) !== []) {
                 throw new \InvalidArgumentException("Extra '{$key}' names its allowed values, the first being the default");
             }
@@ -116,7 +125,7 @@ final class ListDefinition
         return $this->sorts[$sort] ?? false;
     }
 
-    /** @return array<string, list<string>> */
+    /** @return array<string, list<string>|string> */
     public function extras(): array
     {
         return $this->extras;
@@ -124,7 +133,22 @@ final class ListDefinition
 
     public function extraDefault(string $key): string
     {
-        return $this->extras[$key][0] ?? throw new \InvalidArgumentException("No extra '{$key}' on list '{$this->id}'");
+        if (!isset($this->extras[$key])) {
+            throw new \InvalidArgumentException("No extra '{$key}' on list '{$this->id}'");
+        }
+
+        return is_string($this->extras[$key]) ? '' : $this->extras[$key][0];
+    }
+
+    /** Whether $value is one $key accepts — an allowed value, or a match of its pattern. */
+    public function acceptsExtra(string $key, mixed $value): bool
+    {
+        $allowed = $this->extras[$key] ?? null;
+        if (!is_string($value) || $allowed === null) {
+            return false;
+        }
+
+        return is_string($allowed) ? ($value === '' || preg_match($allowed, $value) === 1) : in_array($value, $allowed, true);
     }
 
     /** @return list<string> every key the address may carry — what a controller reads */
@@ -170,7 +194,7 @@ final class ListDefinition
     /**
      * The state out of the query (`$_GET` shaped): an unknown sort falls
      * back to the default, an unknown direction to the sort's first, the
-     * page to 1, an extra outside its values to its default; every search
+     * page to 1, an extra outside its values (or its pattern) to its default; every search
      * value trimmed, cut to {@see VALUE_LENGTH} and parsed by its column.
      *
      * @param array<string, mixed> $query
@@ -198,9 +222,9 @@ final class ListDefinition
             }
         }
         $extras = [];
-        foreach ($this->extras as $key => $allowed) {
+        foreach (array_keys($this->extras) as $key) {
             $value        = $query[$key] ?? null;
-            $extras[$key] = is_string($value) && in_array($value, $allowed, true) ? $value : $allowed[0];
+            $extras[$key] = $this->acceptsExtra($key, $value) ? $value : $this->extraDefault($key);
         }
 
         return new ListState($this, $sort, $descending, $page, $values, $parsed, $invalid, $extras);

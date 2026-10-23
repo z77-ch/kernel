@@ -73,8 +73,10 @@ final class Mailer
             throw new \RuntimeException('Mail is not configured (config/client/mail.inc.php missing or enabled = false).');
         }
 
+        // The ADDRESS is always the account's when the message has none; a display name the
+        // message carries (a sender identity, `Message::fromName()`) wins over the config's.
         if ($message->getFromAddress() === '' && $this->fromAddress !== '') {
-            $message->from($this->fromAddress, $this->fromName);
+            $message->from($this->fromAddress, $message->getFromName() !== '' ? $message->getFromName() : $this->fromName);
         }
 
         $built = MimeMessage::build($message);

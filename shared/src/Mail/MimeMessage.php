@@ -51,7 +51,7 @@ final class MimeMessage
             $headers[] = 'Cc: ' . $this->addressList($m->getCc());
         }
         if ($m->getReplyTo() !== '') {
-            $headers[] = 'Reply-To: ' . $m->getReplyTo();
+            $headers[] = 'Reply-To: ' . $this->formatAddress($m->getReplyTo(), $m->getReplyToName());
         }
         $headers[] = 'Subject: ' . $this->encodeWord($m->getSubject());
         $headers[] = 'Message-ID: <' . bin2hex(random_bytes(16)) . '@' . $this->senderDomain($m) . '>';
@@ -176,7 +176,8 @@ final class MimeMessage
             return $address;
         }
         if ($this->isAscii($name)) {
-            return '"' . str_replace('"', '', $name) . '" <' . $address . '>';
+            // Quote and backslash out: either would end or escape the quoted word.
+            return '"' . str_replace(['"', '\\'], '', $name) . '" <' . $address . '>';
         }
         return $this->encodeWord($name) . ' <' . $address . '>';
     }

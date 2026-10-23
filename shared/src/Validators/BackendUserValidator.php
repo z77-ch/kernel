@@ -7,6 +7,7 @@ use Z77\Persistence\Validation\EntityValidator;
 use Z77\Shared\Auth\PasswordPolicy;
 use Z77\Shared\Auth\PasswordTier;
 use Z77\Shared\Entities\BackendUser;
+use Z77\Shared\Mail\SenderIdentity;
 use Z77\Shared\Repositories\BackendUserRepository;
 
 /**
@@ -14,6 +15,7 @@ use Z77\Shared\Repositories\BackendUserRepository;
  *
  * Username: required, ASCII alphanumeric (+ _ -), min 3, unique across users.
  * Roles: at least one, each a known {@see AuthRole} key.
+ * Sender identities: 0..n rows of display name + deliverable address ({@see SenderIdentity}).
  * Password: plaintext is transient (not an entity field), so it is checked via
  * an overridden {@see executeValidation()} — required on add, optional on edit
  * (blank = keep current). A length floor (8) always applies; under the
@@ -27,6 +29,8 @@ class BackendUserValidator extends EntityValidator
 {
     /** Absolute length floor enforced for every tier (a sanity minimum). */
     private const ABSOLUTE_MIN_LENGTH = 8;
+
+    private ?int $invalidSenderIdentity = null;
 
     public function __construct(
         BackendUser $user,
@@ -90,6 +94,45 @@ class BackendUserValidator extends EntityValidator
         if (mb_strlen(trim($name)) > BackendUser::NAME_LENGTH) {
             $this->addFieldError('name', 'Der Name hat höchstens ' . BackendUser::NAME_LENGTH . ' Zeichen.');
         }
+    }
+
+    /**
+     * The sender identities (owner 2026-10-23): each row a display name and a deliverable
+     * address ({@see SenderIdentity::problems()} — the rule the outbox asks too), no address
+     * twice, at most {@see BackendUser::SENDER_IDENTITIES_MAX}. ONE field error naming the first
+     * bad row («Absender 2: …»); {@see invalidSenderIdentity()} says which row it is.
+     *
+     * @param list<array<string, mixed>> $rows the stored form (`mapToArray()`)
+     */
+    public function validateSenderIdentities(array $rows): void
+    {
+        $this->invalidSenderIdentity = null;
+        if (count($rows) > BackendUser::SENDER_IDENTITIES_MAX) {
+            $this->invalidSenderIdentity = BackendUser::SENDER_IDENTITIES_MAX;
+            $this->addFieldError('sender_identities', 'Höchstens ' . BackendUser::SENDER_IDENTITIES_MAX . ' Absender.');
+            return;
+        }
+        $seen = [];
+        foreach (array_values($rows) as $i => $row) {
+            $identity = SenderIdentity::fromArray(is_array($row) ? $row : []);
+            $problems = $identity->problems();
+            $email    = strtolower($identity->email);
+            if ($problems === [] && isset($seen[$email])) {
+                $problems[] = 'E-Mail-Adresse «' . $identity->email . '» steht schon in Zeile ' . ($seen[$email] + 1) . '.';
+            }
+            if ($problems !== []) {
+                $this->invalidSenderIdentity = $i;
+                $this->addFieldError('sender_identities', 'Absender ' . ($i + 1) . ': ' . implode(' ', $problems));
+                return;
+            }
+            $seen[$email] = $i;
+        }
+    }
+
+    /** The 0-based row of the first refused sender identity, null when none was refused. */
+    public function invalidSenderIdentity(): ?int
+    {
+        return $this->hasFieldError('sender_identities') ? $this->invalidSenderIdentity : null;
     }
 
     public function validateInitials(string $initials): void

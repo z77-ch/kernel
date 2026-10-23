@@ -95,8 +95,8 @@ final class ListState
             $state[$key] = $value === null || $value === false ? '' : ($value === true ? '1' : (string) $value);
         }
         // Defaults out.
-        foreach ($this->definition->extras() as $key => $allowed) {
-            if (($state[$key] ?? '') === $allowed[0]) {
+        foreach (array_keys($this->definition->extras()) as $key) {
+            if (($state[$key] ?? '') === $this->definition->extraDefault($key)) {
                 $state[$key] = '';
             }
         }

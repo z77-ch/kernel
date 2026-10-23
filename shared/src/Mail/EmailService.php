@@ -190,7 +190,9 @@ final class EmailService
      *      filled, else German (`de`, always present);
      *   3. every `{name}` replaced by `$values[name]` (a placeholder without a value stays as
      *      written — visible, not silently dropped); line breaks in a value are flattened in the
-     *      subject (a header).
+     *      subject (a header). A body LINE that holds nothing but placeholders which all
+     *      resolved to '' is dropped (2026-10-23, `{anzeigename}` on its own line under the
+     *      greeting: a mail without a display name must not show an empty line there).
      *
      * Sending is the caller's (module-mailing's outbox): this answers text, not a mail. The
      * body is PLAIN TEXT — render it through `emails/documentMail` (escaped). An undeclared
@@ -223,9 +225,19 @@ final class EmailService
             $inSubject['{' . $name . '}'] = trim((string) preg_replace('/\s*[\r\n]+\s*/', ' ', (string) $value));
         }
 
+        $lines = [];
+        foreach (preg_split('/\r\n|\r|\n/', (string) ($bodies[$language] ?? '')) ?: [] as $line) {
+            $filled = strtr($line, $inBody);
+            $onlyPlaceholders = preg_match('/^\s*(\{[a-z0-9_-]+\}\s*)+$/i', $line) === 1;
+            if ($onlyPlaceholders && trim($filled) === '' && $filled !== $line) {
+                continue;
+            }
+            $lines[] = $filled;
+        }
+
         return [
             'subject'  => trim(strtr((string) ($subjects[$language] ?? ''), $inSubject)),
-            'body'     => trim(strtr((string) ($bodies[$language] ?? ''), $inBody)),
+            'body'     => trim(implode("\n", $lines)),
             'language' => $language,
         ];
     }
