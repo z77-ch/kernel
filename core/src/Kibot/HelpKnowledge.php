@@ -267,6 +267,10 @@ final class HelpKnowledge
     private static function title(string $html, string $path): string
     {
         $general = preg_split('#<section\b#i', $html, 2)[0] ?? $html;
+        // A heading whose text depends on controller variables names its static title for the index (`data-help-title`).
+        if (preg_match('#<h[1-3]\b[^>]*\sdata-help-title="([^"]+)"#i', $general, $named) === 1) {
+            return self::plain($named[1]);
+        }
         preg_match_all('#<h[1-3]\b[^>]*>(.*?)</h[1-3]>#is', $general, $all);
         foreach ($all[1] as $heading) {
             $title = self::plain($heading);
