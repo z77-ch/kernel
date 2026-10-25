@@ -45,7 +45,8 @@
         "composer/composer": "^2.0"
     },
     "suggest": {
-        "ext-apcu": "Shared in-memory data cache across requests; without it the framework falls back to a per-request cache (enable apc.enable_cli=1 for CLI)"
+        "ext-apcu": "Shared in-memory data cache across requests; without it the framework falls back to a per-request cache (enable apc.enable_cli=1 for CLI)",
+        "z77/kibot": "KI-Bot: website widget (module-frontend) and the backend KI-Assistent over the help texts; enabled by config/client/kibot.inc.php (docs/topics/kibot.md)"
     },
     "support": {
         "issues": "https://github.com/z77-ch/z77-framework/issues",

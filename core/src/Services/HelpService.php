@@ -2,7 +2,8 @@
 
 namespace Z77\Core\Services;
 
-use Z77\Core\DI;
+use Z77\Core\DI,
+    Z77\Shared\Libraries\Convention\Naming;
 
 /**
  * Help as a framework service (ADR-048): a controller attaches the help that belongs to the
@@ -25,6 +26,11 @@ use Z77\Core\DI;
  * hands the choice to the view as `helpInToolbar`.
  *
  * One help per answer: a second attach replaces the first — the controller decides.
+ *
+ * Every help template is also a topic of the backend KI-Assistent (ADR-055): the knowledge
+ * index ({@see \Z77\Core\Kibot\HelpKnowledge}) names each template by {@see topicIdFor()},
+ * and the transport block carries the same id as `data-help-topic`, so the assistant knows
+ * which help belongs to the screen it is asked from.
  */
 class HelpService
 {
@@ -51,6 +57,27 @@ class HelpService
         return $this->attached['title'] ?? '';
     }
 
+    /** The assistant topic id of the attached help (ADR-055); '' without help. */
+    public function topicId(): string
+    {
+        return $this->attached === null ? '' : self::topicIdFor($this->attached['path'], $this->attached['nameSpace']);
+    }
+
+    /**
+     * The stable topic id of a help template: namespace without the vendor prefix plus the
+     * template path without `.help`, as a slug — `Z77\Module\Order` +
+     * `Backend/OrderController/edit.help` → `module-order-backend-order-controller-edit`.
+     * KiBot allows 64 characters; a longer id keeps its start and ends in a short hash.
+     */
+    public static function topicIdFor(string $path, string $nameSpace): string
+    {
+        $ns   = preg_replace('/^Z77\\\\/', '', trim($nameSpace, '\\')) ?? $nameSpace;
+        $path = preg_replace('/\.help(\.tpl\.php)?$/', '', $path) ?? $path;
+        $id   = Naming::toSlug(str_replace(['\\', '/'], ' ', $ns . ' ' . $path));
+        $id   = preg_replace('/-+/', '-', $id) ?? $id;
+        return strlen($id) <= 64 ? $id : substr($id, 0, 55) . '-' . substr(md5($id), 0, 8);
+    }
+
     /** The attached help as its transport block; '' without help. A missing template is the developer's error and throws. */
     public function render(): string
     {
@@ -60,7 +87,8 @@ class HelpService
         $file = DI::getFileFinder()->getFirstTplMatch($this->attached['path'] . '.tpl.php', $this->attached['nameSpace']);
         $html = (new TemplateRenderer($this->attached['nameSpace']))->render($file, $this->attached['context']);
 
-        return '<template data-help data-help-title="' . htmlspecialchars($this->attached['title'], ENT_QUOTES) . '">'
+        return '<template data-help data-help-title="' . htmlspecialchars($this->attached['title'], ENT_QUOTES)
+            . '" data-help-topic="' . htmlspecialchars($this->topicId(), ENT_QUOTES) . '">'
             . $html . '</template>';
     }
 }

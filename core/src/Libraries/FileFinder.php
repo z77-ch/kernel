@@ -189,6 +189,12 @@ class FileFinder
         );
     }
 
+    /** The template directory below each source path (`resourceDir.tplDir`, e.g. `res/view/templates`). */
+    public function getTplDir(): string
+    {
+        return trim((string) $this->resolveConfig()->getResourceDir()['tplDir'], '/');
+    }
+
     public function getBasePaths(string $ns, string $resourceType): array
     {
         $ns = Naming::toNamespaceString($ns);

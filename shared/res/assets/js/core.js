@@ -1238,24 +1238,32 @@ _Z77.core.windows = (function () {
 
     /* The «Hilfe» button in the title bar (ADR-048): there while the content carries a help
      * template, gone when new content (read view ↔ edit form) has none. It says the word — an
-     * icon stands for a word only where there is no room for it (owner 2026-10-10). */
+     * icon stands for a word only where there is no room for it (owner 2026-10-10).
+     * With the KI-Assistent on the page (bot.js sets `data-kibot-ready` on <html>, ADR-055) the
+     * button is the assistant's opener: «KI-Assistent», the window's help topic as context;
+     * bot.js takes the click, its «Hilfetext anzeigen» hands it back to the help here. */
     function _helpButton(win, body) {
         var head = win.querySelector('.z77-window__head');
         var btn  = head.querySelector('[data-help-open]');
-        var has  = !!body.querySelector('template[data-help]');
-        if (has && !btn) {
-            var label = _Z77.core.i18n.t('common.help', 'Hilfe');
-            btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'z77-help-open';
-            btn.setAttribute('data-help-open', '');
-            btn.setAttribute('aria-label', label);
-            btn.title = label;
-            btn.textContent = label;
-            head.insertBefore(btn, head.querySelector('.z77-window__full') || head.querySelector('.z77-window__close'));
-        } else if (!has && btn) {
-            btn.parentNode.removeChild(btn);
+        var tpl  = body.querySelector('template[data-help]');
+        if (btn) btn.parentNode.removeChild(btn);   // new content, new help (or none)
+        if (!tpl) return;
+        var bot   = document.documentElement.hasAttribute('data-kibot-ready');
+        var label = bot ? _Z77.core.i18n.t('common.assistant', 'KI-Assistent') : _Z77.core.i18n.t('common.help', 'Hilfe');
+        btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'z77-help-open';
+        btn.setAttribute('data-help-open', '');
+        btn.setAttribute('aria-label', label);
+        btn.title = label;
+        btn.textContent = label;
+        if (bot) {
+            btn.setAttribute('data-kibot-open', '');
+            btn.setAttribute('data-kibot-fallback', '');
+            btn.setAttribute('data-kibot-context', tpl.getAttribute('data-help-topic') || '');
+            btn.setAttribute('data-kibot-context-label', (tpl.getAttribute('data-help-title') || '').replace(/^Hilfe\s*:\s*/, ''));
         }
+        head.insertBefore(btn, head.querySelector('.z77-window__full') || head.querySelector('.z77-window__close'));
     }
 
     /* New content for a window: the controller's answer (HTML, fetch skeleton = `main`). */
