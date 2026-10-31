@@ -46,6 +46,18 @@ _Z77.upload = (function () {
      * is not fatal — the file goes up without them. */
     var _providers = {};
 
+    /* A module may carry a file over ANOTHER WIRE than one multipart POST — the DMS chunked
+     * upload (F3) for a file bigger than one request may be. `data-upload-transport="<name>"`
+     * picks one, `data-upload-transport-config` hands it the server's numbers. A transport:
+     *   accepts(file, config) → bool    takes THIS file? (no = the normal POST)
+     *   max(config)           → bytes   its own cap for the files it takes, 0 = none
+     *   send(file, ctx)       → Promise of the per-file answer the endpoint would have sent
+     *                                   ({status, data, commands}); a rejection is the row's error
+     * ctx = {config, overwrite, fields (the form's own), extra (the provider's), signal,
+     *        onProgress(loaded, total)}. The rows, the conflict question, the commands at the
+     * end of the run stay this component's — a transport only moves bytes. */
+    var _transports = {};
+
     function _json(value) {
         if (!value) return {};
         try { return JSON.parse(value) || {}; } catch (e) { return {}; }
@@ -72,6 +84,8 @@ _Z77.upload = (function () {
         this.conflict = form.getAttribute('data-upload-conflict') || 'ask';
         this.maxPer   = _json(form.getAttribute('data-upload-max-per'));
         this.extra    = form.getAttribute('data-upload-extra') || '';
+        this.transport       = form.getAttribute('data-upload-transport') || '';
+        this.transportConfig = _json(form.getAttribute('data-upload-transport-config'));
         this.input    = form.querySelector('input[type=file]');
         this.list     = form.querySelector('[data-upload-list]');
         this.summary  = form.querySelector('[data-upload-summary]');
@@ -111,20 +125,29 @@ _Z77.upload = (function () {
      * The cap for ONE file: the general one, lowered by the first matching entry of
      * `data-upload-max-per` — the same resolution `UploadPolicy::maxBytesFor()` does, which
      * is why both read the same map (an image must also fit in the server's memory, a video
-     * only through the wire).
+     * only through the wire). A file a transport takes is bounded by the transport's cap
+     * instead of the one-request cap (`0` = none) — the per-kind entry still lowers it.
      */
     Uploader.prototype.limitFor = function (file) {
-        var name = (file.name || '').toLowerCase();
-        var type = (file.type || '').toLowerCase();
-        var self = this;
-        var hit  = Object.keys(this.maxPer).filter(function (pattern) {
+        var name    = (file.name || '').toLowerCase();
+        var type    = (file.type || '').toLowerCase();
+        var carrier = this.carrier(file);
+        var base    = carrier ? (carrier.max(this.transportConfig) || 0) : this.max;
+        var hit     = Object.keys(this.maxPer).filter(function (pattern) {
             var p = pattern.toLowerCase();
             if (p.charAt(0) === '.')  return name.slice(-p.length) === p;
             if (p.slice(-2) === '/*') return type !== '' && type.indexOf(p.slice(0, -1)) === 0;
             return p === type;
         })[0];
 
-        return hit ? Math.min(self.max || Infinity, self.maxPer[hit]) : self.max;
+        return hit ? Math.min(base || Infinity, this.maxPer[hit]) : base;
+    };
+
+    /** The transport that takes this file, or null for the normal one-request POST. */
+    Uploader.prototype.carrier = function (file) {
+        var transport = _transports[this.transport];
+
+        return transport && transport.accepts(file, this.transportConfig) ? transport : null;
     };
 
     Uploader.prototype.add = function (files) {
@@ -239,7 +262,10 @@ _Z77.upload = (function () {
     };
 
     Uploader.prototype.transmit = function (item, overwrite, extraFields) {
-        var self = this;
+        var self    = this;
+        var carrier = this.carrier(item.file);
+        if (carrier) { this.carry(item, overwrite, extraFields, carrier); return; }
+
         var data = new FormData();
         data.append(this.input.getAttribute('name') || 'files[]', item.file, item.file.name);
         if (overwrite) data.append('overwrite', '1');
@@ -265,11 +291,7 @@ _Z77.upload = (function () {
 
         xhr.upload.onprogress = function (e) {
             if (!e.lengthComputable) return;
-            item.loaded = e.loaded;
-            var percent = Math.round(e.loaded / e.total * 100);
-            item.row.fill.style.width = percent + '%';
-            item.row.text.textContent = percent + ' %';
-            self.paint();
+            self.progress(item, e.loaded, e.total);
         };
 
         xhr.onload = function () {
@@ -277,44 +299,7 @@ _Z77.upload = (function () {
             item.xhr = null;
             var answer = null;
             try { answer = JSON.parse(xhr.responseText); } catch (e) { answer = null; }
-
-            // The house envelope (fetch.md «envelope structure»): `status` plus optional
-            // `data` / `flashes` / `messages` / `commands`. Two statuses are this
-            // component's own, and the Drive has used them since 2026-07: `duplicate`
-            // (identical bytes already there — nothing to do, not an error) and `conflict`
-            // (same name, other bytes — the endpoint's rule decides).
-            var data    = answer && answer.data ? answer.data : {};
-            var message = data.message || (answer ? answer.message : '') || '';
-
-            if (answer && (answer.flashes || answer.messages || answer.fields) && _Z77.core && _Z77.core.fetch) {
-                // The row says what happened to THIS file; a flash the endpoint sent on top
-                // is its own business — but commands wait for the end of the run.
-                var passed = {};
-                Object.keys(answer).forEach(function (key) { if (key !== 'commands') passed[key] = answer[key]; });
-                _Z77.core.fetch.handleEnvelope(passed, self.form.getAttribute('action'));
-            }
-
-            if (xhr.status >= 400 || !answer) {
-                self.finish(item, 'error', message || 'Server-Fehler (' + xhr.status + ')');
-            } else if (answer.status === 'conflict') {
-                self.askOverwrite(item, { message: message });
-            } else if (answer.status === 'error' || answer.status === 'validation') {
-                self.finish(item, 'error', message || 'nicht gespeichert');
-            } else if (answer.status === 'duplicate') {
-                self.finish(item, 'skipped', message || 'identisch, schon vorhanden');
-            } else {
-                self.finish(item, 'done', message || 'hochgeladen');
-                // Commands wait for the END of the run, deduplicated: ten files answering
-                // «reload» must reload once, after the last one — not ten times, and not
-                // while nine uploads are still in flight.
-                (answer.commands || []).forEach(function (cmd) {
-                    var key = JSON.stringify(cmd);
-                    if (self.commands.every(function (c) { return JSON.stringify(c) !== key; })) {
-                        self.commands.push(cmd);
-                    }
-                });
-            }
-            self.pump();
+            self.settle(item, xhr.status, answer);
         };
 
         xhr.onerror = function () {
@@ -331,6 +316,101 @@ _Z77.upload = (function () {
         };
 
         xhr.send(data);
+    };
+
+    /**
+     * Hand the file to a module's transport (see `_transports`). It reports progress and
+     * answers the same per-file envelope, so the row, the conflict question and the commands
+     * work exactly as for one request. Cancelling aborts through `item.xhr` like an XHR.
+     */
+    Uploader.prototype.carry = function (item, overwrite, extraFields, carrier) {
+        var self  = this;
+        var ctrl  = typeof AbortController === 'function' ? new AbortController() : null;
+        item.xhr  = { abort: function () { if (ctrl) ctrl.abort(); } };
+
+        Promise.resolve()
+            .then(function () {
+                return carrier.send(item.file, {
+                    config:     self.transportConfig,
+                    overwrite:  !!overwrite,
+                    fields:     self.fields(),
+                    extra:      extraFields || {},
+                    signal:     ctrl ? ctrl.signal : null,
+                    onProgress: function (loaded, total) { self.progress(item, loaded, total); }
+                });
+            })
+            .then(function (answer) {
+                self.running--;
+                item.xhr = null;
+                self.settle(item, 200, answer || null);
+            }, function (error) {
+                self.running--;
+                item.xhr = null;
+                if (item.state === 'cancelled') { self.pump(); return; }
+                self.finish(item, 'error', (error && error.message) || 'Verbindung unterbrochen');
+                self.pump();
+            });
+    };
+
+    /** The form's own fields as one object — what a transport sends along. */
+    Uploader.prototype.fields = function () {
+        var out = {};
+        this.form.querySelectorAll('input[type=hidden], select, input[type=checkbox]:checked')
+            .forEach(function (field) {
+                if (field.name) out[field.name] = field.value;
+            });
+        return out;
+    };
+
+    Uploader.prototype.progress = function (item, loaded, total) {
+        item.loaded = loaded;
+        var percent = total > 0 ? Math.round(loaded / total * 100) : 0;
+        item.row.fill.style.width = percent + '%';
+        item.row.text.textContent = percent + ' %';
+        this.paint();
+    };
+
+    /**
+     * One file's answer → its row. The house envelope (fetch.md «envelope structure»):
+     * `status` plus optional `data` / `flashes` / `messages` / `commands`. Two statuses are
+     * this component's own, and the Drive has used them since 2026-07: `duplicate`
+     * (identical bytes already there — nothing to do, not an error) and `conflict` (same
+     * name, other bytes — the endpoint's rule decides).
+     */
+    Uploader.prototype.settle = function (item, httpStatus, answer) {
+        var self    = this;
+        var data    = answer && answer.data ? answer.data : {};
+        var message = data.message || (answer ? answer.message : '') || '';
+
+        if (answer && (answer.flashes || answer.messages || answer.fields) && _Z77.core && _Z77.core.fetch) {
+            // The row says what happened to THIS file; a flash the endpoint sent on top
+            // is its own business — but commands wait for the end of the run.
+            var passed = {};
+            Object.keys(answer).forEach(function (key) { if (key !== 'commands') passed[key] = answer[key]; });
+            _Z77.core.fetch.handleEnvelope(passed, self.form.getAttribute('action'));
+        }
+
+        if (httpStatus >= 400 || !answer) {
+            this.finish(item, 'error', message || 'Server-Fehler (' + httpStatus + ')');
+        } else if (answer.status === 'conflict') {
+            this.askOverwrite(item, { message: message });
+        } else if (answer.status === 'error' || answer.status === 'validation') {
+            this.finish(item, 'error', message || 'nicht gespeichert');
+        } else if (answer.status === 'duplicate') {
+            this.finish(item, 'skipped', message || 'identisch, schon vorhanden');
+        } else {
+            this.finish(item, 'done', message || 'hochgeladen');
+            // Commands wait for the END of the run, deduplicated: ten files answering
+            // «reload» must reload once, after the last one — not ten times, and not
+            // while nine uploads are still in flight.
+            (answer.commands || []).forEach(function (cmd) {
+                var key = JSON.stringify(cmd);
+                if (self.commands.every(function (c) { return JSON.stringify(c) !== key; })) {
+                    self.commands.push(cmd);
+                }
+            });
+        }
+        this.pump();
     };
 
     /**
@@ -573,9 +653,16 @@ _Z77.upload = (function () {
      */
     function provider(name, fn) { _providers[name] = fn; }
 
+    /**
+     * A module registers another wire for big files (`data-upload-transport="<name>"`):
+     * `{accepts(file, config), max(config), send(file, ctx)}` — see `_transports` above.
+     */
+    function transport(name, impl) { _transports[name] = impl; }
+
     return {
         bind: bind,
         provider: provider,
+        transport: transport,
         of: function (form) { return form ? form._z77Upload : null; }
     };
 })();

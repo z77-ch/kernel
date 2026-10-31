@@ -30,6 +30,13 @@
  * @var string|null $extra      name of a per-file field provider registered in JS
  *                              (`_Z77.upload.provider('<name>', fn)`) — for what only a
  *                              module can produce, e.g. the Drive's video poster frame
+ * @var string|null $transport  name of a transport registered in JS
+ *                              (`_Z77.upload.transport('<name>', {...})`) that may carry a
+ *                              file over another wire than one multipart POST — the DMS
+ *                              chunked upload for files bigger than one request (F3)
+ * @var array|null  $transportConfig what that transport needs (endpoints, sizes), written as
+ *                              JSON into `data-upload-transport-config` — the server is the
+ *                              source, the script carries no default of its own
  */
 
 use Z77\Shared\Upload\UploadPolicy;
@@ -61,6 +68,10 @@ foreach ($policy->attributes() as $name => $value) {
 }
 if (($extra ?? '') !== '') {
     $attributes .= ' data-upload-extra="' . e($extra) . '"';
+}
+if (($transport ?? '') !== '') {
+    $attributes .= ' data-upload-transport="' . e($transport) . '"'
+        . ' data-upload-transport-config="' . e((string) json_encode($transportConfig ?? [])) . '"';
 }
 
 $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0, 8);
