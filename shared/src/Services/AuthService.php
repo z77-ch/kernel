@@ -147,6 +147,11 @@ class AuthService
 
         $data = $this->sessionManager->get('auth_user', null);
 
+        if ($data && !$this->sessionIsCurrent($data)) {
+            $this->sessionManager->remove('auth_user');
+            $data = null;
+        }
+
         $this->currentUser = $data
             ? new AuthUser([
                 'id'        => $data['id'],
@@ -161,6 +166,59 @@ class AuthService
             ]);
 
         return $this->currentUser;
+    }
+
+    /**
+     * Is this session still valid against the stored user? Backend realm only — a member-realm id
+     * lives in another id space, and cron or API identities have no `auth_user` at all. Runs once
+     * per request (getCurrentUser() memoizes).
+     *
+     * A password change raises the user's stamp, which ends the sessions carrying the old one
+     * ({@see BackendUser::bumpAuthEpoch()}). A session without a stamp and a user without the field
+     * both read 0, so a deploy ends nothing. A user no longer in the store ends the session too:
+     * until now his session kept the roles it was started with.
+     *
+     * A lookup that FAILS (corrupt store, no DI in an offline harness) proves nothing about this
+     * session: it stays valid with a log line, as it was before the stamp existed.
+     */
+    private function sessionIsCurrent(array $data): bool
+    {
+        if (($data['realm'] ?? AuthUser::REALM_BACKEND) !== AuthUser::REALM_BACKEND) {
+            return true;
+        }
+
+        try {
+            $user = DI::getUnifiedEntityManager()->getRepository(BackendUser::class)->find((int) ($data['id'] ?? 0));
+        } catch (\Throwable $e) {
+            error_log('AuthService: session stamp not checked — ' . $e->getMessage());
+            return true;
+        }
+
+        return $user instanceof BackendUser && self::stampMatches($data, $user);
+    }
+
+    /** The rule itself, pure: a missing stamp reads 0, a mismatch in either direction is stale. */
+    public static function stampMatches(array $sessionData, BackendUser $user): bool
+    {
+        return (int) ($sessionData['auth_epoch'] ?? 0) === $user->getAuthEpoch();
+    }
+
+    /**
+     * The user changed his OWN password: he stays signed in here while his other sessions end.
+     * Does nothing for any other session, so the caller need not ask whose password it was.
+     */
+    public function renewSessionStamp(BackendUser $user): void
+    {
+        $data = $this->sessionManager->get('auth_user', null);
+        if (!is_array($data)
+            || ($data['realm'] ?? AuthUser::REALM_BACKEND) !== AuthUser::REALM_BACKEND
+            || (int) ($data['id'] ?? 0) !== $user->getId()
+        ) {
+            return;
+        }
+
+        $data['auth_epoch'] = $user->getAuthEpoch();
+        $this->sessionManager->set('auth_user', $data);
     }
 
     public function canLogin(BackendUser $user, string $password): ?self
@@ -182,10 +240,11 @@ class AuthService
 
         $this->sessionManager->regenerate();
         $payload = [
-            'id'        => $user->getId(),
-            'user_name' => $user->getUsername(),
-            'roles'     => $user->getRoles(),
-            'realm'     => AuthUser::REALM_BACKEND,
+            'id'         => $user->getId(),
+            'user_name'  => $user->getUsername(),
+            'roles'      => $user->getRoles(),
+            'realm'      => AuthUser::REALM_BACKEND,
+            'auth_epoch' => $user->getAuthEpoch(),
         ];
         $this->currentUser = new AuthUser($payload);
         $this->sessionManager->set('auth_user', $payload);

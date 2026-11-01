@@ -16,6 +16,7 @@ use Z77\Shared\Repositories\BackendUserRepository;
  * Username: required, ASCII alphanumeric (+ _ -), min 3, unique across users.
  * Roles: at least one, each a known {@see AuthRole} key.
  * Sender identities: 0..n rows of display name + deliverable address ({@see SenderIdentity}).
+ * E-mail (recovery address): optional, deliverable, unique across users (case-insensitive).
  * Password: plaintext is transient (not an entity field), so it is checked via
  * an overridden {@see executeValidation()} — required on add, optional on edit
  * (blank = keep current). A length floor (8) always applies; under the
@@ -93,6 +94,32 @@ class BackendUserValidator extends EntityValidator
     {
         if (mb_strlen(trim($name)) > BackendUser::NAME_LENGTH) {
             $this->addFieldError('name', 'Der Name hat höchstens ' . BackendUser::NAME_LENGTH . ' Zeichen.');
+        }
+    }
+
+    /**
+     * The recovery address: optional, but a real one, and no two users share it — the forgot
+     * form looks up by it. Uniqueness needs the repo, so the blur check (no repo) is format-only.
+     */
+    public function validateEmail(string $email): void
+    {
+        $email = trim($email);
+        if ($email === '') {
+            return;
+        }
+
+        $this->validate('email', 'E-Mail-Adresse', $email)
+            ->maxLength(BackendUser::EMAIL_LENGTH)
+            ->isEmail();
+
+        if ($this->hasFieldError('email') || $this->repo === null) {
+            return;
+        }
+
+        $ownId = $this->excludeId ?? $this->entity->getId();
+        $other = $this->repo->findByEmail($email);
+        if ($other !== null && $other->getId() !== $ownId) {
+            $this->addFieldError('email', 'E-Mail-Adresse «' . $email . '» ist bereits vergeben.');
         }
     }
 

@@ -59,6 +59,39 @@ final class FileThrottle
         }
     }
 
+    /**
+     * Takes back one attempt counted by {@see allow()} in the current window, atomically. For a
+     * caller that must reserve BEFORE the expensive check and only knows afterwards that the
+     * attempt does not count (the login: a right password is no failure).
+     */
+    public function release(string $key, int $windowSeconds, ?int $now = null): void
+    {
+        $now ??= time();
+        $file  = $this->dir . '/' . hash('sha256', $key) . '-' . intdiv($now, $windowSeconds);
+        if (!is_file($file)) {
+            return;
+        }
+
+        $fh = fopen($file, 'r+');
+        if ($fh === false || !flock($fh, LOCK_EX)) {
+            if ($fh !== false) {
+                fclose($fh);
+            }
+            throw new \RuntimeException("FileThrottle: could not lock counter file {$file}");
+        }
+
+        try {
+            $count = (int) stream_get_contents($fh);
+            rewind($fh);
+            ftruncate($fh, 0);
+            fwrite($fh, (string) max(0, $count - 1));
+            fflush($fh);
+        } finally {
+            flock($fh, LOCK_UN);
+            fclose($fh);
+        }
+    }
+
     /** Seconds until the current window ends — the `Retry-After` value for a denied attempt. */
     public function retryAfter(int $windowSeconds, ?int $now = null): int
     {

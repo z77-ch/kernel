@@ -9,4 +9,9 @@ return [
     // enum (not a bare string) so a typo here is a fatal error at load time, never
     // a silent value. See docs/topics/security.md (PWD-POLICY-001).
     'passwordTier' => \Z77\Shared\Auth\PasswordTier::Strong->value,
+    // Login brute-force limit (SEC-004): failed attempts per 15 minutes, per username+IP and per
+    // IP. Bound to the class that also supplies the fallback for an existing installation, whose
+    // seed-once file has no such keys. See docs/topics/security.md.
+    'loginFailuresPerUsernameIp' => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_USERNAME_IP,
+    'loginFailuresPerIp'         => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_IP,
 ];

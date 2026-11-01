@@ -42,6 +42,17 @@ class BackendUser
     public const NAME_LENGTH = 80;
 
     /**
+     * Recovery address for «Passwort vergessen» (login.md LOGIN-RESET-001): optional, unique
+     * across users (case-insensitive, BackendUserValidator). Separate from the sender identities
+     * below, which stay display data. A file written before the field has no key and reads ''
+     * (no address = the forgot form sends nothing).
+     */
+    #[Clean('email')]
+    private string $email = '';
+
+    public const EMAIL_LENGTH = 254;
+
+    /**
      * The names this person sends mail in (owner decision 2026-10-23): 0..n rows
      * `{name, email}`, the FIRST is the default — {@see SenderIdentity}, resolved for a send
      * action by {@see \Z77\Shared\Mail\SenderIdentities}. JSON key `sender_identities`; a
@@ -79,10 +90,24 @@ class BackendUser
      */
     private bool $passwordWeak = false;
 
+    /**
+     * Session stamp: copied into the session at login and compared on every request
+     * (AuthService::getCurrentUser), so raising it ends the user's other sessions — there is no
+     * server-side session list. A file written before the field reads 0, like a session without
+     * the stamp, so a deploy throws nobody out.
+     *
+     * ⚠️ Deliberately WITHOUT a setter: hydration writes it by reflection and mapFromArray() cannot
+     * reach it, so a form body carrying `auth_epoch` has no effect. The only way up is
+     * {@see bumpAuthEpoch()}.
+     */
+    private int $authEpoch = 0;
+
     public function getId(): ?int               { return $this->id; }
     public function getUsername(): string       { return $this->username; }
     public function getInitials(): string       { return $this->initials; }
     public function getName(): string           { return $this->name; }
+    public function getEmail(): string          { return $this->email; }
+    public function getAuthEpoch(): int         { return $this->authEpoch; }
     public function getPasswordHash(): string   { return $this->passwordHash; }
     public function getRoles(): array           { return $this->roles; }
     public function getPreferences(): array     { return $this->preferences; }
@@ -98,11 +123,15 @@ class BackendUser
     public function setUsername(string $username): void       { $this->username = $username; }
     public function setInitials(string $initials): void       { $this->initials = $initials; }
     public function setName(string $name): void               { $this->name = trim($name); }
+    public function setEmail(string $email): void             { $this->email = trim($email); }
     public function setPasswordHash(string $hash): void       { $this->passwordHash = $hash; }
     public function setRoles(array $roles): void              { $this->roles = $roles; }
     public function setPreferences(array $preferences): void  { $this->preferences = $preferences; }
     public function setSortKey(int $sortKey): void            { $this->sortKey = $sortKey; }
     public function setPasswordWeak(bool $weak): void         { $this->passwordWeak = $weak; }
+
+    /** The password changed: every session carrying the previous stamp is stale from now on. */
+    public function bumpAuthEpoch(): void                     { $this->authEpoch++; }
 
     /**
      * Rows `{name, email}` (the stored form) or {@see SenderIdentity} objects, in order; anything
