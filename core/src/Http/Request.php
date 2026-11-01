@@ -701,6 +701,15 @@ class Request {
         return ($value === null || $value === '') ? null : $value;
     }
 
+    /**
+     * A question of the live listener (core.js, fetch.md FETCH-LIVE-001): the page asks by
+     * itself, nobody did anything. Only ever means «less activity», so a forged header gains nothing.
+     */
+    public function isLiveRequest(): bool
+    {
+        return ($_SERVER['HTTP_X_Z77_LIVE'] ?? '') === '1';
+    }
+
     public function getIfNoneMatch(): ?string
     {
         $value = $_SERVER['HTTP_IF_NONE_MATCH'] ?? null;

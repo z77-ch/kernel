@@ -35,6 +35,8 @@
  *     [data-window-with="a b"]    the form fields a, b ride along as query parameters
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
  *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
+ *   [data-fetch-live="<url>"]     asks <url> at intervals, the answer's commands do the rest;
+ *     [data-fetch-live-every="<s>"]  seconds between two questions (see «live listener»)
  *   form[target="_blank"][data-submit-navigate="<url>"]
  *                                 after the native submit into a new tab, THIS tab goes to <url>
  *                                 (see «submit-navigate»)
@@ -496,6 +498,7 @@ _Z77.core.wire = function (container, defaultPostUrl, ctx) {
     // one on the page — otherwise its fallback list stays and a choice loads the whole page.
     _Z77.core.treePicker.init(container);
     _Z77.core.stickyTop.init(container);
+    _Z77.core.live.init(container);
     container.querySelectorAll('[data-fetch-post]').forEach(function (form) {
         var url = form.dataset.fetchPost || defaultPostUrl;
         if (!url) return;
@@ -829,6 +832,12 @@ _Z77.core.fetch = (function () {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
     registerCommand('reload', function () { window.location.reload(); });
+    /* {action: 'stop-live', target, origin?} — the listener on `target` asks no more (core.js
+     * «live listener»). The attribute IS the listener's state: without it the next look ends it. */
+    registerCommand('stop-live', function (p) {
+        var el = _find(p);
+        if (el) el.removeAttribute('data-fetch-live');
+    });
     /* Tells the window that shows this page in an iframe: {action: 'post-message',
      * message: {type: '…', …}} → window.parent.postMessage(message, own origin).
      * Same origin only (targetOrigin = this page's origin), so the message never
@@ -1699,7 +1708,98 @@ _Z77.core.help = (function () {
     return { open: open, close: close, bind: bind };
 })();
 
-/* ── submit-navigate ───────────────────────────────────────────────────────
+/* ── live listener ──────────────────────────────────────────────────────────
+ * A part of a page that keeps asking the server while something runs (FETCH-LIVE-001,
+ * owner 2026-11-01). Polling, not SSE: PHP on shared hosting must not hold connections.
+ *
+ * Contract:
+ *   [data-fetch-live="<url>"]       asks <url> (GET, fetch mode) at intervals
+ *   [data-fetch-live-every="<s>"]   seconds between two questions (default 10, floor 5)
+ * The controller renders the attribute only while there is something to watch; no attribute,
+ * no request. The answer is a normal FetchResponse, so the CONTROLLER decides what happens:
+ * `replace-html` / `update-html` on a target it names, `reload`, a redirect, `stop-live`.
+ * `$this->noContent()` (204) = nothing new. A replaced listener simply ends, and a fragment
+ * that carries the attribute starts its own — wire() sees every fragment that comes in.
+ *
+ * It asks again only after the answer (no overlap), and no request leaves while the tab is
+ * hidden (it waits, then asks on return) or from inside a closed <dialog>. A listener out of
+ * the document or without its attribute ends at the next look.
+ *
+ * Failures stay silent and the content stays — nobody asked for this request, so nobody gets
+ * a message about it: network, a broken body, 408, 429, 5xx → again at the next tick. Any other
+ * refusal, an `error` envelope (shown once) or a non-JSON answer → it ends. The last one is what
+ * an expired session looks like: the guard redirects, fetch follows, the login page comes back
+ * as HTML. It must not open as a popup, and the page must not jump to the login under a
+ * half-typed form; the user's next action finds out.
+ *
+ * Rule 7: this decides nothing and renders nothing itself — the server sends the commands, and
+ * the HTML in them is wired like any other fragment.
+ */
+_Z77.core.live = (function () {
+    var DEFAULT_S = 10;
+    var FLOOR_S   = 5;
+    var _known    = new WeakSet();
+    var _waiting  = [];     // listeners whose turn came in a hidden tab
+
+    function _alive(el) {
+        return el.isConnected && el.hasAttribute('data-fetch-live');
+    }
+
+    function _schedule(el) {
+        var seconds = parseInt(el.getAttribute('data-fetch-live-every'), 10);
+        setTimeout(function () { _turn(el); }, Math.max(seconds > 0 ? seconds : DEFAULT_S, FLOOR_S) * 1000);
+    }
+
+    function _turn(el) {
+        if (!_alive(el)) return;
+        if (document.hidden) { _waiting.push(el); return; }
+        if (el.closest('dialog:not([open])')) { _schedule(el); return; }
+        _ask(el);
+    }
+
+    function _ask(el) {
+        var url = el.getAttribute('data-fetch-live');
+        // X-Z77-Live: nobody did anything, so an idle clock must not count this as activity.
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-Z77-Live': '1' }, cache: 'no-store' })
+            .then(function (r) { return _answer(el, url, r); })
+            .catch(function () { return true; })
+            .then(function (again) { if (again && _alive(el)) _schedule(el); });
+    }
+
+    /* Resolves to true when the listener should ask again. */
+    function _answer(el, url, r) {
+        if (r.status === 204) return true;
+        if (!r.ok) return r.status >= 500 || r.status === 408 || r.status === 429;
+        if ((r.headers.get('content-type') || '').indexOf('json') === -1) return false;
+        return r.json().then(function (env) {
+            // Closed or replaced while the request ran: its commands no longer belong anywhere.
+            if (!_alive(el)) return false;
+            var win = el.closest('[data-z77-window]');
+            _Z77.core.fetch.handleEnvelope(env, url, win ? { window: win.getAttribute('data-z77-window') } : undefined);
+            return !!env && env.status !== 'error';
+        });
+    }
+
+    /* A fragment is wired BEFORE it enters the document: the first look comes one interval later. */
+    function init(container) {
+        container.querySelectorAll('[data-fetch-live]').forEach(function (el) {
+            if (_known.has(el)) return;
+            _known.add(el);
+            _schedule(el);
+        });
+    }
+
+    function bind() {
+        document.addEventListener('visibilitychange', function () {
+            if (document.hidden) return;
+            _waiting.splice(0).forEach(_turn);
+        });
+    }
+
+    return { init: init, bind: bind };
+})();
+
+/* ── submit-navigate───────────────────────────────────────────────────────
  * A form that answers into a NEW TAB (`target="_blank"`) leaves the page it was sent from
  * stale — first user: the booking print of module-debtor (owner 2026-10-10), whose POST books
  * the documents and answers their PDF in the new tab, while the confirmation page stays
@@ -3158,6 +3258,7 @@ document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.menu.bind();
     _Z77.core.help.bind();
     _Z77.core.region.bind();
+    _Z77.core.live.bind();
     _Z77.core.submitNavigate.bind();
     _Z77.core.i18n.load();
     _Z77.core.wire(document);
