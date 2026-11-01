@@ -20,6 +20,7 @@ final class EmailMessage
     private string $fromName = '';
     private string $cc = '';
     private string $replyTo = '';
+    private string $replyToName = '';
     private string $subject = '';
     private string $text = '';
     private string $template = '';
@@ -42,15 +43,29 @@ final class EmailMessage
         return $this;
     }
 
+    /** The From DISPLAY NAME only: the address stays the installation's ({@see Message::fromName()}). */
+    public function fromName(string $fromName): self
+    {
+        $this->fromName = $fromName;
+        return $this;
+    }
+
+    /** The person who triggers this mail signs it ({@see SenderIdentity}: display name + Reply-To). */
+    public function signedBy(SenderIdentity $sender): self
+    {
+        return $this->fromName($sender->name)->replyTo($sender->email, $sender->name);
+    }
+
     public function cc(?string $cc): self
     {
         $this->cc = str_replace(';', ',', (string) $cc);
         return $this;
     }
 
-    public function replyTo(?string $replyTo): self
+    public function replyTo(?string $replyTo, string $name = ''): self
     {
-        $this->replyTo = (string) $replyTo;
+        $this->replyTo     = (string) $replyTo;
+        $this->replyToName = $name;
         return $this;
     }
 
@@ -94,6 +109,7 @@ final class EmailMessage
     public function getFromName(): string { return $this->fromName; }
     public function getCc(): string { return $this->cc; }
     public function getReplyTo(): string { return $this->replyTo; }
+    public function getReplyToName(): string { return $this->replyToName; }
     public function getSubject(): string { return $this->subject; }
     public function getText(): string { return $this->text; }
     public function getTemplate(): string { return $this->template; }

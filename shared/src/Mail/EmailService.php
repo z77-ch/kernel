@@ -116,6 +116,8 @@ final class EmailService
 
             if ($email->getFrom() !== '') {
                 $message->from($email->getFrom(), $email->getFromName());
+            } elseif ($email->getFromName() !== '') {
+                $message->fromName($email->getFromName());
             }
             $message->to(...$this->splitAddresses($email->getTo()));
             if ($email->getCc() !== '') {
@@ -125,7 +127,7 @@ final class EmailService
             // Only user-controlled header: validate, drop silently when invalid.
             $replyTo = trim($email->getReplyTo());
             if ($replyTo !== '' && filter_var($replyTo, FILTER_VALIDATE_EMAIL) !== false) {
-                $message->replyTo($replyTo);
+                $message->replyTo($replyTo, $email->getReplyToName());
             }
 
             $message->subject($email->getSubject());
