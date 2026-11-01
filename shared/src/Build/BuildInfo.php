@@ -18,9 +18,10 @@ namespace Z77\Shared\Build;
  * whole, so the statement can never travel separately from the thing it
  * describes — an override upload alone leaves it untouched, correctly.
  *
- * The dirty flag is not decoration: a deploy build copies a WORKING TREE, not
- * a commit. Without it the panel would name a commit that was never what
- * shipped. `label()` appends `+` for that case.
+ * The dirty flag is not decoration: a build from a project's older script
+ * copies a WORKING TREE, not a commit (the current one exports the commit,
+ * packaging.md PKG-EXPORT-001). Without it the panel would name a commit that
+ * was never what shipped. `label()` appends `+` for that case.
  *
  * This is read on every backend page. Nothing here throws — a missing,
  * truncated or hand-mangled file reads as "no stamp".
