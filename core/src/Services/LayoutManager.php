@@ -106,7 +106,7 @@ class LayoutManager
     public function initialize(): self
     {
         if (DI::getRequest()->getMode() === RequestMode::Fetch) {
-            $this->setSkeletonTemplate(LayoutDefaults::FETCH_SKELETON);
+            $this->setFetchSkeleton();
             $this->fetchMode = true;
             return $this;
         }
@@ -323,6 +323,20 @@ class LayoutManager
                 0,
                 $e
             );
+        }
+    }
+
+    /**
+     * The fetch skeleton is only `$main`, so a module need not bring its own: without one the
+     * kernel's stands in. A module without it answered every fetch that reached one of its pages
+     * with a 500, such as a redirect to its login that the browser followed.
+     */
+    private function setFetchSkeleton(): void
+    {
+        try {
+            $this->setSkeletonTemplate(LayoutDefaults::FETCH_SKELETON);
+        } catch (\RuntimeException) {
+            $this->setSkeletonTemplate(LayoutDefaults::FETCH_SKELETON, 'Z77\Shared');
         }
     }
 
