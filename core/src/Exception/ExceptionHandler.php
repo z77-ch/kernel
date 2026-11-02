@@ -3,6 +3,7 @@ namespace Z77\Core\Exception;
 
 use Z77\Core\DI;
 use Z77\Core\Http\RequestMode;
+use Z77\Core\Http\Response\SecurityHeaders;
 
 class ExceptionHandler
 {
@@ -43,6 +44,7 @@ class ExceptionHandler
 
         if ($e instanceof FileNotFoundException) {
             header('Content-Type: text/html; charset=utf-8');
+            SecurityHeaders::send();
             echo 'Error 404: File Not Found';
             exit;
         }
@@ -62,6 +64,7 @@ class ExceptionHandler
             ], JSON_PRETTY_PRINT);
         } else {
             header('Content-Type: text/html; charset=utf-8');
+            SecurityHeaders::send();
             echo "<h1>{$statusCode}</h1>";
             echo "<p>" . htmlspecialchars($errorMessage) . "</p>";
 
@@ -121,6 +124,7 @@ class ExceptionHandler
 
         if (!headers_sent()) {
             header('Content-Type: text/html; charset=utf-8');
+            SecurityHeaders::send();
         }
         echo '<h1>500</h1>';
         if ($display) {
@@ -150,6 +154,7 @@ class ExceptionHandler
                 ob_end_clean();
             }
             header('Content-Type: text/html; charset=utf-8');
+            SecurityHeaders::send();
             echo '<h1>500</h1>';
         }
     }

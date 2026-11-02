@@ -201,6 +201,7 @@ class HtmlResponse implements ResponseInterface
         }
 
         header('Content-Type: text/html; charset=utf-8');
+        SecurityHeaders::send();
 
         header('Cache-Control: ' . match ($this->cacheMode) {
             CacheMode::ServerCached,

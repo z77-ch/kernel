@@ -22,6 +22,43 @@ final class TotpGuard
     {
     }
 
+    /** Where this guard counts: for the caller's log line. */
+    public function directory(): string
+    {
+        return $this->dir;
+    }
+
+    /**
+     * Takes the lock per account under which a caller judges a code, so parallel guesses cannot all
+     * pass the guard before the first failure is counted, and one code cannot pass twice. Null = the
+     * lock could not be taken. The caller hands it back with {@see release()}.
+     *
+     * @return resource|null
+     */
+    public function acquire(string $accountId)
+    {
+        if (!is_dir($this->dir)) {
+            @mkdir($this->dir, 0755, true);
+        }
+        $handle = @fopen($this->dir . '/' . hash('sha256', $accountId) . '.lock', 'c');
+        if ($handle === false) {
+            return null;
+        }
+        if (!flock($handle, LOCK_EX)) {
+            fclose($handle);
+            return null;
+        }
+
+        return $handle;
+    }
+
+    /** @param resource $handle from {@see acquire()} */
+    public function release($handle): void
+    {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+    }
+
     public function isLocked(string $accountId, ?int $now = null): bool
     {
         $state = $this->read($accountId);
@@ -59,8 +96,7 @@ final class TotpGuard
 
     /**
      * Counts a wrong code; the fifth one starts the lock window. False = not counted, the disk
-     * refused. What that means is the caller's: the backend refuses every code then, the member
-     * flow carries on as before.
+     * refused. What that means is the caller's: both doors refuse every code then.
      */
     public function recordFailure(string $accountId, ?int $now = null): bool
     {

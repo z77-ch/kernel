@@ -12,7 +12,8 @@ class CsrfService
 
     public function getToken(): string
     {
-        if (!$this->sessionManager->has(self::SESSION_KEY)) {
+        // Empty counts as absent: a form must never go out with an empty token.
+        if ((string) $this->sessionManager->get(self::SESSION_KEY, '') === '') {
             $this->sessionManager->set(self::SESSION_KEY, bin2hex(random_bytes(32)));
         }
 
