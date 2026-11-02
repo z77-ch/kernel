@@ -14,7 +14,8 @@ namespace Z77\Core\Http\Response;
  *
  * Added 2026-10-06 with the kernel's PDF facade (`Z77\Shared\Pdf`): the first
  * consumer is module-debtor's invoice PDF, rendered on request from the
- * document's snapshot and never stored (debtor.md).
+ * document's snapshot and never stored (debtor.md). {@see DeliveryPolicy} decides the
+ * final type, disposition and CSP (DMS-ACTIVE-001).
  *
  * Usage in action:
  *   return $this->bytes($pdf->output(), 'rechnung-12.pdf', 'application/pdf');            // inline
@@ -31,8 +32,7 @@ class BytesResponse implements ResponseInterface
 
     public function send(): void
     {
-        header('Content-Type: ' . $this->mimeType);
-        header('Content-Disposition: ' . ($this->inline ? 'inline' : 'attachment') . '; filename="' . addslashes($this->filename) . '"');
+        DeliveryPolicy::apply($this->mimeType, $this->inline, $this->filename);
         header('Content-Length: ' . strlen($this->content));
         header('Cache-Control: private, no-cache');
         echo $this->content;

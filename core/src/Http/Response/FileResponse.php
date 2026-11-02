@@ -15,6 +15,8 @@ namespace Z77\Core\Http\Response;
  *   One ranged answer carries at most {@see RANGE_MAX_BYTES} (DMS-CHUNK-DL-001): the host
  *   caps a response body (cyon: 500 MB); `Content-Range` names exactly the slice sent and
  *   the true total.
+ * - **Delivery policy** — {@see DeliveryPolicy} decides the final type, disposition and CSP
+ *   (DMS-ACTIVE-001); `$disposition` is a request, an active type never renders inline.
  *
  * Byte transfer is **always** the portable PHP range-stream — it runs on every target
  * (built-in server, shared hosting like cyon, Windows dev). Web-server-accelerated
@@ -65,8 +67,7 @@ class FileResponse implements ResponseInterface
 
         $mime = $this->mimeType ?? mime_content_type($this->path) ?: 'application/octet-stream';
 
-        header('Content-Type: ' . $mime);
-        header('Content-Disposition: ' . $this->disposition . '; filename="' . addslashes($this->filename) . '"');
+        DeliveryPolicy::apply($mime, $this->disposition === self::INLINE, $this->filename);
         header('Cache-Control: ' . ($this->cacheControl ?? 'private, no-cache'));
 
         if ($this->etag !== null) {
