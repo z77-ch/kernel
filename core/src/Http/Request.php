@@ -716,6 +716,12 @@ class Request {
         return ($value === null || $value === '') ? null : $value;
     }
 
+    /** The `Range` header as sent, '' without one ({@see \Z77\Core\Http\Response\ByteRange} reads it). */
+    public function getRange(): string
+    {
+        return (string) ($_SERVER['HTTP_RANGE'] ?? '');
+    }
+
     /**
      * True when the matched route is a `stateless` reserved route (e.g. /api):
      * no session, no locale/navigation logic, no page cache, JSON errors.

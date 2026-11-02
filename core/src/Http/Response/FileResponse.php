@@ -34,21 +34,8 @@ class FileResponse implements ResponseInterface
 
     private const CHUNK = 8192;
 
-    /**
-     * Most bytes ONE ranged answer (206) carries — DMS-CHUNK-DL-001, z77-rudaz.ch 2026-10-31
-     * (owner decision: half the host cap).
-     *
-     * The host caps a response body (cyon: requests and answers up to 500 MB; above, 413 —
-     * the limit cannot be raised). Every single range is capped — open-ended `bytes=n-`,
-     * explicit `a-b` and suffix `-k` alike: the answer is the FIRST slice of what was asked,
-     * `Content-Range` names it and the true total, and the client asks on from there. A media
-     * player (`bytes=0-`, Safari's explicit `0-<last>`) gets at most this much per answer,
-     * streamed — it starts playing at once. A resumed native download (`bytes=n-`) is cut
-     * only where it would have hit the 413 anyway. The chunked download
-     * (`documents/chunk-download.js`, 32 MB pieces) stays far below it. A request WITHOUT
-     * `Range` is unchanged: 200, the whole file.
-     */
-    public const RANGE_MAX_BYTES = 256 * 1024 * 1024;
+    /** Most bytes ONE ranged answer (206) carries — the reasoning stands at {@see ByteRange::MAX_BYTES}. */
+    public const RANGE_MAX_BYTES = ByteRange::MAX_BYTES;
 
     public function __construct(
         private string $path,
@@ -116,37 +103,15 @@ class FileResponse implements ResponseInterface
     }
 
     /**
-     * The byte slice a `Range` header asks for, capped at `$max` bytes (open-ended, explicit
-     * and suffix alike — the first slice of what was asked). `$max` is a parameter only so
-     * the harness can exercise the cap on a small file (`tests/file-response-range.php`,
-     * reflection); production always passes {@see RANGE_MAX_BYTES}.
+     * {@see ByteRange::parse()}. `$max` is a parameter only so the harness can exercise the
+     * cap on a small file (`tests/file-response-range.php`, reflection); production always
+     * passes {@see RANGE_MAX_BYTES}.
      *
-     * @return array{0: int, 1: int}|false|null `[start, end]` (inclusive) for a 206,
-     *         `false` for an unsatisfiable range (416), `null` for no / an unparsable
-     *         header (200, the whole file — a multi-range list included, as before)
+     * @return array{0: int, 1: int}|false|null
      */
     private static function byteRange(string $header, int $size, int $max = self::RANGE_MAX_BYTES): array|false|null
     {
-        if ($header === '' || !preg_match('/^bytes=(\d*)-(\d*)$/', trim($header), $m)) {
-            return null;
-        }
-        if ($m[1] === '' && $m[2] === '') {
-            return false;
-        }
-        if ($m[1] === '') {
-            // suffix: last N bytes
-            $start = max(0, $size - (int) $m[2]);
-            $end   = $size - 1;
-        } else {
-            $start = (int) $m[1];
-            $end   = $m[2] === '' ? $size - 1 : min((int) $m[2], $size - 1);
-        }
-
-        if ($start > $end || $start >= $size) {
-            return false;
-        }
-
-        return [$start, min($end, $start + max(1, $max) - 1)];
+        return ByteRange::parse($header, $size, $max);
     }
 
     private function unsatisfiable(int $size): void

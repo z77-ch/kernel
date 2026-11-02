@@ -8,8 +8,8 @@ namespace Z77\Core\Http\Response;
  * What a browser may DO with a file this framework hands out (DMS-ACTIVE-001). An uploaded
  * `.txt` holding `<script>` sniffs `text/html`, an SVG or XHTML carries script of its own:
  * shown inline on the application's domain, that script runs with the session of whoever
- * opened the file. So the type is judged at output, by {@see FileResponse} and
- * {@see BytesResponse}, and no caller can opt out. An allowlist: an unknown type is
+ * opened the file. So the type is judged at output, by {@see FileResponse},
+ * {@see BytesResponse} and {@see ByteSourceResponse}, and no caller can opt out. An allowlist: an unknown type is
  * protected by default. The bytes are never touched.
  *
  *   type                                    inline answer                 CSP

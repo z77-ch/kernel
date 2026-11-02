@@ -61,8 +61,13 @@ final class BackupService
      * area + persisted import plans are transient — restoring them into
      * another environment would resurrect a half-decided import against data
      * that no longer matches its fingerprints.
+     *
+     * `dms/zips` (DMS-ZIP-001): ZIP bundles of the Drive. Personal manifests with an
+     * expiry, rewritten while a job counts their checksums; restored, they would point at
+     * documents that may have moved on, and nothing is lost: a bundle is made again in a
+     * click.
      */
-    private const DATA_EXCLUDES = ['framework/jobs', 'framework/import'];
+    private const DATA_EXCLUDES = ['framework/jobs', 'framework/import', 'dms/zips'];
 
     /**
      * Never part of a full backup, relative to the project root, and — like
