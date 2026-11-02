@@ -55,5 +55,15 @@ return [
             'subject'  => 'Besuchsstatistik',
             'template' => ['emails/statsReport', 'Z77\\Shared'],
         ],
+        // Who is told when the backend refuses every 2FA code because its counters cannot be
+        // written (login.md «code refused»). 'recipientsOnly': AlertService writes this mail itself,
+        // so it has no template, and the backend offers the recipients alone ('note' says what the
+        // entry is for). No recipient: nobody is told, the log line stays. A project with its own
+        // emailConfig copies this entry, or the entry is not listed and nobody is told.
+        'backendCodeLock' => [
+            'to'             => '',
+            'recipientsOnly' => true,
+            'note'           => 'Alarm, wenn das Backend wegen eines technischen Problems keine 2FA-Codes annimmt',
+        ],
     ],
 ];

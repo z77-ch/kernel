@@ -167,14 +167,15 @@ final class EmailService
      * resolves it (active backend record first, else emailConfig; default route),
      * for a screen that says «goes to …» next to its send button. Reading the
      * config directly would miss a backend override (mail.md rule). Throws like
-     * sendForm() on an unknown form key.
+     * sendForm() on an unknown form key; an entry without a template is fine here (a
+     * mail that writes its own text, `recipientsOnly`).
      *
      * @return array{to: list<string>, cc: list<string>}
      */
     public function formRecipients(string $formKey): array
     {
         $cfg      = DI::getConfigManager()->getArrayConfig(self::CONFIG_NAME, self::CONFIG_NAMESPACE);
-        $settings = $this->resolveFormSettings($formKey, $cfg);
+        $settings = $this->resolveFormSettings($formKey, $cfg, needsTemplate: false);
 
         return [
             'to' => $this->resolveRecipients($settings['to']),
@@ -263,11 +264,11 @@ final class EmailService
      *               template: array{0: string, 1: string},
      *               routes: array<string, array{to: list<string>, subject?: string}>}
      */
-    private function resolveFormSettings(string $formKey, object $cfg): array
+    private function resolveFormSettings(string $formKey, object $cfg, bool $needsTemplate = true): array
     {
         $form = $cfg->get(['forms', $formKey], null);
 
-        if (!is_array($form) || empty($form['template'][0]) || empty($form['template'][1])) {
+        if (!is_array($form) || ($needsTemplate && (empty($form['template'][0]) || empty($form['template'][1])))) {
             throw new \RuntimeException(
                 "Form key '{$formKey}' is missing or incomplete in emailConfig 'forms' "
                 . "(requires 'template' => [tpl, nameSpace])."
@@ -278,7 +279,7 @@ final class EmailService
             'to'       => $this->normalizeAddressList($form['to'] ?? ''),
             'cc'       => $this->normalizeAddressList($form['cc'] ?? ''),
             'subject'  => (string) ($form['subject'] ?? ''),
-            'template' => [(string) $form['template'][0], (string) $form['template'][1]],
+            'template' => [(string) ($form['template'][0] ?? ''), (string) ($form['template'][1] ?? '')],
             'routes'   => $this->normalizeRoutes($form['routes'] ?? []),
         ];
 
