@@ -1732,6 +1732,10 @@ _Z77.core.help = (function () {
  * as HTML. It must not open as a popup, and the page must not jump to the login under a
  * half-typed form; the user's next action finds out.
  *
+ * Nobody asked for a listener's answer either, so its `reload` or redirect waits while someone is
+ * at work (owner 2026-11-02): unsaved changes, a field changed from its loaded value, an open
+ * <dialog>. The rest of the answer runs at once; the page moves when the work is done.
+ *
  * Rule 7: this decides nothing and renders nothing itself — the server sends the commands, and
  * the HTML in them is wired like any other fragment.
  */
@@ -1739,7 +1743,9 @@ _Z77.core.live = (function () {
     var DEFAULT_S = 10;
     var FLOOR_S   = 5;
     var _known    = new WeakSet();
+    var CALM_MS   = 2000;
     var _waiting  = [];     // listeners whose turn came in a hidden tab
+    var _held     = null;   // the move of the page an answer brought while someone was at work
 
     function _alive(el) {
         return el.isConnected && el.hasAttribute('data-fetch-live');
@@ -1766,6 +1772,45 @@ _Z77.core.live = (function () {
             .then(function (again) { if (again && _alive(el)) _schedule(el); });
     }
 
+    /* A field that differs from what the page loaded with: also one in an untracked form. */
+    function _changedField() {
+        return Array.prototype.some.call(document.querySelectorAll('input, textarea, select option'), function (f) {
+            if (f.tagName === 'OPTION') return f.selected !== f.defaultSelected;
+            if (f.type === 'hidden') return false;
+            if (f.type === 'checkbox' || f.type === 'radio') return f.checked !== f.defaultChecked;
+            return f.value !== f.defaultValue;
+        });
+    }
+
+    function _atWork() {
+        return _Z77.core.dirty.isDirty(document) || !!document.querySelector('dialog[open]') || _changedField();
+    }
+
+    function _waitForCalm() {
+        setTimeout(function () {
+            if (_atWork()) { _waitForCalm(); return; }
+            var held = _held;
+            _held = null;
+            _Z77.core.fetch.handleEnvelope(held.env, held.url, held.ctx);
+        }, CALM_MS);
+    }
+
+    /* The answer to run now: without its reload or redirect when these have to wait. */
+    function _holdMove(env, url, ctx) {
+        var commands = (env && env.commands) || [];
+        var isReload = function (c) { return c.action === 'reload'; };
+        var reloads  = commands.some(isReload);
+        if (!env || (!env.redirect && !reloads) || !_atWork()) return env;
+
+        if (!_held) _waitForCalm();
+        _held = { env: env.redirect ? { redirect: env.redirect } : { commands: [{ action: 'reload' }] }, url: url, ctx: ctx };
+
+        var rest = Object.assign({}, env);
+        delete rest.redirect;
+        rest.commands = commands.filter(function (c) { return !isReload(c); });
+        return rest;
+    }
+
     /* Resolves to true when the listener should ask again. */
     function _answer(el, url, r) {
         if (r.status === 204) return true;
@@ -1775,7 +1820,8 @@ _Z77.core.live = (function () {
             // Closed or replaced while the request ran: its commands no longer belong anywhere.
             if (!_alive(el)) return false;
             var win = el.closest('[data-z77-window]');
-            _Z77.core.fetch.handleEnvelope(env, url, win ? { window: win.getAttribute('data-z77-window') } : undefined);
+            var ctx = win ? { window: win.getAttribute('data-z77-window') } : undefined;
+            _Z77.core.fetch.handleEnvelope(_holdMove(env, url, ctx), url, ctx);
             return !!env && env.status !== 'error';
         });
     }
