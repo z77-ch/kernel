@@ -83,6 +83,12 @@ final class DeliveryPolicy
         }
     }
 
+    /** Whether an answer of this type may be inline at all: anything else {@see apply()} forces to attachment. */
+    public static function allowsInline(string $mime): bool
+    {
+        return self::classify(self::essence($mime)) !== self::CLASS_OTHER;
+    }
+
     /**
      * Whether a type is shown as is and is not text: raster image, video, audio, PDF. The
      * only types the DMS may leave to the web server as a static copy.
