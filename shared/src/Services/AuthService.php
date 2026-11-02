@@ -17,6 +17,7 @@ class AuthService
 
     private ?AuthUser  $currentUser  = null;
     private ?BackendUser $verifiedUser = null;
+    private bool $secondFactorPassed = false;
 
     public function __construct(SessionManager $sessionManager, ControllerHandler $controllerHandler)
     {
@@ -204,8 +205,10 @@ class AuthService
     }
 
     /**
-     * The user changed his OWN password: he stays signed in here while his other sessions end.
-     * Does nothing for any other session, so the caller need not ask whose password it was.
+     * The user changed his OWN password, roles or second factor: he stays signed in here, with his
+     * current roles, while his other sessions end. The session id changes too: the same cookie
+     * copied elsewhere is one of the sessions that must end. Does nothing for any other session, so
+     * the caller need not ask whose account it was.
      */
     public function renewSessionStamp(BackendUser $user): void
     {
@@ -217,16 +220,32 @@ class AuthService
             return;
         }
 
+        $this->sessionManager->regenerate();
         $data['auth_epoch'] = $user->getAuthEpoch();
+        $data['roles']      = $user->getRoles();
         $this->sessionManager->set('auth_user', $data);
+        $this->currentUser = null;
     }
 
     public function canLogin(BackendUser $user, string $password): ?self
     {
+        $this->secondFactorPassed = false;
         if (!password_verify($password, $user->getPasswordHash())) {
             return null;
         }
         $this->verifiedUser = $user;
+        return $this;
+    }
+
+    /**
+     * The code page's way to {@see login()}: the password was checked in an earlier request and
+     * the code in this one (login.md BACKEND-2FA-001). Only for a caller that has just seen a
+     * valid code for exactly this user.
+     */
+    public function passedSecondFactor(BackendUser $user): self
+    {
+        $this->verifiedUser       = $user;
+        $this->secondFactorPassed = true;
         return $this;
     }
 
@@ -235,8 +254,14 @@ class AuthService
         if ($this->verifiedUser === null) {
             throw new \LogicException('login() requires a prior successful canLogin()');
         }
+        // A password alone never opens an account with 2FA, whoever calls this (a project's own
+        // login controller, a future door). Failing loudly beats a silent bypass.
+        if ($this->verifiedUser->hasTotp() && !$this->secondFactorPassed) {
+            throw new \LogicException('login() requires the second factor for this account');
+        }
         $user = $this->verifiedUser;
-        $this->verifiedUser = null;
+        $this->verifiedUser       = null;
+        $this->secondFactorPassed = false;
 
         $this->sessionManager->regenerate();
         $payload = [

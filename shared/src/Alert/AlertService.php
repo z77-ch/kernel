@@ -68,8 +68,9 @@ final class AlertService
                 'escalated'     => false,
                 'code'          => $code,
             ];
-            $this->write($source, $state);
-            return $this->dispatch(AlertKind::Outage, $state, $code, $context, $now);
+            return $this->write($source, $state)
+                ? $this->dispatch(AlertKind::Outage, $state, $code, $context, $now)
+                : null;
         }
 
         // Still failing — silent, unless the escalation window just ran out.
@@ -78,8 +79,9 @@ final class AlertService
             && ($now - (int) $state['failing_since']) >= $this->escalationSeconds
         ) {
             $state['escalated'] = true;
-            $this->write($source, $state);
-            return $this->dispatch(AlertKind::Escalation, $state, $code, $context, $now);
+            return $this->write($source, $state)
+                ? $this->dispatch(AlertKind::Escalation, $state, $code, $context, $now)
+                : null;
         }
 
         $this->write($source, $state);
@@ -100,7 +102,7 @@ final class AlertService
         $wasFailing = ($state['status'] ?? 'ok') === 'failing';
         $recovered  = $wasFailing ? $state : null;
 
-        $this->write($source, [
+        $written = $this->write($source, [
             'source'        => $source,
             'status'        => 'ok',
             'failing_since' => null,
@@ -109,7 +111,7 @@ final class AlertService
             'code'          => '',
         ]);
 
-        if ($recovered === null) {
+        if ($recovered === null || !$written) {
             return null;
         }
 
@@ -156,18 +158,28 @@ final class AlertService
         return is_array($data) ? $data : [];
     }
 
-    private function write(string $source, array $state): void
+    /**
+     * False = the state did not reach the disk. ⚠️ The caller then sends nothing: without the state
+     * the next probe would read «ok» again and announce the same outage, one mail per probe.
+     */
+    private function write(string $source, array $state): bool
     {
         if (!is_dir($this->stateDir) && !mkdir($this->stateDir, 0755, true) && !is_dir($this->stateDir)) {
             // Loud, not silent — a dangling var/lib symlink would otherwise
             // swallow every state change and with it every future alert.
             throw new \RuntimeException("AlertService: could not create state directory {$this->stateDir}");
         }
-        file_put_contents(
+        $written = @file_put_contents(
             $this->file($source),
             json_encode($state, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE),
             LOCK_EX
         );
+        if ($written === false) {
+            error_log("AlertService: state not written for {$source} in {$this->stateDir}, nothing sent");
+            return false;
+        }
+
+        return true;
     }
 
     private function file(string $source): string

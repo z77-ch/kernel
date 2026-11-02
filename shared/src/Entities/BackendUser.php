@@ -2,6 +2,7 @@
 namespace Z77\Shared\Entities;
 
 use Z77\Shared\Attributes\Clean;
+use Z77\Shared\Attributes\Counter;
 use Z77\Shared\Attributes\Entity;
 use Z77\Shared\Mail\SenderIdentity;
 use Z77\Shared\Traits\ArrayMappable;
@@ -98,9 +99,25 @@ class BackendUser
      *
      * ⚠️ Deliberately WITHOUT a setter: hydration writes it by reflection and mapFromArray() cannot
      * reach it, so a form body carrying `auth_epoch` has no effect. The only way up is
-     * {@see bumpAuthEpoch()}.
+     * {@see bumpAuthEpoch()}. A #[Counter]: a raise holds against a parallel save and a parallel
+     * raise, the store adds it to what is on disk (persistence-file.md DATA-MERGE-001).
      */
+    #[Counter]
     private int $authEpoch = 0;
+
+    /**
+     * The second factor (login.md BACKEND-2FA-001): the vault ciphertext of the TOTP secret, when
+     * it was switched on (ISO 8601), and the last time step accepted, so a code works once
+     * (RFC 6238 §5.2). A file written before the fields reads '' / '' / 0: 2FA off. A running
+     * enrolment is not here, it waits in the session of the user setting it up.
+     *
+     * ⚠️ Deliberately WITHOUT setters, like {@see $authEpoch}: a form body carrying these keys has
+     * no effect. Templates and answers must use {@see hasTotp()} and nothing else; the ciphertext
+     * is for BackendTwoFactor.
+     */
+    private string $totpSecret = '';
+    private string $totpActivatedAt = '';
+    private int $totpLastStep = 0;
 
     public function getId(): ?int               { return $this->id; }
     public function getUsername(): string       { return $this->username; }
@@ -113,6 +130,10 @@ class BackendUser
     public function getPreferences(): array     { return $this->preferences; }
     public function getSortKey(): int           { return $this->sortKey; }
     public function isPasswordWeak(): bool      { return $this->passwordWeak; }
+    public function hasTotp(): bool             { return $this->totpSecret !== '' && $this->totpActivatedAt !== ''; }
+    public function getTotpSecret(): string     { return $this->totpSecret; }
+    public function getTotpActivatedAt(): string { return $this->totpActivatedAt; }
+    public function getTotpLastStep(): int      { return $this->totpLastStep; }
 
     /** @return list<SenderIdentity> the default first */
     public function getSenderIdentities(): array
@@ -132,6 +153,31 @@ class BackendUser
 
     /** The password changed: every session carrying the previous stamp is stale from now on. */
     public function bumpAuthEpoch(): void                     { $this->authEpoch++; }
+
+    /**
+     * A new account's stamp. Ids are max+1, so a new user can get the id of a deleted one: with a
+     * stamp nobody has, the deleted user's sessions do not fit him (login.md, id reuse).
+     */
+    public function seedAuthEpoch(int $now): void             { $this->authEpoch = $now; }
+
+    /** The enrolment was confirmed: 2FA is on, and the confirming code is already spent. */
+    public function enableTotp(string $ciphertext, string $activatedAt, int $acceptedStep): void
+    {
+        $this->totpSecret      = $ciphertext;
+        $this->totpActivatedAt = $activatedAt;
+        $this->totpLastStep    = $acceptedStep;
+    }
+
+    /** A code was accepted: its time step cannot be used again. */
+    public function recordTotpStep(int $step): void           { $this->totpLastStep = $step; }
+
+    /** 2FA is off: switched off with a code, or reset by an administrator. */
+    public function clearTotp(): void
+    {
+        $this->totpSecret      = '';
+        $this->totpActivatedAt = '';
+        $this->totpLastStep    = 0;
+    }
 
     /**
      * Rows `{name, email}` (the stored form) or {@see SenderIdentity} objects, in order; anything

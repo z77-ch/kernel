@@ -14,4 +14,7 @@ return [
     // seed-once file has no such keys. See docs/topics/security.md.
     'loginFailuresPerUsernameIp' => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_USERNAME_IP,
     'loginFailuresPerIp'         => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_IP,
+    // Who is told when the backend refuses every 2FA code because its counters cannot be written
+    // (login.md «code refused»). Empty: nobody, the log line stays. A seed-once file has no such key.
+    'codeLockAlertEmail'         => '',
 ];

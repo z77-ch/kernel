@@ -72,6 +72,11 @@ class ControllerHandler
             return null;
         }
 
+        // ⚠️ PHP finds a method in any casing, the access config does not: `twofactorresetAction`
+        // would run `twoFactorResetAction` while its role entry stays unread, and the gate would
+        // fall back to the controller's role. Everything downstream gets the declared name.
+        $method = (new \ReflectionMethod($this->currentControllerClassName, $method))->getName();
+
         $this->currentActionMethod = $method;
 
         return $method;
@@ -93,6 +98,9 @@ class ControllerHandler
         if (!class_exists($controllerClassName)) {
             return null;
         }
+        // The same as for the action: on a case-insensitive filesystem `back-up` loads
+        // BackupController, and the config is keyed by the declared name.
+        $controllerClassName = (new \ReflectionClass($controllerClassName))->getName();
         $this->currentModule = $module;
         $this->currentGroup = $group;
         $this->currentControllerClassName = $controllerClassName;
