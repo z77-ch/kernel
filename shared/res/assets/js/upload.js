@@ -235,7 +235,7 @@ _Z77.upload = (function () {
         while (this.running < PARALLEL) {
             var next = this.items.filter(function (item) { return item.state === 'queued'; })[0];
             if (!next) break;
-            this.send(next, false);
+            this.send(next, !!next.overwrite);
         }
         if (this.running === 0) this.done();
         void self;
@@ -440,6 +440,7 @@ _Z77.upload = (function () {
 
         yes.addEventListener('click', function () {
             prompt.remove();
+            item.overwrite = true;
             item.state = 'queued';
             self.pump();
         });
