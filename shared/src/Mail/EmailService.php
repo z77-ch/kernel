@@ -393,12 +393,35 @@ final class EmailService
             self::CONFIG_NAMESPACE
         );
 
-        $body = $this->render($bodyTpl, $email->getContext());
+        $draw = function (string $language) use ($bodyTpl, $layoutTpl, $email): string {
+            $body = $this->render($bodyTpl, $email->getContext() + ['mailLanguage' => $language]);
 
-        return $this->render($layoutTpl, [
-            'emailBody' => $body,
-            'subject'   => $email->getSubject(),
-        ]);
+            return $this->render($layoutTpl, [
+                'emailBody'    => $body,
+                'subject'      => $email->getSubject(),
+                'mailLanguage' => $language,
+            ]);
+        };
+
+        // The recipient's language (EmailMessage::language()): body AND layout render in it,
+        // every t() inside answers in it. Without one, the current language as before.
+        $language = $email->getLanguage();
+        if ($language === null) {
+            return $draw(self::currentLanguage());
+        }
+        $translator = DI::getTranslator();
+
+        return $translator->inLanguage($language, fn(): string => $draw($translator->currentLanguage()));
+    }
+
+    /** The language a mail without its own renders in; 'de' where no container answers (a harness). */
+    private static function currentLanguage(): string
+    {
+        try {
+            return DI::getTranslator()->currentLanguage();
+        } catch (\Throwable) {
+            return 'de';
+        }
     }
 
     /**

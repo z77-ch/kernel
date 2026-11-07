@@ -290,8 +290,13 @@ class AuthService
     // (fixation defense lives in MemberSession start/end) and they never
     // touch a backend identity: an existing backend login always wins.
 
-    /** Projects a signed-in member account into the ACL identity. */
-    public function establishMemberIdentity(string $accountId, string $displayName, array $roles): void
+    /**
+     * Projects a signed-in member account into the ACL identity.
+     *
+     * @param ?string $language the account's own language (null = none chosen) — rendered by
+     *        the kernel where the requested module opts in (`languageFromAccount`, ADR-056)
+     */
+    public function establishMemberIdentity(string $accountId, string $displayName, array $roles, ?string $language = null): void
     {
         $existing = $this->sessionManager->get('auth_user', null);
         if ($existing !== null && ($existing['realm'] ?? AuthUser::REALM_BACKEND) === AuthUser::REALM_BACKEND) {
@@ -303,6 +308,7 @@ class AuthService
             'user_name' => $displayName,
             'roles'     => $roles,
             'realm'     => AuthUser::REALM_MEMBER,
+            'language'  => $language,
         ];
         $this->currentUser = new AuthUser($payload);
         $this->sessionManager->set('auth_user', $payload);

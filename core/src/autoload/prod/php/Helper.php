@@ -73,12 +73,17 @@ function raw(?string $value): string
 
 /**
  * Translates a UI string key against the current language's dictionary
- * (`data/framework/i18n/{lang}.json`), falling back to the default language and
- * finally to the key itself. Use in templates: <?= e(t('footer.pages')) ?>.
+ * (package → project → runtime layers, {@see \Z77\Core\Services\Translator}), falling
+ * back to the default language and finally to the key itself. Use in templates:
+ * <?= e(t('footer.pages')) ?>.
  *
  * Returns the raw translation — NOT escaped — so the caller controls escaping
  * (wrap in e() for text, leave raw only for trusted markup). Placeholders use the
- * same {$key} syntax as replacePlaceholders() and are escaped.
+ * same {$key} syntax as replacePlaceholders() and are inserted unescaped as well:
+ * the caller's e() escapes the whole sentence once.
+ *
+ * Without $language the CURRENT language answers: the request's, or the one a
+ * caller set with Translator::inLanguage() (a mail rendered for its recipient).
  *
  * Example:
  *   t('footer.pages')                       → 'Pages'   / 'Pages'
@@ -107,7 +112,8 @@ function t(string $key, array $params = [], ?string $language = null): string
  * same class that reads URLs inbound, so every URL emitted here resolves back to
  * the same page.
  *
- * $language defaults to the current request language. External/anchor URLs
+ * $language defaults to the current language (Translator::currentLanguage(): the
+ * request's, or an inLanguage() scope such as a mail). External/anchor URLs
  * (not starting with '/') are returned unchanged.
  *
  * A content preview (`?preview=<key>` on the current request, ADR-044 addendum)
@@ -120,7 +126,7 @@ function localizedUrl(string $canonicalUrl, ?string $language = null): string
         return $canonicalUrl;
     }
 
-    $language ??= \Z77\Core\DI::getRequest()->getLanguage();
+    $language ??= \Z77\Core\DI::getTranslator()->currentLanguage();
     $default    = \Z77\Core\DI::getI18n()->getDefaultLanguage();
 
     // Split off ?query / #fragment first — they are not path segments.

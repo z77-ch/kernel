@@ -30,6 +30,9 @@ final class EmailMessage
     /** @var list<array{path: string, name: string}> */
     private array $attachments = [];
 
+    /** The recipient's language; null = the current one (the request's). */
+    private ?string $language = null;
+
     public function to(string $to): self
     {
         $this->to = str_replace(';', ',', $to);
@@ -97,6 +100,19 @@ final class EmailMessage
         return $this;
     }
 
+    /**
+     * The language the BODY renders in — the recipient's, which need not be the request's (a
+     * member's mail sent from the backend, a job, an API call). {@see EmailService} renders
+     * template and layout inside `Translator::inLanguage()`, so every `t()` in them answers in
+     * it without passing it along. The SUBJECT is a string the caller builds: translate it
+     * with the same language, `t($key, $params, $language)`. Null = the current language.
+     */
+    public function language(?string $language): self
+    {
+        $this->language = $language !== null && trim($language) !== '' ? trim($language) : null;
+        return $this;
+    }
+
     public function attach(string $absPath, string $fileName): self
     {
         $this->attachments[] = ['path' => $absPath, 'name' => $fileName];
@@ -118,4 +134,5 @@ final class EmailMessage
     public function getContext(): array { return $this->context; }
     /** @return list<array{path: string, name: string}> */
     public function getAttachments(): array { return $this->attachments; }
+    public function getLanguage(): ?string { return $this->language; }
 }

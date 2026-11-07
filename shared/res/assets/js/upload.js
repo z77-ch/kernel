@@ -63,6 +63,16 @@ _Z77.upload = (function () {
         try { return JSON.parse(value) || {}; } catch (e) { return {}; }
     }
 
+
+    /**
+     * A string in the page's language (ADR-056): the `_Z77.core.i18n` dictionary where the page
+     * carries one, the German literal otherwise; `{$name}` placeholders filled from `params`.
+     */
+    function _tr(key, fallback, params) {
+        var s = typeof _Z77 !== 'undefined' && _Z77.core && _Z77.core.i18n ? _Z77.core.i18n.t(key, fallback) : fallback;
+        if (params) Object.keys(params).forEach(function (p) { s = s.split('{$' + p + '}').join(String(params[p])); });
+        return s;
+    }
     function _bytes(n) {
         if (n >= 1024 * 1024) {
             var mb = n / (1024 * 1024);
@@ -115,9 +125,9 @@ _Z77.upload = (function () {
      */
     Uploader.prototype.reject = function (file) {
         var limit = this.limitFor(file);
-        if (!this.accepts(file))              return 'nicht erlaubt (' + this.accept.join(', ') + ')';
-        if (limit > 0 && file.size > limit)   return 'zu gross (max. ' + _bytes(limit) + ')';
-        if (file.size === 0)                  return 'leere Datei';
+        if (!this.accepts(file))              return _tr('js.upload.notAllowed', 'nicht erlaubt ({$types})', { types: this.accept.join(', ') });
+        if (limit > 0 && file.size > limit)   return _tr('js.upload.tooLarge', 'zu gross (max. {$max})', { max: _bytes(limit) });
+        if (file.size === 0)                  return _tr('js.upload.empty', 'leere Datei');
         return null;
     };
 
@@ -250,7 +260,7 @@ _Z77.upload = (function () {
         var provider = _providers[this.extra];
 
         item.state = 'running';
-        item.row.text.textContent = provider ? 'wird vorbereitet' : '0 %';
+        item.row.text.textContent = provider ? _tr('js.upload.preparing', 'wird vorbereitet') : '0 %';
         this.running++;
 
         if (!provider) { this.transmit(item, overwrite, null); return; }
@@ -347,7 +357,7 @@ _Z77.upload = (function () {
                 self.running--;
                 item.xhr = null;
                 if (item.state === 'cancelled') { self.pump(); return; }
-                self.finish(item, 'error', (error && error.message) || 'Verbindung unterbrochen');
+                self.finish(item, 'error', (error && error.message) || _tr('js.upload.connectionLost', 'Verbindung unterbrochen'));
                 self.pump();
             });
     };
@@ -391,15 +401,15 @@ _Z77.upload = (function () {
         }
 
         if (httpStatus >= 400 || !answer) {
-            this.finish(item, 'error', message || 'Server-Fehler (' + httpStatus + ')');
+            this.finish(item, 'error', message || _tr('js.upload.serverError', 'Server-Fehler ({$status})', { status: httpStatus }));
         } else if (answer.status === 'conflict') {
             this.askOverwrite(item, { message: message });
         } else if (answer.status === 'error' || answer.status === 'validation') {
-            this.finish(item, 'error', message || 'nicht gespeichert');
+            this.finish(item, 'error', message || _tr('js.upload.notSaved', 'nicht gespeichert'));
         } else if (answer.status === 'duplicate') {
-            this.finish(item, 'skipped', message || 'identisch, schon vorhanden');
+            this.finish(item, 'skipped', message || _tr('js.upload.identical', 'identisch, schon vorhanden'));
         } else {
-            this.finish(item, 'done', message || 'hochgeladen');
+            this.finish(item, 'done', message || _tr('js.upload.done', 'hochgeladen'));
             // Commands wait for the END of the run, deduplicated: ten files answering
             // «reload» must reload once, after the last one — not ten times, and not
             // while nine uploads are still in flight.
@@ -421,22 +431,22 @@ _Z77.upload = (function () {
     Uploader.prototype.askOverwrite = function (item, answer) {
         var self = this;
         if (this.conflict === 'overwrite') { this.send(item, true); return; }
-        if (this.conflict === 'skip')      { this.finish(item, 'skipped', 'übersprungen (vorhanden)'); return; }
-        if (this.conflict === 'error')     { this.finish(item, 'error', answer.message || 'Name ist vergeben'); return; }
+        if (this.conflict === 'skip')      { this.finish(item, 'skipped', _tr('js.upload.skipped', 'übersprungen (vorhanden)')); return; }
+        if (this.conflict === 'error')     { this.finish(item, 'error', answer.message || _tr('js.upload.nameTaken', 'Name ist vergeben')); return; }
 
         item.state = 'asking';
         var prompt = document.createElement('span');
         prompt.className = 'z77-upload-row__prompt';
-        prompt.appendChild(document.createTextNode('Name ist vergeben — überschreiben?'));
+        prompt.appendChild(document.createTextNode(_tr('js.upload.overwriteAsk', 'Name ist vergeben — überschreiben?')));
 
         var yes = document.createElement('button');
         yes.type = 'button';
         yes.className = 'z77-upload-row__cancel';
-        yes.textContent = 'Ja';
+        yes.textContent = _tr('js.upload.yes', 'Ja');
         var no = document.createElement('button');
         no.type = 'button';
         no.className = 'z77-upload-row__cancel';
-        no.textContent = 'Nein';
+        no.textContent = _tr('js.upload.no', 'Nein');
 
         yes.addEventListener('click', function () {
             prompt.remove();
@@ -446,7 +456,7 @@ _Z77.upload = (function () {
         });
         no.addEventListener('click', function () {
             prompt.remove();
-            self.finish(item, 'skipped', 'behalten, nichts geändert');
+            self.finish(item, 'skipped', _tr('js.upload.kept', 'behalten, nichts geändert'));
         });
 
         prompt.appendChild(yes);
@@ -493,8 +503,8 @@ _Z77.upload = (function () {
         var settled = this.items.filter(function (item) { return item.state !== 'queued' && item.state !== 'running' && item.state !== 'asking'; }).length;
 
         if (this.bar)   this.bar.style.width = (total > 0 ? Math.round(moved / total * 100) : 0) + '%';
-        if (this.count) this.count.textContent = settled + ' von ' + this.items.length
-            + (settled < this.items.length ? ' · nicht schliessen' : '');
+        if (this.count) this.count.textContent = _tr('js.upload.count', '{$done} von {$total}', { done: settled, total: this.items.length })
+            + (settled < this.items.length ? _tr('js.upload.keepOpen', ' · nicht schliessen') : '');
     };
 
     /**
@@ -516,7 +526,7 @@ _Z77.upload = (function () {
 
         if (_Z77.core && _Z77.core.flash) {
             if (failed === 0) {
-                _Z77.core.flash.show('success', ok === 1 ? 'Datei hochgeladen' : ok + ' Dateien hochgeladen');
+                _Z77.core.flash.show('success', ok === 1 ? _tr('js.upload.flashOne', 'Datei hochgeladen') : _tr('js.upload.flashMany', '{$count} Dateien hochgeladen', { count: ok }));
             } else {
                 _Z77.core.flash.show('error', failed === 1
                     ? '1 Datei nicht übernommen — der Grund steht bei der Datei'

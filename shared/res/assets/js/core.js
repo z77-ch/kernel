@@ -1734,7 +1734,8 @@ _Z77.core.help = (function () {
  *
  * Nobody asked for a listener's answer either, so its `reload` or redirect waits while someone is
  * at work (owner 2026-11-02): unsaved changes, a field changed from its loaded value, an open
- * <dialog>. The rest of the answer runs at once; the page moves when the work is done.
+ * <dialog>. What stands in a closed <dialog> does not count: closing one is a deliberate discard
+ * (owner 2026-11-03). The rest of the answer runs at once; the page moves when the work is done.
  *
  * Rule 7: this decides nothing and renders nothing itself — the server sends the commands, and
  * the HTML in them is wired like any other fragment.
@@ -1772,18 +1773,57 @@ _Z77.core.live = (function () {
             .then(function (again) { if (again && _alive(el)) _schedule(el); });
     }
 
+    /*
+     * Compares with what the browser selects by itself, not with the `selected` attributes: a
+     * one-row select without any selects its first enabled option, or the page would count as
+     * being worked on for ever. The last `selected` wins in a single select; a list (`size` > 1,
+     * `multiple`) starts with nothing but its `selected` options.
+     */
+    function _selectChanged(select) {
+        var options = Array.prototype.slice.call(select.options);
+        var initial = options.filter(function (o) { return o.defaultSelected; });
+        if (!select.multiple) {
+            if (initial.length) initial = initial.slice(-1);
+            else if (select.size <= 1) initial = options.filter(function (o) { return !o.matches(':disabled'); }).slice(0, 1);
+        }
+        return options.some(function (o) { return o.selected !== (initial.indexOf(o) !== -1); });
+    }
+
+    /*
+     * The browser cleans a value up on load (a range without `value` reads 50, a color reads
+     * lower case), so an untouched field can differ from its attribute: the attribute is cleaned
+     * up the same way on a copy before the two count as different. A file input takes no value.
+     */
+    function _valueChanged(f) {
+        if (f.value === f.defaultValue) return false;
+        if (f.type === 'file') return f.value !== '';
+        var loaded = f.cloneNode();
+        loaded.value = f.defaultValue;
+        return f.value !== loaded.value;
+    }
+
+    function _fieldChanged(f) {
+        if (f.tagName === 'SELECT') return _selectChanged(f);
+        if (f.type === 'hidden') return false;
+        if (f.type === 'checkbox' || f.type === 'radio') return f.checked !== f.defaultChecked;
+        return _valueChanged(f);
+    }
+
+    function _notPutAway(el) {
+        return !el.closest('dialog:not([open])');
+    }
+
     /* A field that differs from what the page loaded with: also one in an untracked form. */
     function _changedField() {
-        return Array.prototype.some.call(document.querySelectorAll('input, textarea, select option'), function (f) {
-            if (f.tagName === 'OPTION') return f.selected !== f.defaultSelected;
-            if (f.type === 'hidden') return false;
-            if (f.type === 'checkbox' || f.type === 'radio') return f.checked !== f.defaultChecked;
-            return f.value !== f.defaultValue;
+        return Array.prototype.some.call(document.querySelectorAll('input, textarea, select'), function (f) {
+            return _notPutAway(f) && _fieldChanged(f);
         });
     }
 
     function _atWork() {
-        return _Z77.core.dirty.isDirty(document) || !!document.querySelector('dialog[open]') || _changedField();
+        return Array.prototype.some.call(document.querySelectorAll('form[data-dirty="dirty"]'), _notPutAway)
+            || !!document.querySelector('dialog[open]')
+            || _changedField();
     }
 
     function _waitForCalm() {

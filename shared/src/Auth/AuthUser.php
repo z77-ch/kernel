@@ -35,12 +35,27 @@ final class AuthUser
     private array $roles;
     private string $realm;
 
+    /**
+     * The language this person chose for herself (an account field, ADR-056), or null for
+     * «none chosen». Carried here so the kernel can render a signed-in request in it without
+     * knowing which module owns accounts; whether it does is the module's choice
+     * (`languageFromAccount`). A raw value — {@see \Z77\Core\Services\I18n::resolve()} makes
+     * it safe.
+     */
+    private ?string $language;
+
     public function __construct(array $data = [])
     {
         $this->id       = $data['id']        ?? 0;
         $this->userName = $data['user_name'] ?? 'guest';
         $this->roles    = $data['roles']     ?? [AuthRole::GUEST];
         $this->realm    = $data['realm']     ?? self::REALM_BACKEND;
+        $this->language = is_string($data['language'] ?? null) && $data['language'] !== '' ? $data['language'] : null;
+    }
+
+    public function getLanguage(): ?string
+    {
+        return $this->language;
     }
 
     public function getId(): int|string

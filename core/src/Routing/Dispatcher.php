@@ -73,6 +73,12 @@ class Dispatcher
                 // preference only redirects the bare site root to the localized root.
                 $rootRedirect = $request->applyLanguageSession(DI::getInstance()->get('SessionManager'));
 
+                // A module may render a signed-in person in her own language instead of
+                // the URL's (ADR-056) — after the session line above, so the URL prefix
+                // still records what it records, and before the page-cache decision,
+                // which keys on the rendered language.
+                $this->adoptAccountLanguage($request);
+
                 if ($rootRedirect !== null) {
                     $response = new RedirectResponse($rootRedirect, 302);
                 } else {
@@ -104,6 +110,30 @@ class Dispatcher
                 $this->cacheManager->flush();
             });
         }
+    }
+
+    /**
+     * ADR-056: in a module whose config sets `languageFromAccount` to true, a signed-in
+     * request renders in the language of the account (the identity's `language`, set by the
+     * module's AuthBridge) — not in the URL's. No language chosen = the default language,
+     * also on a `/fr/…` URL: after sign-in the account decides, the URL only decides for a
+     * guest (the login card, `/fr/member/main/login`). Without the key nothing changes —
+     * the URL alone decides, as everywhere else (I18N-LANG-STABLE-001).
+     */
+    private function adoptAccountLanguage(Request $request): void
+    {
+        // A backend login carries no language of its own (the backend is German, the
+        // admin passing through a member page keeps the URL's).
+        $user = DI::getAuthService()->getCurrentUser();
+        if (!$user->isLoggedIn() || $user->isBackendRealm()) {
+            return;
+        }
+        $config = DI::getModuleManager()->getModuleConfig($request->getModule());
+        if ($config === null || $config->get('languageFromAccount', false) !== true) {
+            return;
+        }
+
+        $request->adoptAccountLanguage(DI::getI18n()->resolve($user->getLanguage()));
     }
 
     /**

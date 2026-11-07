@@ -42,6 +42,15 @@ class DI
     }
 
     /**
+     * Whether a service is registered: for code that also runs where it deliberately is not,
+     * such as a stateless route, which registers nothing session-bound (Bootstrap::pullUp()).
+     */
+    public function has(string $name): bool
+    {
+        return isset($this->container[$name]);
+    }
+
+    /**
      * Retrieve a service. Throws if not registered.
      *
      * @param string $name

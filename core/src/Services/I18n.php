@@ -57,4 +57,18 @@ class I18n
     {
         return in_array($language, $this->getLanguages(), true);
     }
+
+    /**
+     * A stored or handed-in language made safe to render: the code itself when it is
+     * one of the configured languages, otherwise the default language. Null, empty,
+     * a language the installation dropped since, a hand-edited value — all render
+     * the default. For a value that comes from data (an account, a token), never
+     * from the URL; the URL segment is refused instead (`Request::extractLanguage()`).
+     */
+    public function resolve(?string $language): string
+    {
+        $language = strtolower(trim((string) $language));
+
+        return $language !== '' && $this->isValidLanguage($language) ? $language : $this->getDefaultLanguage();
+    }
 }

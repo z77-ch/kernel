@@ -448,26 +448,29 @@ final class PublicFormHandler
     }
 
     /**
-     * Blur-check endpoint: the definition's explicit value, else derived from
-     * the current route (`/{module}/{group}/{controller}/check`).
+     * Blur-check endpoint: the definition's explicit value (a canonical path), else
+     * derived from the current route (`/{module}/{group}/{controller}/check`) — in the
+     * page's language (TRANS-CHECK-URL-001, 2026-11-07): through `localizedUrl()`, so a
+     * guest on `/fr/…` gets `/fr/…/check` and its field messages in French. The default
+     * language keeps the prefix-less path it always had.
      */
     private function checkUrl(): string
     {
         $explicit = $this->definition->checkUrl();
         if ($explicit !== null) {
-            return $explicit;
+            return localizedUrl($explicit);
         }
 
         // The Request getters already hold the cleaned URL segments — no name
         // transformation happens here, just assembly.
         $request = DI::getRequest();
 
-        return '/' . implode('/', [
+        return localizedUrl('/' . implode('/', [
             $request->getModule(),
             $request->getGroup(),
             $request->getController(),
             'check',
-        ]);
+        ]));
     }
 
     private function translate(string $key): string

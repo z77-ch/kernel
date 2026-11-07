@@ -25,5 +25,6 @@
 <?php if (!empty($assistant)): ?>
 <button type="button" class="z77-help-trigger z77-help-trigger--assistant" data-help-open data-help-trigger hidden data-kibot-open data-kibot-fallback data-kibot-context="<?= e($assistant['topic'] ?? '') ?>" data-kibot-context-label="<?= e($assistant['label'] ?? '') ?>" aria-label="KI-Assistent" title="KI-Assistent — Fragen zur Bedienung"><span class="z77-help-trigger__icon" aria-hidden="true">✦</span><span class="z77-help-trigger__label" aria-hidden="true">KI-Assistent</span></button>
 <?php else: ?>
-<button type="button" class="z77-help-trigger" data-help-open data-help-trigger hidden aria-label="Hilfe (F1)" title="Hilfe (F1)"><span class="z77-help-trigger__icon" aria-hidden="true">?</span><span class="z77-help-trigger__label" aria-hidden="true">Hilfe</span></button>
+<?php $z77Help = t('common.help'); // the reader's language (ADR-056) — the member shell shows it too ?>
+<button type="button" class="z77-help-trigger" data-help-open data-help-trigger hidden aria-label="<?= e($z77Help) ?> (F1)" title="<?= e($z77Help) ?> (F1)"><span class="z77-help-trigger__icon" aria-hidden="true">?</span><span class="z77-help-trigger__label" aria-hidden="true"><?= e($z77Help) ?></span></button>
 <?php endif; ?>

@@ -17,6 +17,8 @@ use Z77\Core\DI,
 class Request {
     private string $language;
     private bool $languageFromUrl = false;
+    /** ADR-056: the signed-in account's language was adopted (Dispatcher). */
+    private bool $languageFromAccount = false;
     private string $module;
     private string $group;
     private string $controller;
@@ -461,6 +463,32 @@ class Request {
     public function getLanguage(): string
     {
         return $this->language;
+    }
+
+    /**
+     * Renders this request in the signed-in person's own language instead of the URL's
+     * (ADR-056). Called by the Dispatcher only — after the guard established who is signed
+     * in, and only for a module that declares `languageFromAccount`. What the URL prefix
+     * wrote into the session stays untouched (`applyLanguageSession()` ran before); only
+     * the rendered language moves. Takes a value that is already resolved to a configured
+     * language ({@see \Z77\Core\Services\I18n::resolve()}); anything else is ignored.
+     */
+    public function adoptAccountLanguage(string $language): void
+    {
+        if (DI::getI18n()->isValidLanguage($language)) {
+            $this->language            = $language;
+            $this->languageFromAccount = true;
+        }
+    }
+
+    /**
+     * True when the account, not the URL, decides this request's language (ADR-056). A
+     * language switch built from URLs would change nothing here — the controller leaves it
+     * out, and the person changes her language on her profile.
+     */
+    public function isLanguageFromAccount(): bool
+    {
+        return $this->languageFromAccount;
     }
 
     private function setPathSegments(): void

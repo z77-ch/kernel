@@ -97,7 +97,7 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
     <label class="z77-upload__zone" for="<?= e($inputId) ?>" data-upload-zone>
         <span class="z77-upload__arrow" aria-hidden="true">↑</span>
         <span class="z77-upload__label"><?= e($label) ?></span>
-        <span class="z77-upload__pick">auswählen</span>
+        <span class="z77-upload__pick"><?= e(t('shared.upload.pick')) ?></span>
         <?php if ($hint !== ''): ?>
         <span class="z77-upload__hint"><?= e($hint) ?></span>
         <?php endif; ?>
@@ -113,5 +113,5 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
     </p>
 
     <?php // Without the script this is the only way to send; with it, it is removed on bind. ?>
-    <button class="be-btn be-btn--primary z77-upload__submit" type="submit" data-upload-submit>Hochladen</button>
+    <button class="be-btn be-btn--primary z77-upload__submit" type="submit" data-upload-submit><?= e(t('shared.upload.submit')) ?></button>
 </form>

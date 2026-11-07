@@ -10,10 +10,11 @@
  *
  * @var string $emailBody rendered body template HTML (trusted — templates escape user input via e())
  * @var string $subject
+ * @var string $mailLanguage the language the mail renders in (EmailMessage::language(), ADR-056)
  */
 ?>
 <!DOCTYPE html>
-<html lang="de">
+<html lang="<?= e($mailLanguage ?? 'de') ?>">
 <head>
 <meta charset="utf-8">
 <title><?= e($subject) ?></title>

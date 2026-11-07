@@ -165,7 +165,8 @@ abstract class AbstractBaseController
         $context['navigationService'] = $navigationService;
         $context['navigation']        = $navigation;
         $context['language']          = $language;
-        $context['languageSwitch']    = $this->buildLanguageSwitch($language);
+        // ADR-056: where the account decides the language, URL links would switch nothing.
+        $context['languageSwitch']    = DI::getRequest()->isLanguageFromAccount() ? [] : $this->buildLanguageSwitch($language);
         // Deferred to the first read (SeoLinks): only layouts that print the
         // canonical need the configured origin, so the backend and the setup
         // stay reachable on an installation without canonicalBaseUrl (SEC-005).
