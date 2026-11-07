@@ -30,10 +30,20 @@ final class PublicForm
         }
     }
 
-    /** An empty form — the initial GET render. */
+    /**
+     * An empty form — the initial GET render — with each field's declared `default`
+     * (a preselected radio). A checkbox has none: its default is unchecked.
+     */
     public static function blank(FormDefinition $definition): self
     {
-        return new self($definition);
+        $form = new self($definition);
+        foreach ($definition->normalizedFields() as $name => $spec) {
+            if ($spec['default'] !== '' && $spec['type'] !== FormDefinition::TYPE_CHECKBOX) {
+                $form->values[$name] = $spec['default'];
+            }
+        }
+
+        return $form;
     }
 
     /** A form filled from POST data; unknown keys are ignored. */

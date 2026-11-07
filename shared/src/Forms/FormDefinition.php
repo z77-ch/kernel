@@ -19,6 +19,7 @@ use Z77\Core\DI;
  *       'labelHtml'    => '<a href="/agb">AGB</a> …',      // optional, printed UNESCAPED (code only)
  *       'type'         => 'email',                       // default 'text'
  *       'options'      => ['a' => 'Label A', …],         // radio only
+ *       'default'      => 'a',                           // optional, the value of the FIRST render
  *       'rules'        => ['required' => true, …],       // see RULES
  *       'messages'     => ['required' => 'my.i18n.key'], // per-rule text override
  *       'autocomplete' => 'email',                       // template attribute
@@ -120,7 +121,7 @@ abstract class FormDefinition
      * The field specs with every optional key filled in, so consumers
      * (validator, templates, JS attributes) never have to guess defaults.
      *
-     * @return array<string,array{label:string,type:string,options:array<string,string>,rules:array,messages:array<string,string>,autocomplete:string}>
+     * @return array<string,array{label:string,type:string,options:array<string,string>,default:string,rules:array,messages:array<string,string>,autocomplete:string}>
      */
     final public function normalizedFields(): array
     {
@@ -148,7 +149,10 @@ abstract class FormDefinition
                 'labelHtml'    => (string) ($spec['labelHtml'] ?? ''),
                 'type'         => (string) ($spec['type'] ?? self::TYPE_TEXT),
                 'options'      => (array)  ($spec['options'] ?? []),
-                'rules'        => (array)  ($spec['rules'] ?? []),
+                // A preselection for the blank form only (PublicForm::blank()) — a
+                // submit carries what the visitor sent, a missing value stays missing.
+                'default'      => (string) ($spec['default'] ?? ''),
+                'rules'      => (array)  ($spec['rules'] ?? []),
                 'messages'     => (array)  ($spec['messages'] ?? []),
                 'autocomplete' => (string) ($spec['autocomplete'] ?? ''),
             ];
