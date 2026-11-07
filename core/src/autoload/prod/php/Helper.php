@@ -112,8 +112,9 @@ function t(string $key, array $params = [], ?string $language = null): string
  * same class that reads URLs inbound, so every URL emitted here resolves back to
  * the same page.
  *
- * $language defaults to the current language (Translator::currentLanguage(): the
- * request's, or an inLanguage() scope such as a mail). External/anchor URLs
+ * $language defaults to Translator::urlLanguage(): an inLanguage() scope (a mail),
+ * else the request's — except where the signed-in account decides the language
+ * (ADR-056): there no URL carries a prefix, so the default. External/anchor URLs
  * (not starting with '/') are returned unchanged.
  *
  * A content preview (`?preview=<key>` on the current request, ADR-044 addendum)
@@ -126,7 +127,7 @@ function localizedUrl(string $canonicalUrl, ?string $language = null): string
         return $canonicalUrl;
     }
 
-    $language ??= \Z77\Core\DI::getTranslator()->currentLanguage();
+    $language ??= \Z77\Core\DI::getTranslator()->urlLanguage();
     $default    = \Z77\Core\DI::getI18n()->getDefaultLanguage();
 
     // Split off ?query / #fragment first — they are not path segments.

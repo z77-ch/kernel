@@ -104,6 +104,25 @@ class Translator
     }
 
     /**
+     * The language a URL built without an explicit language gets (`localizedUrl()`): an
+     * {@see inLanguage()} scope if one is open (a mail's links), else — where the account
+     * decides the language (ADR-056) — the default language, because after sign-in no URL
+     * carries a prefix; else the request's.
+     */
+    public function urlLanguage(): string
+    {
+        if ($this->scope !== []) {
+            return $this->scope[array_key_last($this->scope)];
+        }
+        try {
+            $request = DI::getRequest();
+            return $request->isLanguageFromAccount() ? DI::getI18n()->getDefaultLanguage() : $request->getLanguage();
+        } catch (\Throwable) {
+            return DI::getI18n()->getDefaultLanguage();
+        }
+    }
+
+    /**
      * The JS-facing subset of the dictionary for the shared `core.js` and module/project
      * scripts: every key in a `js` namespace — `js.*` (framework) or `<ns>.js.*` (a module or
      * project: `member.js.*`, `rudaz.js.*`) — plus SHARED_CLIENT_KEYS, resolved for $language

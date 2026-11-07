@@ -491,6 +491,25 @@ class Request {
         return $this->languageFromAccount;
     }
 
+    /**
+     * This request's URL without its language prefix, ready to redirect to: the segments
+     * re-encoded, the query carried verbatim (ADR-056 — a signed-in page on `/fr/member/…`
+     * moves to `/member/…`).
+     */
+    public function urlWithoutLanguage(): string
+    {
+        $target = '/' . implode('/', array_map('rawurlencode', $this->pathSegments));
+        $query  = $_SERVER['QUERY_STRING'] ?? '';
+
+        return $query !== '' ? $target . '?' . $query : $target;
+    }
+
+    /** True when the URL carried a language prefix (`/fr/…`). */
+    public function isLanguageFromUrl(): bool
+    {
+        return $this->languageFromUrl;
+    }
+
     private function setPathSegments(): void
     {
         $parts = $this->parseUrl();

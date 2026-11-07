@@ -77,10 +77,12 @@ class Dispatcher
                 // the URL's (ADR-056) — after the session line above, so the URL prefix
                 // still records what it records, and before the page-cache decision,
                 // which keys on the rendered language.
-                $this->adoptAccountLanguage($request);
+                $prefixRedirect = $this->adoptAccountLanguage($request);
 
                 if ($rootRedirect !== null) {
                     $response = new RedirectResponse($rootRedirect, 302);
+                } elseif ($prefixRedirect !== null) {
+                    $response = new RedirectResponse($prefixRedirect, 302);
                 } else {
                     $decision = $this->policy->decide($request);
                     $response = $this->resolveResponse($decision, $controller);
@@ -119,21 +121,33 @@ class Dispatcher
      * also on a `/fr/…` URL: after sign-in the account decides, the URL only decides for a
      * guest (the login card, `/fr/member/main/login`). Without the key nothing changes —
      * the URL alone decides, as everywhere else (I18N-LANG-STABLE-001).
+     *
+     * After sign-in no URL carries a prefix (owner decision 2026-11-07, z77-rudaz.ch): a
+     * signed-in page view (GET/HEAD, Page mode) on a prefixed URL answers with the redirect
+     * target without it — an old bookmark or a link from the login phase cleans itself up.
+     * `localizedUrl()` builds no prefix there either (Translator::urlLanguage()).
+     *
+     * @return ?string the prefix-less target to redirect to, else null
      */
-    private function adoptAccountLanguage(Request $request): void
+    private function adoptAccountLanguage(Request $request): ?string
     {
         // A backend login carries no language of its own (the backend is German, the
         // admin passing through a member page keeps the URL's).
         $user = DI::getAuthService()->getCurrentUser();
         if (!$user->isLoggedIn() || $user->isBackendRealm()) {
-            return;
+            return null;
         }
         $config = DI::getModuleManager()->getModuleConfig($request->getModule());
         if ($config === null || $config->get('languageFromAccount', false) !== true) {
-            return;
+            return null;
         }
 
         $request->adoptAccountLanguage(DI::getI18n()->resolve($user->getLanguage()));
+
+        if (!$request->isLanguageFromUrl() || !$request->isReadMethod() || $request->getMode() !== RequestMode::Page) {
+            return null;
+        }
+        return $request->urlWithoutLanguage();
     }
 
     /**
