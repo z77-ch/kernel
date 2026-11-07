@@ -20,6 +20,7 @@ use Z77\Core\Config\AuthRole,
     Z77\Shared\Attributes\Fetch,
     Z77\Shared\Attributes\HttpMethod,
     Z77\Shared\Attributes\Page,
+    Z77\Shared\Attributes\UrlLanguage,
     Z77\Shared\Stats\StatsRecorder
 ;
 
@@ -77,7 +78,7 @@ class Dispatcher
                 // the URL's (ADR-056) — after the session line above, so the URL prefix
                 // still records what it records, and before the page-cache decision,
                 // which keys on the rendered language.
-                $prefixRedirect = $this->adoptAccountLanguage($request);
+                $prefixRedirect = $this->adoptAccountLanguage($request, $controller);
 
                 if ($rootRedirect !== null) {
                     $response = new RedirectResponse($rootRedirect, 302);
@@ -127,9 +128,12 @@ class Dispatcher
      * target without it — an old bookmark or a link from the login phase cleans itself up.
      * `localizedUrl()` builds no prefix there either (Translator::urlLanguage()).
      *
+     * A page marked `#[UrlLanguage]` (a guest act: invitation, login card, confirmation)
+     * is left alone — URL language, no redirect — whoever is signed in.
+     *
      * @return ?string the prefix-less target to redirect to, else null
      */
-    private function adoptAccountLanguage(Request $request): ?string
+    private function adoptAccountLanguage(Request $request, object $controller): ?string
     {
         // A backend login carries no language of its own (the backend is German, the
         // admin passing through a member page keeps the URL's).
@@ -141,6 +145,9 @@ class Dispatcher
         if ($config === null || $config->get('languageFromAccount', false) !== true) {
             return null;
         }
+        if ($this->rendersInUrlLanguage($controller)) {
+            return null;
+        }
 
         $request->adoptAccountLanguage(DI::getI18n()->resolve($user->getLanguage()));
 
@@ -148,6 +155,21 @@ class Dispatcher
             return null;
         }
         return $request->urlWithoutLanguage();
+    }
+
+    /** `#[UrlLanguage]` on the current action, on the controller, or on one of its parents. */
+    private function rendersInUrlLanguage(object $controller): bool
+    {
+        $method = new \ReflectionMethod($controller, DI::getControllerHandler()->getCurrentActionMethod());
+        if ($method->getAttributes(UrlLanguage::class) !== []) {
+            return true;
+        }
+        for ($class = new \ReflectionClass($controller); $class !== false; $class = $class->getParentClass()) {
+            if ($class->getAttributes(UrlLanguage::class) !== []) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
