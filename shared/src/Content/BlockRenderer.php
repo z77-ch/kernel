@@ -21,7 +21,8 @@ interface BlockRenderer
      *
      * Each descriptor is an array:
      *   - key     (string)        the block field this input reads/writes
-     *   - kind    (string)        one of: text | textarea | select | url | bool | list
+     *   - kind    (string)        one of: text | textarea | select | url | bool | document | list
+     *                             (document = a DMS document id, shape-checked only)
      *   - label   (string)        field label (German)
      *   - options (array)         value=>label map — REQUIRED for kind 'select'
      *   - item    (string|array)  REQUIRED for kind 'list':

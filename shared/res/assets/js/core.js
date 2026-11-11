@@ -1117,32 +1117,71 @@ _Z77.core.region = (function () {
  */
 _Z77.core.windows = (function () {
     var _seq = 0;
-    var _layer = null;
 
-    function _container() {
-        if (_layer) return _layer;
-        _layer = document.createElement('div');
-        _layer.className = 'z77-windows';
-        _layer.setAttribute('data-z77-windows', '');
-        _layer.hidden = true;
-        document.body.appendChild(_layer);
-        return _layer;
+    /* WHERE a window opens (WIN-002, 2026-11-11): inside the open MODAL <dialog> on top — the
+     * shared popup, a member page's dialog — else in <body>. A modal dialog paints in the top
+     * layer and makes everything outside itself inert: a window in <body> stood BEHIND it,
+     * unreachable, and Esc closed the dialog instead (seen in Chrome: a picker opened from the
+     * content editor's popup). Inside the dialog it is above the dialog's content and usable —
+     * the context menu does the same (MENU-001). Every host has its own layer. */
+    function _topHost() {
+        var open = document.querySelectorAll('dialog[open]');
+        for (var i = open.length - 1; i >= 0; i--) {
+            var modal = true;
+            try { modal = open[i].matches(':modal'); } catch (e) { /* an engine without :modal — take it */ }
+            if (modal) return open[i];
+        }
+        return document.body;
+    }
+    function _layerOf(host) {
+        var kids = host ? host.children : [];
+        for (var i = 0; i < kids.length; i++) {
+            if (kids[i].hasAttribute('data-z77-windows')) return kids[i];
+        }
+        return null;
+    }
+    function _windowsIn(layer) {
+        return layer ? Array.prototype.slice.call(layer.children).filter(function (w) { return w.hasAttribute('data-z77-window'); }) : [];
+    }
+    function _container(host) {
+        var layer = _layerOf(host);
+        if (layer) return layer;
+        layer = document.createElement('div');
+        layer.className = 'z77-windows';
+        layer.setAttribute('data-z77-windows', '');
+        layer.hidden = true;
+        host.appendChild(layer);
+        if (host.tagName === 'DIALOG') {
+            // The dialog closes (saved, ×, its own Esc): the windows opened over it go with it —
+            // left behind, they would stand there again the next time the dialog opens.
+            host.addEventListener('close', function () {
+                _windowsIn(layer).forEach(function (w) { if (w.isConnected) close(w, true); });
+            });
+            // A window over the dialog takes the Esc (keydown below); should the browser still
+            // send the dialog its cancel, the dialog stays while a window stands over it.
+            host.addEventListener('cancel', function (e) {
+                if (_windowsIn(layer).length) e.preventDefault();
+            });
+        }
+        return layer;
     }
     function all() {
-        return _layer ? Array.prototype.slice.call(_layer.children).filter(function (w) { return w.hasAttribute('data-z77-window'); }) : [];
+        return Array.prototype.slice.call(document.querySelectorAll('[data-z77-windows] > [data-z77-window]'));
     }
     function byId(id) {
         return id ? all().filter(function (w) { return w.getAttribute('data-z77-window') === String(id); })[0] || null : null;
     }
     function of(el) { return el && el.closest ? el.closest('[data-z77-window]') : null; }
 
-    /* The page behind is inert while a window is open; the windows among themselves are not. */
-    function _inert(on) {
-        Array.prototype.forEach.call(document.body.children, function (c) {
+    /* What lies behind a layer is inert while a window is open in it — the page behind the
+     * <body> layer, the dialog's own content behind a layer in a dialog; the windows among
+     * themselves are not. */
+    function _inert(layer, on) {
+        Array.prototype.forEach.call(layer.parentNode.children, function (c) {
             // The message and flash channels stay live: a message about a window (a field
             // conflict, «gespeichert») must be readable and closable above the windows.
             // The help window (ADR-048) is read beside the form: it stays live as well.
-            if (c === _layer || c.tagName === 'SCRIPT' || c.tagName === 'DIALOG' || c.id === 'messages' || c.id === 'flash-messages' || c.hasAttribute('data-z77-help')) return;
+            if (c === layer || c.tagName === 'SCRIPT' || c.tagName === 'DIALOG' || c.id === 'messages' || c.id === 'flash-messages' || c.hasAttribute('data-z77-help')) return;
             if (on) c.setAttribute('inert', ''); else c.removeAttribute('inert');
         });
     }
@@ -1332,9 +1371,9 @@ _Z77.core.windows = (function () {
                 return hit.win;
             }
             var win = _build(opts.parent || '', opts.origin);
-            var layer = _container();
+            var layer = _container(_topHost());
             layer.appendChild(win);
-            if (layer.hidden) { layer.hidden = false; _inert(true); }
+            if (layer.hidden) { layer.hidden = false; _inert(layer, true); }
             fill(win, html, target);
             front(win);
             _focusIn(win);
@@ -1386,10 +1425,15 @@ _Z77.core.windows = (function () {
         // Unsaved changes (form[data-dirty], «dirty forms») — asked once, unless the controller asked above.
         if (!force && !ask && _Z77.core.dirty.isDirty(win)
             && !window.confirm(_Z77.core.i18n.t('js.window.discard_changes', 'Ungespeicherte Änderungen verwerfen?'))) return false;
-        win.parentNode.removeChild(win);
+        var layer = win.parentNode;
+        layer.removeChild(win);
+        var left = _windowsIn(layer);
+        if (!left.length) { layer.hidden = true; _inert(layer, false); }
+        // The next in front: one of the same layer, else — with no dialog on top — the newest
+        // of the page's; a dialog whose last window went keeps its own focus.
         var rest = all();
-        if (!rest.length) { _layer.hidden = true; _inert(false); }
-        else { front(rest[rest.length - 1]); rest[rest.length - 1].focus(); }
+        var next = left.length ? left[left.length - 1] : (_topHost() === document.body ? rest[rest.length - 1] : null);
+        if (next) { front(next); next.focus(); }
         return true;
     }
 
@@ -1469,9 +1513,17 @@ _Z77.core.windows = (function () {
         });
         document.addEventListener('keydown', function (e) {
             // A control that used Esc itself (an open tree picker closes its popover) keeps the window.
-            if (e.key !== 'Escape' || e.defaultPrevented || !all().length || document.querySelector('dialog[open]')) return;
-            var win = _layer.querySelector('.is-front') || all()[all().length - 1];
-            if (win) { e.preventDefault(); close(win); }
+            if (e.key !== 'Escape' || e.defaultPrevented || !all().length) return;
+            // Esc belongs to the topmost: the windows over the open modal dialog (WIN-002), else
+            // those of the page. A dialog without a window of its own, or any other open dialog
+            // over the page's windows, handles its Esc itself.
+            var host = _topHost();
+            if (host === document.body && document.querySelector('dialog[open]')) return;
+            var mine = _windowsIn(_layerOf(host));
+            if (!mine.length) return;
+            var win = mine.filter(function (w) { return w.classList.contains('is-front'); })[0] || mine[mine.length - 1];
+            e.preventDefault();
+            close(win);
         });
     }
 

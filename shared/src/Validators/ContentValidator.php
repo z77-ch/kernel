@@ -5,6 +5,7 @@ namespace Z77\Shared\Validators;
 use Z77\Persistence\Validation\EntityValidator;
 use Z77\Shared\Content\BlockSchemaValidator;
 use Z77\Shared\Content\Blueprint;
+use Z77\Shared\Content\DocumentReferences;
 use Z77\Shared\Entities\Content;
 use Z77\Shared\Repositories\ContentRepository;
 
@@ -36,6 +37,26 @@ class ContentValidator extends EntityValidator
     public function useBlueprint(?Blueprint $blueprint): void
     {
         $this->blueprint = $blueprint;
+    }
+
+    /** The asset store's check of `document` fields (media-picker P2b); null = shape only. */
+    private ?DocumentReferences $documents = null;
+
+    /** @var list<int> ids the STORED document already references — not asked again */
+    private array $storedDocumentIds = [];
+
+    /**
+     * Check every CHANGED document reference against the asset store
+     * ({@see DocumentReferences::refusal()}); `$storedBlocks` are the blocks as saved before
+     * this post — the ids they already name are not asked again, so a document that changed
+     * in the store since never blocks the save of another block.
+     *
+     * @param list<array<string, mixed>> $storedBlocks
+     */
+    public function useDocuments(?DocumentReferences $documents, array $storedBlocks): void
+    {
+        $this->documents         = $documents;
+        $this->storedDocumentIds = $documents === null ? [] : BlockSchemaValidator::documentIds($storedBlocks, $this->schemas);
     }
 
     public function validateSlug(string $slug): void
@@ -99,7 +120,7 @@ class ContentValidator extends EntityValidator
             return;
         }
 
-        $checker  = new BlockSchemaValidator();
+        $checker  = new BlockSchemaValidator($this->documents, $this->storedDocumentIds);
         $messages = [];
         foreach ($blocks as $i => $block) {
             $type = (string)$block['type'];
