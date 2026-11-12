@@ -8,6 +8,11 @@
  * `<tr data-str="new-line">` rows and closing block tags become line breaks —
  * see HtmlToText.
  *
+ * The LOGO (owner 2026-11-12): the empty slot `data-z77-inline="logo"` above the body is filled
+ * at SEND time by `InlineImages` (kernel mail) — module-mandator answers «Logo (E-Mail)». Here, in
+ * the layout, so EVERY template mail carries it (document mails, the app's sign-in code, DMS ZIP
+ * mails, …); a body template never writes the slot itself. No logo stored → the slot is removed.
+ *
  * @var string $emailBody rendered body template HTML (trusted — templates escape user input via e())
  * @var string $subject
  * @var string $mailLanguage the language the mail renders in (EmailMessage::language(), ADR-056)
@@ -26,6 +31,7 @@
             <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#ffffff;border:1px solid #e0e0e0;">
                 <tr>
                     <td style="padding:32px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222;">
+                        <p data-z77-inline="logo" style="margin:0 0 24px;"></p>
                         <?= raw($emailBody) ?>
                     </td>
                 </tr>

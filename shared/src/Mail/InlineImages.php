@@ -7,7 +7,8 @@ use Z77\Core\Services\ModuleManager;
 /**
  * Named inline images of the HTML mails (2026-10-23, the e-mail logo) — resolved at SEND time.
  *
- * A template marks WHERE an image goes with an empty element carrying the slot attribute:
+ * The e-mail logo's slot sits in the shared `emails/layout` (2026-11-12), above every template
+ * mail's body. A template marks WHERE an image goes with an empty element carrying the slot attribute:
  *
  * ```html
  * <p data-z77-inline="logo" style="margin:0 0 24px;"></p>
