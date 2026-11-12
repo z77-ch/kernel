@@ -20,7 +20,7 @@
  *   [data-fill-url="<url>"]       a choice fills fields of its [data-fill-scope] (see «fill»)
  *   [data-rows="<prefix>"]        rows to add, remove, drag and indent — [data-row], [data-row-grip],
  *                                 [data-row-indent], [data-row-no], [data-row-remove],
- *                                 template[data-row-template], [data-row-add] (see «rows»)
+ *                                 template[data-row-template], [data-row-add], [data-rows-enter] (see «rows»)
  *   textarea[data-autosize]       grows with its text; ="title" shows the first line as a title (see «autosize»)
  *   [data-sum]                    a live total of the lines inside it, display only (see «line sums»)
  *   select[data-rate-schedule-ref] its options' rates follow a date field of the form (see «dated rates»)
@@ -33,6 +33,9 @@
  *                                 the trigger; Esc, a click outside or on an item closes it (see «context menu»)
  *   [data-window-open="<url>"]    opens a controller-led window (ADR-047, see «windows»);
  *     [data-window-with="a b"]    the form fields a, b ride along as query parameters
+ *   form[data-window-form]        a GET form: inside a window it re-renders THAT window, outside
+ *                                 one it opens its answer as a window; ="change" also on a field
+ *                                 change (see «windows»)
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
  *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
  *   [data-fetch-live="<url>"]     asks <url> at intervals, the answer's commands do the rest;
@@ -888,6 +891,11 @@ _Z77.core.fetch = (function () {
         var region = scope ? scope.querySelector('[data-fetch-region="' + p.name + '"]') : null;
         if (region) _Z77.core.region.load(region, region.getAttribute('data-fetch-region-src') || window.location.href);
     });
+    // {action: 'refresh-window', window} — an open window reloads its own content from the
+    // address it last loaded (a record fixed in a child window: the parent's summary follows).
+    registerCommand('refresh-window', function (p) {
+        _Z77.core.windows.reload(_Z77.core.windows.byId(p.window));
+    });
 
     /* ── update [data-field] slots inside a container ──────────────────── */
     registerCommand('update-fields', function (p, data) {
@@ -1108,6 +1116,20 @@ _Z77.core.region = (function () {
  *                               every window carries in its title bar (owner 2026-10-17)
  *   <form method="post">        is sent by fetch as FormData to its action; the answer is HTML
  *                               (this window's new content, e.g. errors) or an envelope
+ *   form[data-window-form]      a GET form (opt-in; first user: the cut-off of «Journal verbuchen»,
+ *                               owner decision E16, 2026-11-12): its action with its fields as
+ *                               the query (empty ones left out, the submitter's name/value with
+ *                               them) loads into THIS window, the origin kept — the controller
+ *                               re-renders the whole content for the new values. Outside a window
+ *                               the same submit OPENS the answer as a window (origin as for
+ *                               [data-window-open]; fields associated by `form=` count — the
+ *                               ticked rows of a list). `data-window-form="change"`: a field
+ *                               change submits too — a select or switch at once, a typed field
+ *                               (date, text, number) when it loses the focus, so typing is never
+ *                               cut off by a re-render. Loads into one window are numbered: an
+ *                               older answer arriving after a newer one is dropped. A form with
+ *                               `target` other than `_self` is the browser's. Without the script
+ *                               it is a plain GET — the controller renders the same URL as a page.
  *
  * Identity = mask + entity: the same mask on the same record opens ONCE (a second click brings
  * it to the front). Two masks on one record are allowed — unless an editable field (a named
@@ -1384,13 +1406,53 @@ _Z77.core.windows = (function () {
     /* Loads <url> into an open window (read view ↔ edit form); the origin stays the window's. */
     function load(win, url) {
         var target = _url(url, win._z77Origin);
+        // Numbered per window: a GET form that re-renders on every change can send a second load
+        // before the first answered — only the latest fills the window.
+        var ticket = win._z77Load = (win._z77Load || 0) + 1;
         return _get(target, { window: win.getAttribute('data-z77-window') }).then(function (html) {
-            if (html === null || !win.isConnected) return;
+            if (html === null || !win.isConnected || win._z77Load !== ticket) return;
             fill(win, html, target);
             front(win);
             var auto = win.querySelector('[autofocus]');
             if (auto) auto.focus();
         });
+    }
+
+    /* The window's content again, from the address it last loaded (`refresh-window`). */
+    function reload(win) {
+        if (win && win.isConnected && win._z77Src) return load(win, win._z77Src);
+        return null;
+    }
+
+    /* A GET form's address: its action (or the submitter's formaction) with its fields as the
+     * query — the submitter's name/value with them, empty values left out (as a region form). */
+    function formUrl(form, submitter) {
+        var action = submitter && submitter.hasAttribute('formaction') ? submitter.formAction : form.action;
+        var u = new URL(action, window.location.href);
+        var params = new URLSearchParams();
+        var data = submitter ? new FormData(form, submitter) : new FormData(form);
+        data.forEach(function (value, key) {
+            if (typeof value === 'string' && value !== '') params.append(key, value);
+        });
+        u.search = params.toString();
+        return u.toString();
+    }
+
+    /* A form[data-window-form] sends itself: into its window, or as a new window. */
+    function _sendForm(form, submitter) {
+        var url = formUrl(form, submitter);
+        var win = of(form);
+        if (win) return load(win, url);
+        return open(url, { origin: _originOf(form), parent: '' });
+    }
+
+    /* A field of a form[data-window-form="change"] that waits for its blur before it submits. */
+    function _typed(el) {
+        return el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(date|datetime-local|month|week|time|text|search|number|email|tel|url)$/.test((el.type || 'text').toLowerCase()));
+    }
+    function _submitForm(form) {
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     }
 
     /* The content's [autofocus] field (a picker's search), else the window itself. */
@@ -1492,6 +1554,32 @@ _Z77.core.windows = (function () {
             if (e.target.closest('[data-window-close], [data-popup-close]')) { close(win); return; }
             front(win);
         });
+        // A GET form[data-window-form]: re-renders its window, or opens its answer as one.
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (e.defaultPrevented || !form || !form.hasAttribute || !form.hasAttribute('data-window-form')) return;
+            var sub = e.submitter || null;
+            var method = (sub && sub.getAttribute('formmethod')) || form.getAttribute('method') || 'get';
+            if (method.toLowerCase() !== 'get') return;
+            var target = (sub && sub.getAttribute('formtarget')) || form.getAttribute('target') || '';
+            if (target !== '' && target !== '_self') return;
+            e.preventDefault();
+            _sendForm(form, sub);
+        });
+        // ="change": a choice submits at once; a typed field waits until it loses the focus.
+        document.addEventListener('change', function (e) {
+            var el = e.target, form = el && el.form;
+            if (!form || form.getAttribute('data-window-form') !== 'change' || !of(form)) return;
+            if (_typed(el) && document.activeElement === el) { el._z77WindowFormDue = true; return; }
+            el._z77WindowFormDue = false;
+            _submitForm(form);
+        });
+        document.addEventListener('focusout', function (e) {
+            var el = e.target;
+            if (!el || !el._z77WindowFormDue) return;
+            el._z77WindowFormDue = false;
+            if (el.isConnected && el.form && el.form.getAttribute('data-window-form') === 'change') _submitForm(el.form);
+        });
         document.addEventListener('submit', function (e) {
             var form = e.target;
             var win = of(form);
@@ -1527,7 +1615,7 @@ _Z77.core.windows = (function () {
         });
     }
 
-    return { open: open, load: load, fill: fill, close: close, front: front, byId: byId, of: of, scope: scope, all: all, bind: bind };
+    return { open: open, load: load, reload: reload, formUrl: formUrl, fill: fill, close: close, front: front, byId: byId, of: of, scope: scope, all: all, bind: bind };
 })();
 
 /* ── help (ADR-048) ────────────────────────────────────────────────────────
@@ -2019,21 +2107,36 @@ _Z77.core.fill = (function () {
         return _Z77.core.fetch.get(url + (url.indexOf('?') === -1 ? '?' : '&') + params.toString());
     }
 
+    /* The promise settles once the answer is applied (or the request failed). */
     function _request(source) {
         var scope = source.closest('[data-fill-scope]');
-        if (!scope) return;
-        ask(source).then(function (env) {
+        if (!scope) return Promise.resolve();
+        source._z77FillAsked = source.value;
+        return ask(source).then(function (env) {
             if (env && env.status === 'success') _apply(scope, env.data);
         });
     }
 
+    /* Enter on a source (core.js «rows», owner 2026-11-12): asks as a change would — unless the
+     * value is the one asked last (never asked: the one the page was loaded with). The value is
+     * marked, so the `change` of the blur that follows does not ask a second time. */
+    function commit(source) {
+        var last = source._z77FillAsked !== undefined ? source._z77FillAsked : source.defaultValue;
+        if (source.value === last) return Promise.resolve();
+        source._z77FillCommitted = source.value;
+        return _request(source).catch(function () {});
+    }
+
     function bind() {
         document.addEventListener('change', function (e) {
-            if (e.target.matches && e.target.matches('[data-fill-url]')) _request(e.target);
+            if (!e.target.matches || !e.target.matches('[data-fill-url]')) return;
+            var committed = e.target._z77FillCommitted;
+            e.target._z77FillCommitted = undefined;
+            if (e.target.value !== committed) _request(e.target);
         });
     }
 
-    return { bind: bind, ask: ask };
+    return { bind: bind, ask: ask, commit: commit };
 })();
 
 /* ── dirty forms ────────────────────────────────────────────────────────────
@@ -2169,6 +2272,18 @@ _Z77.core.dirty = (function () {
  *   [data-row-add="<kind>"]       a button of the same form (a submit without the script): appends
  *                                 a clone of that template and focuses its first field — so does the
  *                                 command `add-row` (a choice in another window, «fetch» commands)
+ *   [data-rows-enter="<kind>"]    optional, on the container: Enter in a one-line field of a row
+ *                                 never submits the form (owner 2026-11-12 — the save outran the
+ *                                 article's «fill» and stored a mixed row). It moves on like Tab to
+ *                                 the next field of the rows (an input, select or textarea that is
+ *                                 shown, enabled, not read-only and not tabindex -1; the grip, the
+ *                                 indent and × are skipped); in the LAST field of the LAST row it
+ *                                 appends a row of template `kind` (as [data-row-add]). In a «fill»
+ *                                 source ([data-fill-url]) it asks the fill first when the value
+ *                                 changed, then moves to the row's [data-sum-qty]. A textarea keeps
+ *                                 Enter as a line break; Enter with Shift / Ctrl / Alt / Meta in a
+ *                                 one-line field only does not submit (no move, no row); an IME
+ *                                 composition is left to the browser
  * After every change the container fires a bubbling `input` event: «dirty forms» and «line sums»
  * follow — a move IS a change (the names carry the index), moved back the form is clean again.
  * Rows being dragged carry `data-row-dragging`. A control in a disabled fieldset does nothing.
@@ -2297,6 +2412,50 @@ _Z77.core.rows = (function () {
         return true;
     }
 
+    /* Enter ([data-rows-enter]): the fields it lands on — what Tab reaches, minus the row's own
+     * controls (the grip and × are buttons, the indent a checkbox). */
+    var ONE_LINE_NOT = /^(hidden|checkbox|radio|button|submit|reset|image|file|range|color)$/;
+
+    function _stop(el) {
+        if (el.matches(':disabled') || el.readOnly || el.tabIndex < 0) return false;
+        if (el.tagName === 'INPUT' && ONE_LINE_NOT.test(el.type)) return false;
+        return el.getClientRects().length > 0;   // not shown (display: none, [hidden]): no box
+    }
+
+    /* On from field to the next stop of the rows; after the last stop of the last row a new row. */
+    function _onward(box, field) {
+        var stops = [];
+        _rows(box).forEach(function (row) {
+            Array.prototype.forEach.call(row.querySelectorAll('input, select, textarea'), function (el) {
+                if (el === field || _stop(el)) stops.push(el);
+            });
+        });
+        var i = stops.indexOf(field), rows = _rows(box);
+        if (i !== -1 && i < stops.length - 1) stops[i + 1].focus();
+        else if (field.closest('[data-row]') === rows[rows.length - 1]) add(box, box.getAttribute('data-rows-enter'));
+    }
+
+    function _enter(e) {
+        var field = e.target;
+        if (e.key !== 'Enter' || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+        if (!field || field.tagName !== 'INPUT' || ONE_LINE_NOT.test(field.type)) return;
+        var row = field.closest('[data-row]');
+        var box = row && row.parentNode;
+        if (!box || !box.hasAttribute || !box.hasAttribute('data-rows-enter')) return;
+        e.preventDefault();   // no implicit submission — the save is the button's
+        // A modified Enter (Shift / Ctrl / Alt / Meta) submits in some browsers too: blocked, no
+        // shortcut of its own (lead decision 2026-11-12).
+        if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+        if (!field.hasAttribute('data-fill-url')) { _onward(box, field); return; }
+        // The article: its fill first (the save must not outrun it), then the quantity.
+        _Z77.core.fill.commit(field).then(function () {
+            if (document.activeElement !== field) return;   // moved on meanwhile — leave the focus
+            var qty = row.querySelector('[data-sum-qty]');
+            if (qty && _stop(qty)) qty.focus();
+            else _onward(box, field);
+        });
+    }
+
     function _drag(grip, e) {
         var row = grip.closest('[data-row]');
         var box = row && row.parentNode;
@@ -2356,6 +2515,7 @@ _Z77.core.rows = (function () {
             e.preventDefault();
             if (_step(row, e.key === 'ArrowUp' ? -1 : 1)) { _changed(row.parentNode); grip.focus(); }
         });
+        document.addEventListener('keydown', _enter);
         document.addEventListener('change', function (e) {
             var box = e.target.matches && e.target.matches('[data-row-indent]') ? e.target.closest('[data-rows]') : null;
             if (box) _renumber(box);
@@ -2452,6 +2612,8 @@ _Z77.core.autosize = (function () {
  *     [data-sum-mode]             optional select: 'gross' = the prices include VAT
  *     [data-row]                  a line — it counts with a [data-sum-qty] and a [data-sum-price]:
  *       [data-sum-qty] [data-sum-price] [data-sum-discount]  fields (the discount in percent)
+ *       option[data-sum-single]   selected in the row (a lump sum — the invoice editor's type):
+ *                                 an empty [data-sum-qty] counts 1
  *       [data-sum-rate]           the VAT rate in percent: `data-rate` of the selected <option> of
  *                                 a select, else of the element itself; none = no VAT
  *       [data-sum-amount]         the line amount (textContent), empty while a value is no number
@@ -2495,7 +2657,8 @@ _Z77.core.sums = (function () {
         scope.querySelectorAll('[data-row]').forEach(function (row) {
             var qty = row.querySelector('[data-sum-qty]'), price = row.querySelector('[data-sum-price]');
             if (!qty || !price) return;
-            var q = _num(qty.value), p = _num(price.value);
+            var single = qty.value.trim() === '' && row.querySelector('option[data-sum-single]:checked');
+            var q = single ? 1 : _num(qty.value), p = _num(price.value);
             var discountField = row.querySelector('[data-sum-discount]');
             var d = discountField && discountField.value.trim() !== '' ? _num(discountField.value) : 0;
             var out = row.querySelector('[data-sum-amount]');

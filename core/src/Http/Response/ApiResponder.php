@@ -13,7 +13,8 @@ use Z77\Shared\Api\ApiRequest,
  *   payload + client's If-None-Match names the ETag ({@see Etag}) → 304, empty body
  *   payload                                           → 200, ETag when set
  *   error                                             → status + frozen error
- *                                                       body, Retry-After when set
+ *                                                       body, Retry-After when set,
+ *                                                       `error.fields` on a 422
  *
  * A payload's own headers ({@see ApiResult::$headers}) ride on 200 and 304
  * alike — the service says what it means, the responder only carries it.
@@ -32,11 +33,13 @@ final class ApiResponder
             if ($result->retryAfter !== null) {
                 $headers['Retry-After'] = (string) $result->retryAfter;
             }
-            return new JsonResponse(
-                ['error' => ['code' => $result->errorCode, 'message' => $result->errorMessage]],
-                $result->status,
-                $headers
-            );
+            $error = ['code' => $result->errorCode, 'message' => $result->errorMessage];
+            // Envelope v1 addition (2026-11-12): only a 422 `invalid_fields` carries them,
+            // every other error body keeps its two keys.
+            if ($result->fields !== []) {
+                $error['fields'] = $result->fields;
+            }
+            return new JsonResponse(['error' => $error], $result->status, $headers);
         }
 
         $headers = $result->headers;
@@ -49,6 +52,7 @@ final class ApiResponder
             }
         }
 
-        return new JsonResponse($result->data, 200, $headers);
+        // 200, or 202 for an accepted request (ApiResult::accepted()).
+        return new JsonResponse($result->data, $result->status, $headers);
     }
 }

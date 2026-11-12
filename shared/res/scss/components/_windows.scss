@@ -23,9 +23,21 @@
     gap:             1rem;
     padding:         2rem 1rem;
     overflow:        auto;
+    // The layer scrolls only when windows side by side wrap past the screen; it never hands a
+    // wheel on to the page behind (WIN-003).
+    overscroll-behavior: contain;
     background:      var(--z77-windows-backdrop);
 }
 .z77-windows[hidden] { display: none; }
+
+// Scroll lock (WIN-003, owner 2026-11-12): while a window stands in the page's layer, the page
+// behind does not scroll. Without it a wheel over the backdrop or the title bar, or one past the
+// end of a window's content, scrolled the document behind (scroll chaining) — the order list
+// moved under the order window, which looked as if the window was not detached from the page.
+// CSS only: the layer is `hidden` exactly while no window is open in it (core.js), so closing the
+// last window gives the page its scroll back, at the position it had. A layer inside a modal
+// dialog (WIN-002) does not lock the page — the dialog's own backdrop does.
+html:has(> body > .z77-windows:not([hidden])) { overflow: hidden; }
 
 .z77-window {
     position:       relative;
@@ -34,6 +46,7 @@
     // The controller's width (`data-window-width` → `--z77-window-width`, set by core.js), else 46rem.
     width:          min(var(--z77-window-width, 46rem), 100%);
     max-height:     calc(100vh - 4rem);
+    max-height:     calc(100dvh - 4rem);   // the visible height where a browser bar comes and goes
     min-height:     0;
     background:     var(--z77-window-bg);
     border:         1px solid var(--z77-window-line);
@@ -54,6 +67,7 @@
         z-index:    2;
         width:      min(var(--z77-window-width, 46rem), calc(100vw - 2rem));
         max-height: calc(100vh - 6rem);
+        max-height: calc(100dvh - 6rem);
         transform:  translateX(-50%);
     }
 }
@@ -104,6 +118,8 @@
     flex:       1 1 auto;
     min-height: 0;
     overflow:   auto;
+    // Scrolled to its end, the content stops — the wheel does not move the layer or the page (WIN-003).
+    overscroll-behavior: contain;
 }
 
 // A phone: one window at a time, the newest on top; × is the way back to the one below.

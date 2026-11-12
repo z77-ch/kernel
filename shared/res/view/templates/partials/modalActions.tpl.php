@@ -14,7 +14,8 @@
  *   <?= $this->partial('partials/modalActions', ['submit' => 'Speichern'], 'Z77\\Shared') ?>
  *
  * @var string      $submit       label of the primary submit button; '' renders none
- * @var string      $kind         'primary' (default) | 'danger' — the submit's look
+ * @var string      $kind         'primary' (default) | 'danger' | 'confirm' (green: it writes into the
+ *                                books, «Jetzt buchen» — backend-screen.md §2) — the submit's look
  * @var array       $submitAttrs  further attributes of the submit (e.g. ['name' => 'op', 'value' => 'save', 'form' => 'id'])
  * @var string      $cancel       label of the cancel button ('Schliessen' default; '' renders none).
  *                                Closes the popup (`data-popup-close`); inside an ADR-047 window
@@ -31,7 +32,7 @@
  * @var string      $class        further classes on the row
  */
 $submit      = (string) ($submit ?? 'Speichern');
-$kind        = ($kind ?? 'primary') === 'danger' ? 'danger' : 'primary';
+$kind        = in_array($kind ?? 'primary', ['danger', 'confirm'], true) ? $kind : 'primary';
 $submitAttrs = (array) ($submitAttrs ?? []);
 $cancel      = (string) ($cancel ?? 'Schliessen');
 $cancelHref  = (string) ($cancelHref ?? '');

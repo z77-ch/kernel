@@ -21,6 +21,8 @@ final class ApiResult
         public readonly ?int $retryAfter,
         /** @var array<string,string> service headers, passed through on 200 and 304 */
         public readonly array $headers = [],
+        /** @var array<string,string> field → message of a refused request ({@see invalidFields()}) */
+        public readonly array $fields = [],
     ) {
     }
 
@@ -44,12 +46,40 @@ final class ApiResult
     }
 
     /**
+     * Accepted (202, envelope v1 addition 2026-11-12, ADR-058): the request was taken and will
+     * have its effect elsewhere — `devices/login` answers it for EVERY address alike, whether a
+     * code went out or not. No ETag (nothing to revalidate); $headers as in {@see payload()}.
+     *
+     * @param array<string,string> $headers
+     */
+    public static function accepted(array $data, array $headers = []): self
+    {
+        return new self($data, null, 202, '', '', null, $headers);
+    }
+
+    /**
      * Failure. $retryAfter (seconds) only where the envelope defines it
      * (429 throttled, 503 snapshot_pending).
      */
-    public static function error(string $code, int $status, string $message, ?int $retryAfter = null): self
+    public static function error(string $code, int $status, string $message, ?int $retryAfter = null, array $fields = []): self
     {
-        return new self([], null, $status, $code, $message, $retryAfter);
+        return new self([], null, $status, $code, $message, $retryAfter, [], $fields);
+    }
+
+    /**
+     * The request was well-formed but its VALUES were refused (422 `invalid_fields`, envelope
+     * v1 addition 2026-11-12): $fields maps each refused field to a message for the person who
+     * typed it — German in this framework, since the client shows it under the field. The
+     * responder adds them to the error body as `error.fields`; `message` stays the summary.
+     *
+     * @param array<string,string> $fields field → message, at least one
+     */
+    public static function invalidFields(array $fields, string $message = 'Some fields were refused.'): self
+    {
+        if ($fields === []) {
+            throw new \InvalidArgumentException('invalidFields() needs at least one field.');
+        }
+        return self::error('invalid_fields', 422, $message, null, array_map('strval', $fields));
     }
 
     public function isError(): bool

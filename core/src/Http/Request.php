@@ -583,7 +583,7 @@ class Request {
      */
     private function requestOrigin(): string
     {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? "https" : "http";
+        $scheme = $this->isHttps() ? "https" : "http";
 
         return $scheme . "://" . ($_SERVER['HTTP_HOST'] ?? 'localhost');
     }
@@ -838,6 +838,67 @@ class Request {
             return null;
         }
         return $m[1];
+    }
+
+    /** A cookie as the browser sent it, or null when absent or empty. */
+    public function getCookie(string $name): ?string
+    {
+        $value = $_COOKIE[$name] ?? null;
+        return is_string($value) && $value !== '' ? $value : null;
+    }
+
+    /**
+     * The `Origin` header as sent (`https://example.ch`), or null. Browsers send
+     * it on every cross-origin request and on same-origin POSTs; the API device
+     * channel compares it with {@see getHost()} (ADR-057).
+     */
+    public function getOrigin(): ?string
+    {
+        $origin = trim((string) ($_SERVER['HTTP_ORIGIN'] ?? ''));
+        return $origin === '' ? null : $origin;
+    }
+
+    /**
+     * True when the request carries `X-Z77-App: 1` — the app shell's mandatory
+     * header on the API device channel (ADR-057). A foreign HTML form cannot set
+     * a header, and a foreign script setting it triggers a CORS preflight the
+     * API never answers.
+     */
+    public function isAppRequest(): bool
+    {
+        return ($_SERVER['HTTP_X_Z77_APP'] ?? '') === '1';
+    }
+
+    /** The `Idempotency-Key` header of a writing API request, or null (ADR-057). */
+    public function getIdempotencyKey(): ?string
+    {
+        $value = trim((string) ($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? ''));
+        return $value === '' ? null : $value;
+    }
+
+    /** True when the request arrived over HTTPS (same detection as the session cookie). */
+    public function isHttps(): bool
+    {
+        return !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    }
+
+    /**
+     * Every uploaded file of the request, per form field ({@see getUploadedFiles()}
+     * for each field) — for a caller that forwards the whole upload without
+     * knowing the field names (the API gateway). Fields without a file are left out.
+     *
+     * @return array<string, list<UploadedFile>>
+     */
+    public function getAllUploadedFiles(): array
+    {
+        $files = [];
+        foreach (array_keys($_FILES) as $field) {
+            $list = $this->getUploadedFiles((string) $field);
+            if ($list !== []) {
+                $files[(string) $field] = $list;
+            }
+        }
+        return $files;
     }
 
     private function removeBasePath(string $fullPath, string $basePath): string

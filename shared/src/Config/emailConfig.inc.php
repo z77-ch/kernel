@@ -65,5 +65,13 @@ return [
             'recipientsOnly' => true,
             'note'           => 'Alarm, wenn das Backend wegen eines technischen Problems keine 2FA-Codes annimmt',
         ],
+        // Who is told when an address reaches the daily limit of sign-in codes for the z77 App
+        // (module-api ApiAppLogin, ADR-058): a sign of someone flooding or guessing. Same shape as
+        // backendCodeLock: AlertService writes the mail, no recipient = nobody is told.
+        'apiLoginCap' => [
+            'to'             => '',
+            'recipientsOnly' => true,
+            'note'           => 'Alarm, wenn für eine Adresse das Tageslimit an Anmeldecodes der z77 App erreicht ist',
+        ],
     ],
 ];
