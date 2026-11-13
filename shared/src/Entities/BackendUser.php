@@ -55,13 +55,13 @@ class BackendUser
 
     /**
      * The names this person sends mail in (owner decision 2026-10-23): 0..n rows
-     * `{name, email}`, the FIRST is the default — {@see SenderIdentity}, resolved for a send
+     * `{name, email}` (+ `phone` when set, owner 2026-11-13), the FIRST is the default — {@see SenderIdentity}, resolved for a send
      * action by {@see \Z77\Shared\Mail\SenderIdentities}. JSON key `sender_identities`; a
      * file written before the field has no key and reads [] (no identity — no sending until
      * one is entered). Without #[Clean]: the controller rebuilds the list from the form rows
      * (`SenderIdentity::listFromForm()`), the body's own key is never trusted.
      *
-     * @var list<array{name: string, email: string}>
+     * @var list<array{name: string, email: string, phone?: string}>
      */
     private array $senderIdentities = [];
 

@@ -24,7 +24,8 @@ use Z77\Core\Services\ModuleManager;
  *     'invoice' => [
  *         'label'        => 'Rechnung',
  *         'subject'      => ['de' => 'Rechnung {nummer} — {absender}', 'en' => 'Invoice {nummer} — {absender}'],
- *         'body'         => ['de' => "Guten Tag\n\n…", 'en' => "Hello\n\n…"],
+ *         'facts'        => ['de' => 'Rechnung {nummer} · {betrag} · zahlbar bis {faellig}', 'en' => '…'],
+ *         'body'         => ['de' => "{briefanrede}\n\n…", 'en' => "{briefanrede}\n\n…"],
  *         'placeholders' => ['nummer' => 'Belegnummer', …],
  *     ],
  * ],
@@ -34,6 +35,11 @@ use Z77\Core\Services\ModuleManager;
  * Service › E-Mail › Beleg-Mails) overrides subject and text completely while
  * it is active. The one resolution is {@see EmailService::documentMail()}.
  * German (`de`) is required — the fallback language of every kind.
+ *
+ * `facts` (optional, owner decision 2026-11-13, board «E-Mail-Standard»): the FACT LINE per
+ * language — one line with placeholders, printed bold on top of the mail («Rechnung 26100012 · CHF
+ * 640.00 · zahlbar bis 13.12.2026»). A segment between « · » whose placeholders all resolved to ''
+ * is left out (`EmailService::documentMail()`), so «· Termin {termin}» disappears without a date.
  */
 final class DocumentMailKinds
 {
@@ -48,7 +54,7 @@ final class DocumentMailKinds
 
     /**
      * @var array<string, array{label: string, subject: array<string, string>, body: array<string, string>,
-     *                          placeholders: array<string, string>, origin: string}>
+     *                          facts: array<string, string>, placeholders: array<string, string>, origin: string}>
      */
     private array $kinds = [];
 
@@ -77,7 +83,7 @@ final class DocumentMailKinds
         return $registry;
     }
 
-    /** @return array<string, array{label: string, subject: array<string, string>, body: array<string, string>, placeholders: array<string, string>, origin: string}> kind => declaration, in declaration order */
+    /** @return array<string, array{label: string, subject: array<string, string>, body: array<string, string>, facts: array<string, string>, placeholders: array<string, string>, origin: string}> kind => declaration, in declaration order */
     public function all(): array
     {
         return $this->kinds;
@@ -89,7 +95,7 @@ final class DocumentMailKinds
     }
 
     /**
-     * @return array{label: string, subject: array<string, string>, body: array<string, string>, placeholders: array<string, string>, origin: string}
+     * @return array{label: string, subject: array<string, string>, body: array<string, string>, facts: array<string, string>, placeholders: array<string, string>, origin: string}
      * @throws \InvalidArgumentException an undeclared kind — a programmer error
      */
     public function get(string $kind): array
@@ -142,6 +148,15 @@ final class DocumentMailKinds
                 }
                 $texts[$part] = $map;
             }
+            $facts = $declaration['facts'] ?? [];
+            if (!is_array($facts)) {
+                throw new \RuntimeException("❌ {$origin}: kind '{$kind}' facts must be language => line.");
+            }
+            foreach ($facts as $language => $line) {
+                if (!is_string($language) || preg_match(self::LANGUAGE_PATTERN, $language) !== 1 || !is_string($line) || preg_match('/[\r\n]/', $line) === 1) {
+                    throw new \RuntimeException("❌ {$origin}: kind '{$kind}' facts: " . var_export($language, true) . ' must be a two-letter language mapped to ONE line.');
+                }
+            }
             $placeholders = $declaration['placeholders'] ?? [];
             if (!is_array($placeholders)) {
                 throw new \RuntimeException("❌ {$origin}: kind '{$kind}' placeholders must be name => description.");
@@ -155,6 +170,7 @@ final class DocumentMailKinds
                 'label'        => trim($declaration['label']),
                 'subject'      => $texts['subject'],
                 'body'         => $texts['body'],
+                'facts'        => $facts,
                 'placeholders' => $placeholders,
                 'origin'       => $origin,
             ];

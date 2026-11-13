@@ -16,11 +16,13 @@ use Z77\Shared\Mail\DocumentMailKinds;
  *   outbox row holds 255 after the placeholders are filled; the kernel
  *   `Message` would refuse a line break at send time).
  * - A text is at most {@see BODY_LENGTH} characters.
+ * - A fact line (owner 2026-11-13) is optional, ONE line, at most {@see FACTS_LENGTH} characters.
  */
 class EmailDocumentSettingValidator extends EntityValidator
 {
     public const SUBJECT_LENGTH = 150;
     public const BODY_LENGTH    = 5000;
+    public const FACTS_LENGTH   = 200;
 
     /** Language code → German name for the messages; anything else prints its code. */
     private const LANGUAGE_NAMES = ['de' => 'Deutsch', 'en' => 'Englisch', 'fr' => 'Französisch', 'it' => 'Italienisch'];
@@ -60,6 +62,21 @@ class EmailDocumentSettingValidator extends EntityValidator
         foreach ($bodies as $language => $body) {
             if (mb_strlen((string) $body) > self::BODY_LENGTH) {
                 $this->addFieldError('bodies', 'Text (' . $this->name((string) $language) . ') hat höchstens ' . self::BODY_LENGTH . ' Zeichen');
+                return;
+            }
+        }
+    }
+
+    public function validateFacts(mixed $facts): void
+    {
+        foreach (is_array($facts) ? $facts : [] as $language => $line) {
+            $line = (string) $line;
+            if (preg_match('/[\r\n]/', $line) === 1) {
+                $this->addFieldError('facts', 'Faktenzeile (' . $this->name((string) $language) . ') ist eine Zeile — ohne Zeilenumbruch');
+                return;
+            }
+            if (mb_strlen(trim($line)) > self::FACTS_LENGTH) {
+                $this->addFieldError('facts', 'Faktenzeile (' . $this->name((string) $language) . ') hat höchstens ' . self::FACTS_LENGTH . ' Zeichen');
                 return;
             }
         }

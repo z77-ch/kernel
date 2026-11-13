@@ -15,7 +15,11 @@ use Z77\Shared\Traits\ArrayMappable;
  * is kept but dormant.
  *
  *   subjects = { "de": "Rechnung {nummer} — {absender}", "en": "Invoice {nummer} — {absender}" }
- *   bodies   = { "de": "Guten Tag\n\n…", "en": "…" }
+ *   facts    = { "de": "Rechnung {nummer} · {betrag} · zahlbar bis {faellig}", "en": "…" }
+ *   bodies   = { "de": "{briefanrede}\n\n…", "en": "…" }
+ *
+ * `facts` — the fact line on top of the mail (owner 2026-11-13, board «E-Mail-Standard»). A record
+ * saved before it has none (`[]`): the module's fact line applies then, the rest stays the record's.
  *
  * A language left empty falls back to German (`de`, required by the
  * validator). The texts are plain text with `{placeholder}` markers — the
@@ -49,6 +53,9 @@ class EmailDocumentSetting
     /** @var array<string, string> language => text */
     private array $bodies = [];
 
+    /** @var array<string, string> language => fact line; [] = never saved with one (the declaration's applies) */
+    private array $facts = [];
+
     public function getId(): ?int    { return $this->id; }
     public function getKind(): string { return $this->kind; }
     public function isActive(): bool  { return $this->active; }
@@ -56,6 +63,8 @@ class EmailDocumentSetting
     public function getSubjects(): array { return $this->subjects; }
     /** @return array<string, string> */
     public function getBodies(): array   { return $this->bodies; }
+    /** @return array<string, string> */
+    public function getFacts(): array    { return $this->facts; }
 
     public function setKind(string $kind): void    { $this->kind = $kind; }
     public function setActive(bool $active): void  { $this->active = $active; }
@@ -63,4 +72,6 @@ class EmailDocumentSetting
     public function setSubjects(array $subjects): void { $this->subjects = $subjects; }
     /** @param array<string, string> $bodies */
     public function setBodies(array $bodies): void     { $this->bodies = $bodies; }
+    /** @param array<string, string> $facts */
+    public function setFacts(array $facts): void       { $this->facts = $facts; }
 }

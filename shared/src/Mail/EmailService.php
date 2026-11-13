@@ -47,6 +47,10 @@ final class EmailService
     private array $errors = [];
 
     /** Mailer injectable for isolated testing; default resolves config-driven. */
+    private ?MailCompany $company = null;
+
+    private bool $companyResolved = false;
+
     public function __construct(private ?Mailer $mailer = null)
     {
     }
@@ -184,48 +188,41 @@ final class EmailService
     }
 
     /**
-     * The subject and text of a DOCUMENT MAIL («Beleg-Mail», step 3 of the mail plan, owner
-     * 2026-10-22) — the single resolution point, like {@see resolveFormSettings()} for a form:
+     * The subject, fact line and text of a DOCUMENT MAIL («Beleg-Mail», step 3 of the mail plan,
+     * owner 2026-10-22; the fact line owner 2026-11-13) — the single resolution point, like
+     * {@see resolveFormSettings()} for a form:
      *
      *   1. the operator's {@see EmailDocumentSetting} of the kind, when one exists AND is active
-     *      (it wins completely), else the module's declaration ({@see DocumentMailKinds});
+     *      (it wins completely — the fact line too, once the record was saved with one; a record
+     *      from before the fact line keeps the declaration's), else the module's declaration
+     *      ({@see DocumentMailKinds});
      *   2. within that source the document's `$language` when BOTH its subject and its text are
-     *      filled, else German (`de`, always present);
+     *      filled, else German (`de`, always present) — {@see documentMailLanguage()};
      *   3. every `{name}` replaced by `$values[name]` (a placeholder without a value stays as
      *      written — visible, not silently dropped); line breaks in a value are flattened in the
-     *      subject (a header). A body LINE that holds nothing but placeholders which all
-     *      resolved to '' is dropped (2026-10-23, `{anzeigename}` on its own line under the
-     *      greeting: a mail without a display name must not show an empty line there).
+     *      subject and the fact line (one line each). A body LINE that holds nothing but
+     *      placeholders which all resolved to '' is dropped (2026-10-23, `{anzeigename}` on its
+     *      own line under the greeting: a mail without a display name must not show an empty
+     *      line there). A fact-line SEGMENT (between « · ») whose placeholders all resolved to ''
+     *      is dropped the same way («· Termin {termin}» without a date).
      *
      * Sending is the caller's (module-mailing's outbox): this answers text, not a mail. The
      * body is PLAIN TEXT — render it through `emails/documentMail` (escaped). An undeclared
      * kind throws (programmer error).
      *
      * @param array<string, string> $values placeholder name => value (data — never markup)
-     * @return array{subject: string, body: string, language: string}
+     * @return array{subject: string, facts: string, body: string, language: string}
      */
     public function documentMail(string $kind, string $language, array $values, ?DocumentMailKinds $kinds = null): array
     {
-        $declared = ($kinds ?? DocumentMailKinds::fromModules(DI::getModuleManager()))->get($kind);
-        $subjects = $declared['subject'];
-        $bodies   = $declared['body'];
+        [$subjects, $bodies, $facts] = $this->documentTexts($kind, $kinds);
+        $language = self::chooseLanguage($subjects, $bodies, $language);
 
-        $record = DI::getUnifiedEntityManager()->getRepository(EmailDocumentSetting::class)->findByKind($kind);
-        if ($record !== null && $record->isActive()) {
-            $subjects = $record->getSubjects();
-            $bodies   = $record->getBodies();
-        }
-
-        $language = strtolower(trim($language));
-        if (trim((string) ($subjects[$language] ?? '')) === '' || trim((string) ($bodies[$language] ?? '')) === '') {
-            $language = DocumentMailKinds::FALLBACK_LANGUAGE;
-        }
-
-        $inBody    = [];
-        $inSubject = [];
+        $inBody = [];
+        $inLine = [];
         foreach ($values as $name => $value) {
-            $inBody['{' . $name . '}']    = (string) $value;
-            $inSubject['{' . $name . '}'] = trim((string) preg_replace('/\s*[\r\n]+\s*/', ' ', (string) $value));
+            $inBody['{' . $name . '}'] = (string) $value;
+            $inLine['{' . $name . '}'] = trim((string) preg_replace('/\s*[\r\n]+\s*/', ' ', (string) $value));
         }
 
         $lines = [];
@@ -238,11 +235,79 @@ final class EmailService
             $lines[] = $filled;
         }
 
+        $factLine = trim((string) ($facts[$language] ?? ''));
+        if ($factLine === '') {
+            $factLine = trim((string) ($facts[DocumentMailKinds::FALLBACK_LANGUAGE] ?? ''));
+        }
+        $segments = [];
+        foreach (explode(' · ', $factLine) as $segment) {
+            $filled = trim(strtr($segment, $inLine));
+            $placeholders = preg_match_all('/\{[a-z0-9_-]+\}/i', $segment, $found);
+            // A segment of placeholders that all came back empty («Termin {termin}» without a date) goes.
+            $resolvedEmpty = $placeholders > 0 && trim(strtr(implode('', $found[0]), $inLine)) === '' && strtr(implode('', $found[0]), $inLine) !== implode('', $found[0]);
+            if ($filled === '' || $resolvedEmpty) {
+                continue;
+            }
+            $segments[] = $filled;
+        }
+
         return [
-            'subject'  => trim(strtr((string) ($subjects[$language] ?? ''), $inSubject)),
+            'subject'  => trim(strtr((string) ($subjects[$language] ?? ''), $inLine)),
+            'facts'    => implode(' · ', $segments),
             'body'     => trim(implode("\n", $lines)),
             'language' => $language,
         ];
+    }
+
+    /**
+     * The language a document mail of $kind renders in for a document in $language — the language
+     * itself when BOTH its subject and its text are filled in the effective source (record or
+     * declaration), else German. A caller that prepares language-bound values (the Briefanrede)
+     * asks this first.
+     */
+    public function documentMailLanguage(string $kind, string $language, ?DocumentMailKinds $kinds = null): string
+    {
+        [$subjects, $bodies] = $this->documentTexts($kind, $kinds);
+
+        return self::chooseLanguage($subjects, $bodies, $language);
+    }
+
+    /**
+     * Subjects, bodies and fact lines of $kind — the active record's, else the declaration's.
+     *
+     * @return array{0: array<string, string>, 1: array<string, string>, 2: array<string, string>}
+     */
+    private function documentTexts(string $kind, ?DocumentMailKinds $kinds): array
+    {
+        $declared = ($kinds ?? DocumentMailKinds::fromModules(DI::getModuleManager()))->get($kind);
+        $subjects = $declared['subject'];
+        $bodies   = $declared['body'];
+        $facts    = $declared['facts'];
+
+        $record = DI::getUnifiedEntityManager()->getRepository(EmailDocumentSetting::class)->findByKind($kind);
+        if ($record !== null && $record->isActive()) {
+            $subjects = $record->getSubjects();
+            $bodies   = $record->getBodies();
+            if ($record->getFacts() !== []) {
+                $facts = $record->getFacts();
+            }
+        }
+
+        return [$subjects, $bodies, $facts];
+    }
+
+    /**
+     * @param array<string, string> $subjects
+     * @param array<string, string> $bodies
+     */
+    private static function chooseLanguage(array $subjects, array $bodies, string $language): string
+    {
+        $language = strtolower(trim($language));
+        if (trim((string) ($subjects[$language] ?? '')) === '' || trim((string) ($bodies[$language] ?? '')) === '') {
+            return DocumentMailKinds::FALLBACK_LANGUAGE;
+        }
+
+        return $language;
     }
 
     /** @return list<string> empty on success */
@@ -400,6 +465,8 @@ final class EmailService
                 'emailBody'    => $body,
                 'subject'      => $email->getSubject(),
                 'mailLanguage' => $language,
+                // The company at the foot of every template mail (owner 2026-11-13) — null: no foot.
+                'mailCompany'  => $this->mailCompany(),
             ]);
         };
 
@@ -412,6 +479,27 @@ final class EmailService
         $translator = DI::getTranslator();
 
         return $translator->inLanguage($language, fn(): string => $draw($translator->currentLanguage()));
+    }
+
+    /**
+     * The company the layout closes with ({@see MailCompany}) — asked once per service; null where
+     * no module registers one or no container answers (a harness without modules).
+     */
+    private function mailCompany(): ?MailCompany
+    {
+        if ($this->companyResolved) {
+            return $this->company;
+        }
+        $this->companyResolved = true;
+        try {
+            $this->company = MailCompany::current(DI::getModuleManager());
+        } catch (\LogicException $e) {
+            throw $e;   // two sources, a bad declaration — a programmer error, loud
+        } catch (\Throwable) {
+            $this->company = null;
+        }
+
+        return $this->company;
     }
 
     /** The language a mail without its own renders in; 'de' where no container answers (a harness). */
