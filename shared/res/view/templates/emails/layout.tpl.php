@@ -17,7 +17,8 @@
  *   - the note «Diese Nachricht wurde maschinell erstellt.» (`MailClosing`, in the mail's
  *     language) — unless the body closed itself (`data-z77-closing`, the document mails: note +
  *     «Fragen beantwortet gerne:» + the sender identity);
- *   - a divider and the COMPANY, smaller and grey: the full name (Art. 954a OR), the address on
+ *   - a divider (one thin line — owner 2026-11-13: the short dark accent at its start looked odd)
+ *     and the COMPANY, smaller and grey: the full name (Art. 954a OR), the address on
  *     one line, phone · e-mail · web on the next — `MailCompany` (module-mandator registers it;
  *     none → no divider, no company). Plain text, no links: the text half reads «Muster AG /
  *     Bahnhofstrasse 12 · 8001 Zürich / …» and the URL parity of HtmlToText is untouched.
@@ -52,7 +53,6 @@ $mailCompany = $mailCompany ?? null;
                         <?php if ($mailCompany !== null): ?>
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:26px 0 16px;">
                             <tr>
-                                <td width="48" style="width:48px;border-top:3px solid #9a9aa8;font-size:0;line-height:0;">&nbsp;</td>
                                 <td style="border-top:1px solid #e0e0e0;font-size:0;line-height:0;">&nbsp;</td>
                             </tr>
                         </table>
