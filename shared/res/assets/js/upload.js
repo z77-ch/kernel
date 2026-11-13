@@ -405,22 +405,32 @@ _Z77.upload = (function () {
         } else if (answer.status === 'conflict') {
             this.askOverwrite(item, { message: message });
         } else if (answer.status === 'error' || answer.status === 'validation') {
+            // A refusal may still carry a region update (a ZIP whose other files got
+            // through) — kept; at the end of a run with a refusal only `leavesRows()` ones run.
+            this.keepCommands(answer.commands);
             this.finish(item, 'error', message || _tr('js.upload.notSaved', 'nicht gespeichert'));
         } else if (answer.status === 'duplicate') {
             this.finish(item, 'skipped', message || _tr('js.upload.identical', 'identisch, schon vorhanden'));
         } else {
             this.finish(item, 'done', message || _tr('js.upload.done', 'hochgeladen'));
-            // Commands wait for the END of the run, deduplicated: ten files answering
-            // «reload» must reload once, after the last one — not ten times, and not
-            // while nine uploads are still in flight.
-            (answer.commands || []).forEach(function (cmd) {
-                var key = JSON.stringify(cmd);
-                if (self.commands.every(function (c) { return JSON.stringify(c) !== key; })) {
-                    self.commands.push(cmd);
-                }
-            });
+            this.keepCommands(answer.commands);
         }
         this.pump();
+    };
+
+    /**
+     * Commands wait for the END of the run, deduplicated: ten files answering «reload» must
+     * reload once, after the last one — not ten times, and not while nine uploads are still
+     * in flight.
+     */
+    Uploader.prototype.keepCommands = function (commands) {
+        var self = this;
+        (commands || []).forEach(function (cmd) {
+            var key = JSON.stringify(cmd);
+            if (self.commands.every(function (c) { return JSON.stringify(c) !== key; })) {
+                self.commands.push(cmd);
+            }
+        });
     };
 
     /**
@@ -534,16 +544,30 @@ _Z77.upload = (function () {
             }
         }
 
-        // Now the endpoint's instructions — but ONLY when every file got through. A
-        // command closes the modal or replaces the pane the rows live in, and the reason a
-        // file was refused stands in its row: carrying that out on a failed run would hide
-        // exactly what the user has to read. (The Drive behaved this way before the
-        // component existed; it is the general rule now.)
+        // Now the endpoint's instructions — all of them when every file got through. On a
+        // run with a refused file only those that leave the rows alone: a command may close
+        // the modal, reload, or replace the pane the rows live in, and the reason a file was
+        // refused stands in its row — carrying that out would hide exactly what the user has
+        // to read. A `replace-html` of a region OUTSIDE the rows (a list beside the upload)
+        // still runs, so the files that did get through show up (owner 2026-11-13: one ZIP
+        // refused, the XML imported, and the list stayed empty until F5).
         var commands = this.commands;
         this.commands = [];
-        if (failed === 0 && commands.length && _Z77.core && _Z77.core.fetch) {
+        if (failed > 0) {
+            var self = this;
+            commands = commands.filter(function (cmd) { return self.leavesRows(cmd); });
+        }
+        if (commands.length && _Z77.core && _Z77.core.fetch) {
             _Z77.core.fetch.handleEnvelope({ commands: commands }, this.form.getAttribute('action'));
         }
+    };
+
+    /** A `replace-html` whose target holds neither the rows nor the form — safe after a refusal. */
+    Uploader.prototype.leavesRows = function (cmd) {
+        if (!cmd || cmd.action !== 'replace-html' || typeof cmd.target !== 'string') return false;
+        var target;
+        try { target = document.querySelector(cmd.target); } catch (e) { return false; }
+        return !!target && !target.contains(this.form) && !(this.list && target.contains(this.list));
     };
 
     /* ── wiring ─────────────────────────────────────────────────────────── */
