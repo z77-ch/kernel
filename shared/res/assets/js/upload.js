@@ -488,7 +488,9 @@ _Z77.upload = (function () {
         item.row.el.classList.add('z77-upload-row--' + state);
         item.row.cancel.hidden = true;
         item.row.fill.style.width = '100%';
-        item.row.text.textContent = state === 'done' ? 'fertig' : message;
+        // A success shows what the endpoint said («1 Meldung importiert, 1 bereits vorhanden»),
+        // else the translated «hochgeladen» — owner 2026-11-14: «fertig» told nothing.
+        item.row.text.textContent = message;
 
         if (state === 'done' || state === 'error') {
             item.row.icon.hidden = false;
