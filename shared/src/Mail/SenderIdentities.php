@@ -7,9 +7,10 @@ use Z77\Shared\Entities\BackendUser;
 
 /**
  * Whose name a mail goes out in (owner decision 2026-10-23) — the ONE place a send action asks.
- * A mail a staff member triggers (today «Alle per E-Mail senden …» of the booking print; later
- * offer, order confirmation, newsletter) is signed with one of HIS sender identities: the
- * identities of the logged-in backend user, the first his default.
+ * A mail a staff member triggers (an invoice's «Per E-Mail …», «Alle per E-Mail senden …» of
+ * the booking print, a dunning, an order's «Senden ▾» — offer, order confirmation, delivery
+ * note; later the newsletter) is signed with one of HIS sender identities: the identities of
+ * the logged-in backend user, the first his default.
  *
  * The send page offers {@see all()} (preselecting {@see DEFAULT_INDEX}), the POST carries the
  * chosen INDEX, and the server asks {@see choose()} again — an index that is not one of THIS

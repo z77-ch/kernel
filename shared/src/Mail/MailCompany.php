@@ -22,7 +22,7 @@ final class MailCompany
     /**
      * @param string $name         the full company name
      * @param string $addressLine  «Bahnhofstrasse 12 · 8001 Zürich» — '' for none
-     * @param string $contactLine  «+41 44 123 45 00 · info@muster.example · muster.example» — '' for none
+     * @param string $contactLine  «+41 44 123 45 67 · info@example.ch · example.ch» — '' for none
      */
     public function __construct(
         public readonly string $name,

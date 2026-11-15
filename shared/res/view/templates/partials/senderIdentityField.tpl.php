@@ -2,8 +2,8 @@
 /**
  * «Senden als» — the sender identity a staff member signs a mail with (owner decision
  * 2026-10-23). A shared building block (Rule 9): every send action that queues mail a person
- * triggers (today the booking print's «Alle per E-Mail senden …»; later offer, order
- * confirmation, newsletter) renders it from {@see \Z77\Shared\Mail\SenderIdentities::viewModel()}:
+ * triggers (the invoice and dunning mails, the booking print's «Alle per E-Mail senden …», an
+ * order's «Senden ▾»; later the newsletter) renders it from {@see \Z77\Shared\Mail\SenderIdentities::viewModel()}:
  *
  *   <?= $this->partial('partials/senderIdentityField', $senders->viewModel(), 'Z77\\Shared') ?>
  *
