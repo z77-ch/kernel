@@ -10,7 +10,10 @@ return [
     // configurable path could be pointed back into a shared store, which is the
     // defect ADR-035 removes. A leftover 'cacheDir' key in an installed
     // config/vendor/bootstrap.inc.php is ignored — see docs/01-handbook/release-structure.md.
-    'apcuCachePrefix' => 'z77',
+    // NOTE: no 'apcuCachePrefix' — the APCu pool is namespaced per installation by
+    // DataCache::poolPrefixFor() (hash of ABS_BASE_PATH), which separates sibling
+    // installations on one host without configuration. The key was written but never
+    // read; a leftover one in an installed config is ignored.
     'overrideDir' => 'override',
     'moduleDir' => 'module',
     'assetDir' => 'assets',

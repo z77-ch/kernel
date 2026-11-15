@@ -227,7 +227,7 @@ final class HelpKnowledge
                 $topics[] = [
                     'id'           => $id,
                     'titel'        => $title,
-                    'beschreibung' => self::describe($html, $template['path'], $addition),
+                    'beschreibung' => self::describe($html, $template['path'], $title, $addition),
                     'quellen'      => [$id . '.txt'],
                 ];
             }
@@ -337,22 +337,34 @@ final class HelpKnowledge
     /**
      * What the routing model sees: the opening sentences, the section headings, the opening of
      * the installation's addition, the screen.
+     *
+     * `Abschnitte` leaves out only the heading that IS the title (the catalog line already
+     * starts with it) — not blindly the first heading: without a general heading the title
+     * comes from the path and the first field heading belongs in the list. The screen tag is
+     * reserved first; a long line shortens its description part, never the screen.
      */
-    private static function describe(string $html, string $path, string $addition = ''): string
+    private static function describe(string $html, string $path, string $title, string $addition = ''): string
     {
         $intro = '';
         if (preg_match('#<p\b[^>]*>(.*?)</p>#is', $html, $m) === 1) {
             $intro = self::lead(self::plain($m[1]), self::INTRO_MAX);
         }
         preg_match_all('#<h[1-6]\b[^>]*>(.*?)</h[1-6]>#is', $html, $all);
-        $headings = array_values(array_unique(array_filter(array_map([self::class, 'plain'], array_slice($all[1], 1)))));
+        $headings = array_values(array_unique(array_filter(
+            array_map([self::class, 'plain'], $all[1]),
+            static fn (string $heading): bool => $heading !== '' && $heading !== $title
+        )));
         $text     = trim($intro . ($headings !== [] ? ' Abschnitte: ' . implode(', ', $headings) . '.' : ''));
         if ($addition !== '') {
             $flat = trim(preg_replace('/\s+/u', ' ', $addition) ?? $addition);
             $text = trim($text . ' Ergänzung: ' . self::lead($flat, self::ADDITION_MAX));
         }
-        $text    .= ' (Bildschirm ' . self::screen($path) . ')';
-        return mb_strlen($text) > self::DESC_MAX ? mb_substr($text, 0, self::DESC_MAX - 1) . '…' : trim($text);
+        $screen = '(Bildschirm ' . self::screen($path) . ')';
+        $room   = self::DESC_MAX - mb_strlen($screen) - 1;   // 1 = the space before the screen tag
+        if (mb_strlen($text) > $room) {
+            $text = rtrim(mb_substr($text, 0, max(0, $room - 1))) . '…';
+        }
+        return trim($text . ' ' . $screen);
     }
 
     /** At most `$max` characters, cut back to the last `. ` / `; ` after char 40, else ` …`. */

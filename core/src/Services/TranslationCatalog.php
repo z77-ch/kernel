@@ -23,11 +23,19 @@ use Z77\Persistence\File\Storage\FileStorage;
  * so a file write is immediately effective; only the rendered-HTML page cache is
  * cleared so already-cached pages pick up changed strings / localized URLs.
  *
+ * Every write is a read-modify-write over SEVERAL files (one per language, plus the
+ * existence check and the slug validation), so each runs under ONE exclusive catalog
+ * lock ({@see FileStorage::withExclusiveLock()}): two concurrent saves no longer read
+ * the same state and drop each other's change. save() alone only makes one file atomic.
+ *
  * NOT the language authority — that is {@see I18n}. This only reads/writes the data.
  */
 class TranslationCatalog
 {
     private const DIR = 'framework/i18n';
+
+    /** Lock path for every write cycle of both families (data/framework/i18n/catalog.lock). */
+    private const LOCK = self::DIR . '/catalog';
 
     /** Acceptable UI translation key: namespaced dotted identifier (e.g. `nav.home`, `js.scriptLoadError`). */
     private const UI_KEY_PATTERN = '/^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/';
@@ -114,38 +122,45 @@ class TranslationCatalog
         $languages = $this->uiLanguages();
         $rename    = $originalKey !== null && $originalKey !== '' && $originalKey !== $key;
 
-        // Reject a rename / add onto an already existing key (would silently merge).
-        if (($rename || $originalKey === null) && $this->uiKeyExists($key)) {
-            return ['Der Schlüssel «' . $key . '» existiert bereits.'];
-        }
+        $errors = $this->locked(function () use ($key, $values, $originalKey, $default, $languages, $rename): array {
+            // Reject a rename / add onto an already existing key (would silently merge).
+            if (($rename || $originalKey === null) && $this->uiKeyExists($key)) {
+                return ['Der Schlüssel «' . $key . '» existiert bereits.'];
+            }
 
-        foreach ($languages as $lang) {
-            $table = $this->readMap($this->uiPath($lang));
-            if ($rename) {
-                unset($table[$originalKey]);
+            foreach ($languages as $lang) {
+                $table = $this->readMap($this->uiPath($lang));
+                if ($rename) {
+                    unset($table[$originalKey]);
+                }
+                $value = trim((string)($values[$lang] ?? ''));
+                if ($lang === $default || $value !== '') {
+                    $table[$key] = $value;
+                } else {
+                    unset($table[$key]);
+                }
+                $this->writeMap($this->uiPath($lang), $table);
             }
-            $value = trim((string)($values[$lang] ?? ''));
-            if ($lang === $default || $value !== '') {
-                $table[$key] = $value;
-            } else {
-                unset($table[$key]);
-            }
-            $this->writeMap($this->uiPath($lang), $table);
+            return [];
+        });
+        if ($errors === []) {
+            $this->flushPageCache();
         }
-        $this->flushPageCache();
-        return [];
+        return $errors;
     }
 
     /** Removes a UI-string key from every language file. */
     public function deleteUiEntry(string $key): void
     {
-        foreach ($this->uiLanguages() as $lang) {
-            $table = $this->readMap($this->uiPath($lang));
-            if (array_key_exists($key, $table)) {
-                unset($table[$key]);
-                $this->writeMap($this->uiPath($lang), $table);
+        $this->locked(function () use ($key): void {
+            foreach ($this->uiLanguages() as $lang) {
+                $table = $this->readMap($this->uiPath($lang));
+                if (array_key_exists($key, $table)) {
+                    unset($table[$key]);
+                    $this->writeMap($this->uiPath($lang), $table);
+                }
             }
-        }
+        });
         $this->flushPageCache();
     }
 
@@ -231,58 +246,65 @@ class TranslationCatalog
         }
 
         $rename = $originalCanonical !== null && $originalCanonical !== '' && $originalCanonical !== $canonical;
-        if (($rename || $originalCanonical === null) && $this->slugCanonicalExists($canonical)) {
-            return ['Der kanonische Slug «' . $canonical . '» existiert bereits.'];
-        }
-
-        $errors  = [];
-        $pending = []; // lang → [table, path] to write once all languages validate
-
-        foreach ($this->slugLanguages() as $lang) {
-            $table = $this->readMap($this->slugPath($lang));
-            if ($rename) {
-                unset($table[$originalCanonical]);
+        $errors = $this->locked(function () use ($canonical, $values, $originalCanonical, $rename): array {
+            if (($rename || $originalCanonical === null) && $this->slugCanonicalExists($canonical)) {
+                return ['Der kanonische Slug «' . $canonical . '» existiert bereits.'];
             }
-            $value = trim((string)($values[$lang] ?? ''));
 
-            if ($value === '') {
-                unset($table[$canonical]);
-            } else {
-                if (!preg_match(self::SLUG_PATTERN, $value)) {
-                    $errors[] = $lang . ': ungültiger Slug «' . $value . '» — nur Kleinbuchstaben, Ziffern und Bindestriche.';
-                    continue;
+            $errors  = [];
+            $pending = []; // lang → table to write once all languages validate
+
+            foreach ($this->slugLanguages() as $lang) {
+                $table = $this->readMap($this->slugPath($lang));
+                if ($rename) {
+                    unset($table[$originalCanonical]);
                 }
-                $table[$canonical] = $value;
-                $rowError = $this->slugTableError($lang, $table);
-                if ($rowError !== null) {
-                    $errors[] = $rowError;
-                    continue;
+                $value = trim((string)($values[$lang] ?? ''));
+
+                if ($value === '') {
+                    unset($table[$canonical]);
+                } else {
+                    if (!preg_match(self::SLUG_PATTERN, $value)) {
+                        $errors[] = $lang . ': ungültiger Slug «' . $value . '» — nur Kleinbuchstaben, Ziffern und Bindestriche.';
+                        continue;
+                    }
+                    $table[$canonical] = $value;
+                    $rowError = $this->slugTableError($lang, $table);
+                    if ($rowError !== null) {
+                        $errors[] = $rowError;
+                        continue;
+                    }
                 }
+                $pending[$lang] = $table;
             }
-            $pending[$lang] = $table;
-        }
 
-        if ($errors !== []) {
-            return $errors;
-        }
+            if ($errors !== []) {
+                return $errors;
+            }
 
-        foreach ($pending as $lang => $table) {
-            $this->writeMap($this->slugPath($lang), $table);
+            foreach ($pending as $lang => $table) {
+                $this->writeMap($this->slugPath($lang), $table);
+            }
+            return [];
+        });
+        if ($errors === []) {
+            $this->flushPageCache();
         }
-        $this->flushPageCache();
-        return [];
+        return $errors;
     }
 
     /** Removes a canonical segment from every non-default slug table. */
     public function deleteSlugEntry(string $canonical): void
     {
-        foreach ($this->slugLanguages() as $lang) {
-            $table = $this->readMap($this->slugPath($lang));
-            if (array_key_exists($canonical, $table)) {
-                unset($table[$canonical]);
-                $this->writeMap($this->slugPath($lang), $table);
+        $this->locked(function () use ($canonical): void {
+            foreach ($this->slugLanguages() as $lang) {
+                $table = $this->readMap($this->slugPath($lang));
+                if (array_key_exists($canonical, $table)) {
+                    unset($table[$canonical]);
+                    $this->writeMap($this->slugPath($lang), $table);
+                }
             }
-        }
+        });
         $this->flushPageCache();
     }
 
@@ -335,6 +357,12 @@ class TranslationCatalog
     private function slugPath(string $language): string
     {
         return self::DIR . '/route-slugs.' . $language . '.json';
+    }
+
+    /** Runs one read-modify-write cycle of the catalog under its exclusive lock. */
+    private function locked(callable $fn): mixed
+    {
+        return $this->storage->withExclusiveLock(self::LOCK, $fn);
     }
 
     /** @return array<string, string> */

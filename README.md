@@ -36,7 +36,8 @@ as one package rather than three cyclic ones. See
   controller helpers (`html()`, `fetch()`, `json()`, `redirect()`, `file()`, …), `AccessGuard`, CSRF,
   page cache, ETag.
 - `Controller\`, `Services\` — the abstract controllers, layout/view (`LayoutManager`), `Translator`,
-  navigation, help (`HelpService`, ADR-048), auth and session services.
+  navigation, help (`HelpService`, ADR-048, with the installation's own addition per help —
+  `HelpAddition`, «Hilfe ergänzen»), auth and session services.
 - `Installer\Install` — the Composer script that sets up and updates a project: config, data seeds,
   `public/` entry files, asset publication (`res/assets` → `public/assets/{package}`).
 - `Kibot\` — the z77 adapter of `z77/kibot` (`KibotEndpoint`) and `HelpKnowledge`, which turns every
@@ -46,7 +47,9 @@ as one package rather than three cyclic ones. See
 
 Auth and roles, forms (`FormGuard`, public form handler), listing (`ListDefinition` and the list
 partials), paging, upload component, tree (`TreeService`), money (`Money`, `AmountFormat`), PDF writer
-and QR encoder facades (the Swiss QR-bill itself is built in module-debtor on top of them), mail, jobs (`z77-run`), backup/restore, import (staging, plan, apply), statistics,
+and QR encoder facades (the Swiss QR-bill itself is built in module-debtor on top of them), payment
+identifiers (`Payment\Iban`, `QrReference`, `ScorReference`, `Mod97` — shared by module-debtor and
+module-creditor), mail, jobs (`z77-run`), backup/restore, import (staging, plan, apply), statistics,
 GeoIP, alerts, API results, build stamp. The shared templates under `shared/res/view/templates/` hold
 the partials every backend screen uses (list head and search, pager, row handle, confirm, upload,
 help trigger, CSRF field) and the shared PDF layouts (address window, table, report).

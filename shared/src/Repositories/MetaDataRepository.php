@@ -14,4 +14,10 @@ class MetaDataRepository extends FileRepository
             'language'      => $language,
         ]);
     }
+
+    /** @return MetaData[] every language's record of one navigation entry */
+    public function findByNavigationId(int $navigationId): array
+    {
+        return $this->findBy(['navigation_id' => $navigationId]);
+    }
 }
