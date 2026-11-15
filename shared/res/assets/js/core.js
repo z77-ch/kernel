@@ -891,10 +891,11 @@ _Z77.core.fetch = (function () {
         var region = scope ? scope.querySelector('[data-fetch-region="' + p.name + '"]') : null;
         if (region) _Z77.core.region.load(region, region.getAttribute('data-fetch-region-src') || window.location.href);
     });
-    // {action: 'refresh-window', window} — an open window reloads its own content from the
+    // {action: 'refresh-window', window?} — an open window reloads its own content from the
     // address it last loaded (a record fixed in a child window: the parent's summary follows).
-    registerCommand('refresh-window', function (p) {
-        _Z77.core.windows.reload(_Z77.core.windows.byId(p.window));
+    // Without `window`: the window the request came from (a live listener inside it).
+    registerCommand('refresh-window', function (p, _d, ctx) {
+        _Z77.core.windows.reload(_Z77.core.windows.byId(p.window || (ctx && ctx.window)));
     });
 
     /* ── update [data-field] slots inside a container ──────────────────── */
@@ -1941,10 +1942,13 @@ _Z77.core.help = (function () {
  * as HTML. It must not open as a popup, and the page must not jump to the login under a
  * half-typed form; the user's next action finds out.
  *
- * Nobody asked for a listener's answer either, so its `reload` or redirect waits while someone is
- * at work (owner 2026-11-02): unsaved changes, a field changed from its loaded value, an open
- * <dialog>. What stands in a closed <dialog> does not count: closing one is a deliberate discard
- * (owner 2026-11-03). The rest of the answer runs at once; the page moves when the work is done.
+ * Nobody asked for a listener's answer either, so its MOVES wait while someone is at work (owner
+ * 2026-11-02): `reload`, a redirect, and a part reloaded from the server — `refresh-region`,
+ * `refresh-window` (owner 2026-11-15: a list that updates itself must not swap the rows under a
+ * ticked checkbox or a half-typed search) — while there are unsaved changes, a field changed from
+ * its loaded value, an open <dialog>. What stands in a closed <dialog> does not count: closing one
+ * is a deliberate discard (owner 2026-11-03). The rest of the answer runs at once; the held moves
+ * run when the work is done — one per listener, its latest.
  *
  * Rule 7: this decides nothing and renders nothing itself — the server sends the commands, and
  * the HTML in them is wired like any other fragment.
@@ -1955,7 +1959,8 @@ _Z77.core.live = (function () {
     var _known    = new WeakSet();
     var CALM_MS   = 2000;
     var _waiting  = [];     // listeners whose turn came in a hidden tab
-    var _held     = null;   // the move of the page an answer brought while someone was at work
+    var _held     = [];     // the moves answers brought while someone was at work — {env, url, ctx}, one per listener URL
+    var MOVES     = 'reload refresh-region refresh-window'.split(' ');   // the commands that move the page or a part of it
 
     function _alive(el) {
         return el.isConnected && el.hasAttribute('data-fetch-live');
@@ -2038,25 +2043,27 @@ _Z77.core.live = (function () {
     function _waitForCalm() {
         setTimeout(function () {
             if (_atWork()) { _waitForCalm(); return; }
-            var held = _held;
-            _held = null;
-            _Z77.core.fetch.handleEnvelope(held.env, held.url, held.ctx);
+            _held.splice(0).forEach(function (held) {
+                _Z77.core.fetch.handleEnvelope(held.env, held.url, held.ctx);
+            });
         }, CALM_MS);
     }
 
-    /* The answer to run now: without its reload or redirect when these have to wait. */
+    /* The answer to run now: without its moves (reload, redirect, refresh-region / -window) when
+     * these have to wait. A later answer of the same listener replaces its held moves. */
     function _holdMove(env, url, ctx) {
         var commands = (env && env.commands) || [];
-        var isReload = function (c) { return c.action === 'reload'; };
-        var reloads  = commands.some(isReload);
-        if (!env || (!env.redirect && !reloads) || !_atWork()) return env;
+        var isMove   = function (c) { return MOVES.indexOf(c.action) !== -1; };
+        var moves    = commands.filter(isMove);
+        if (!env || (!env.redirect && !moves.length) || !_atWork()) return env;
 
-        if (!_held) _waitForCalm();
-        _held = { env: env.redirect ? { redirect: env.redirect } : { commands: [{ action: 'reload' }] }, url: url, ctx: ctx };
+        if (!_held.length) _waitForCalm();
+        _held = _held.filter(function (held) { return held.url !== url; });
+        _held.push({ env: env.redirect ? { redirect: env.redirect } : { commands: moves }, url: url, ctx: ctx });
 
         var rest = Object.assign({}, env);
         delete rest.redirect;
-        rest.commands = commands.filter(function (c) { return !isReload(c); });
+        rest.commands = commands.filter(function (c) { return !isMove(c); });
         return rest;
     }
 
