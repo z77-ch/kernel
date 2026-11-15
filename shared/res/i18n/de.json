@@ -1,5 +1,7 @@
 {
     "common.help": "Hilfe",
+    "common.helpAddition": "Ergänzung",
+    "js.helpEdit": "Hilfe ergänzen",
     "shared.upload.pick": "auswählen",
     "shared.upload.submit": "Hochladen",
     "js.upload.notAllowed": "nicht erlaubt ({$types})",

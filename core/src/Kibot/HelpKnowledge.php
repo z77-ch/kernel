@@ -2,6 +2,7 @@
 namespace Z77\Core\Kibot;
 
 use Z77\Core\Libraries\FileFinder,
+    Z77\Core\Services\HelpAddition,
     Z77\Core\Services\HelpService,
     Z77\Core\Services\TemplateRenderer,
     Z77\KiBot\Topics
@@ -31,6 +32,13 @@ use Z77\Core\Libraries\FileFinder,
  * when that set changes or a template is newer than the index (a deploy with changed help
  * texts updates the knowledge on the first question). A lock keeps two requests from
  * building at once; the loser keeps answering from the existing index.
+ *
+ * Additions (owner 2026-11-15, «Hilfe ergänzen»): with a {@see HelpAddition} store, the
+ * installation's own text to a help is appended to that topic's text under «## Ergänzung»,
+ * and its opening goes into the catalog line (`Ergänzung: …`) — the router sees what the
+ * admin added. The signature hashes each addition's CONTENT (not its mtime: a save within the
+ * second the index was built would be missed), so a save, a change or a removal makes the
+ * index stale and the next question rebuilds it.
  */
 final class HelpKnowledge
 {
@@ -40,6 +48,7 @@ final class HelpKnowledge
     private const LOCK         = '.build.lock';
     private const DESC_MAX     = 600;
     private const INTRO_MAX    = 240;
+    private const ADDITION_MAX = 200;
 
     /** @var null|\Closure(string): void */
     private ?\Closure $log;
@@ -48,18 +57,20 @@ final class HelpKnowledge
      * @param array<string, list<string>> $roots  namespace => template roots in lookup order (override first)
      * @param string                      $outDir directory of the generated topic set (outside public/)
      * @param null|callable(string): void $log    receives one line per skipped or statically rendered template
+     * @param null|HelpAddition           $additions the installation's additions to the helps; null = none
      */
     public function __construct(
         private array $roots,
         private string $outDir,
         ?callable $log = null,
+        private ?HelpAddition $additions = null,
     ) {
         $this->outDir = rtrim(str_replace('\\', '/', $outDir), '/');
         $this->log    = $log === null ? null : \Closure::fromCallable($log);
     }
 
     /** The installation's template roots, from the FileFinder's namespace table (override first). */
-    public static function fromFileFinder(FileFinder $finder, string $outDir, ?callable $log = null): self
+    public static function fromFileFinder(FileFinder $finder, string $outDir, ?callable $log = null, ?HelpAddition $additions = null): self
     {
         $tplDir = $finder->getTplDir();
         $roots  = [];
@@ -68,7 +79,30 @@ final class HelpKnowledge
                 $roots[$ns][] = rtrim(str_replace('\\', '/', $path), '/') . '/' . $tplDir;
             }
         }
-        return new self($roots, $outDir, $log);
+        return new self($roots, $outDir, $log, $additions);
+    }
+
+    /**
+     * The help templates of the installation, by topic id — what a help addition may be written
+     * for (the backend's `HelpController` validates the id against it). Discovery only: nothing
+     * is rendered or written.
+     *
+     * @return array<string, array{id: string, nameSpace: string, path: string, file: string, mtime: int, addition: string}>
+     */
+    public static function templates(FileFinder $finder): array
+    {
+        return self::fromFileFinder($finder, '')->discover();
+    }
+
+    /**
+     * The title a help has in the index, from its STATIC text (tokenizer — nothing is
+     * executed): for a window that names the help without rendering it.
+     *
+     * @param array{file: string, path: string} $template one entry of {@see discover()}
+     */
+    public static function staticTitle(array $template): string
+    {
+        return self::title(self::staticHtml($template['file']), $template['path']);
     }
 
     public function outDir(): string
@@ -79,7 +113,9 @@ final class HelpKnowledge
     /**
      * Every help template, one per topic id; per namespace the first root that has a path wins.
      *
-     * @return array<string, array{id: string, nameSpace: string, path: string, file: string, mtime: int}>
+     * `addition` = the file of the help's addition, '' when it has none.
+     *
+     * @return array<string, array{id: string, nameSpace: string, path: string, file: string, mtime: int, addition: string}>
      */
     public function discover(): array
     {
@@ -111,7 +147,9 @@ final class HelpKnowledge
                         $this->log("help index: {$file} skipped — topic id {$id} already taken by {$found[$id]['file']}");
                         continue;
                     }
-                    $found[$id] = ['id' => $id, 'nameSpace' => $ns, 'path' => $path, 'file' => $file, 'mtime' => (int) filemtime($file)];
+                    $addition   = $this->additions !== null && HelpAddition::isValidId($id) ? $this->additions->file($id) : '';
+                    $found[$id] = ['id' => $id, 'nameSpace' => $ns, 'path' => $path, 'file' => $file, 'mtime' => (int) filemtime($file),
+                        'addition' => $addition !== '' && is_file($addition) ? $addition : ''];
                 }
             }
         }
@@ -119,7 +157,7 @@ final class HelpKnowledge
         return $found;
     }
 
-    /** Whether the index is missing, built from another set of templates, or older than one of them. */
+    /** Whether the index is missing, built from another set of templates or additions, or older than a template. */
     public function isStale(?array $found = null): bool
     {
         $found ??= $this->discover();
@@ -172,11 +210,16 @@ final class HelpKnowledge
                 if ($html === null) {
                     continue;
                 }
-                $text = self::toText($html);
-                if ($text === '') {
+                $text     = self::toText($html);
+                $addition = $this->addition($template);
+                if ($text === '' && $addition === '') {
                     $report['skipped'][] = $template['file'];
                     $this->log("help index: {$template['file']} skipped — no text");
                     continue;
+                }
+                if ($addition !== '') {
+                    // The installation's own text, below the help as in the help window.
+                    $text = trim($text . "\n\n## Ergänzung\n" . $addition);
                 }
                 $title = self::title($html, $template['path']);
                 self::write($this->outDir . '/' . $id . '.txt',
@@ -184,7 +227,7 @@ final class HelpKnowledge
                 $topics[] = [
                     'id'           => $id,
                     'titel'        => $title,
-                    'beschreibung' => self::describe($html, $template['path']),
+                    'beschreibung' => self::describe($html, $template['path'], $addition),
                     'quellen'      => [$id . '.txt'],
                 ];
             }
@@ -291,23 +334,42 @@ final class HelpKnowledge
         return preg_replace('/\.help$/', '', $path) ?? $path;
     }
 
-    /** What the routing model sees: the opening sentences, the section headings, the screen. */
-    private static function describe(string $html, string $path): string
+    /**
+     * What the routing model sees: the opening sentences, the section headings, the opening of
+     * the installation's addition, the screen.
+     */
+    private static function describe(string $html, string $path, string $addition = ''): string
     {
         $intro = '';
         if (preg_match('#<p\b[^>]*>(.*?)</p>#is', $html, $m) === 1) {
-            $intro = self::plain($m[1]);
-            if (mb_strlen($intro) > self::INTRO_MAX) {
-                $cut   = mb_substr($intro, 0, self::INTRO_MAX);
-                $stop  = max((int) mb_strrpos($cut, '. '), (int) mb_strrpos($cut, '; '));
-                $intro = $stop > 40 ? mb_substr($cut, 0, $stop + 1) : $cut . ' …';
-            }
+            $intro = self::lead(self::plain($m[1]), self::INTRO_MAX);
         }
         preg_match_all('#<h[1-6]\b[^>]*>(.*?)</h[1-6]>#is', $html, $all);
         $headings = array_values(array_unique(array_filter(array_map([self::class, 'plain'], array_slice($all[1], 1)))));
         $text     = trim($intro . ($headings !== [] ? ' Abschnitte: ' . implode(', ', $headings) . '.' : ''));
+        if ($addition !== '') {
+            $flat = trim(preg_replace('/\s+/u', ' ', $addition) ?? $addition);
+            $text = trim($text . ' Ergänzung: ' . self::lead($flat, self::ADDITION_MAX));
+        }
         $text    .= ' (Bildschirm ' . self::screen($path) . ')';
         return mb_strlen($text) > self::DESC_MAX ? mb_substr($text, 0, self::DESC_MAX - 1) . '…' : trim($text);
+    }
+
+    /** At most `$max` characters, cut back to the last `. ` / `; ` after char 40, else ` …`. */
+    private static function lead(string $text, int $max): string
+    {
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+        $cut  = mb_substr($text, 0, $max);
+        $stop = max((int) mb_strrpos($cut, '. '), (int) mb_strrpos($cut, '; '));
+        return $stop > 40 ? mb_substr($cut, 0, $stop + 1) : $cut . ' …';
+    }
+
+    /** The addition of a discovered help (normalized), '' without. */
+    private function addition(array $template): string
+    {
+        return $this->additions === null || ($template['addition'] ?? '') === '' ? '' : $this->additions->load($template['id']);
     }
 
     private static function plain(string $html): string
@@ -316,10 +378,18 @@ final class HelpKnowledge
         return trim(preg_replace('/\s+/u', ' ', $text) ?? $text);
     }
 
-    /** @param array<string, array{file: string}> $found */
+    /**
+     * The template set plus each addition's content hash — a saved, changed or removed
+     * addition changes it (content, not mtime: one-second mtimes would miss a quick save).
+     *
+     * @param array<string, array{id: string, file: string, addition?: string}> $found
+     */
     private static function signature(array $found): string
     {
-        return md5(implode("\n", array_map(static fn (array $t): string => $t['id'] . '=' . $t['file'], $found)));
+        return md5(implode("\n", array_map(static function (array $t): string {
+            $addition = ($t['addition'] ?? '') !== '' ? '+' . (string) @md5_file($t['addition']) : '';
+            return $t['id'] . '=' . $t['file'] . $addition;
+        }, $found)));
     }
 
     /** Write-then-rename: a reader never sees half a file. */

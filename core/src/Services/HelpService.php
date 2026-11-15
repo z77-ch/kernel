@@ -31,10 +31,24 @@ use Z77\Core\DI,
  * index ({@see \Z77\Core\Kibot\HelpKnowledge}) names each template by {@see topicIdFor()},
  * and the transport block carries the same id as `data-help-topic`, so the assistant knows
  * which help belongs to the screen it is asked from.
+ *
+ * «Hilfe ergänzen» (owner 2026-11-15, ADR-048 addendum): the installation's own text to a help
+ * ({@see HelpAddition}, plain text under `data/help/`) is appended to the help as its last
+ * section (`partials/helpAddition`, `[data-help-addition]`). Where the shell grants editing
+ * ({@see editAt()} — the backend for an admin), the block carries `data-help-edit` = the edit
+ * window's URL; core.js then shows the pencil in the help window's head. The URL is a UI hint
+ * only: the edit action checks the rights again.
  */
 class HelpService
 {
     private ?array $attached = null;
+    private string $editUrl  = '';
+    private ?HelpAddition $additions;
+
+    public function __construct(?HelpAddition $additions = null)
+    {
+        $this->additions = $additions;
+    }
 
     public function attach(string $path, string $nameSpace, array $context = [], string $title = '', bool $toolbar = false): void
     {
@@ -78,17 +92,48 @@ class HelpService
         return strlen($id) <= 64 ? $id : substr($id, 0, 55) . '-' . substr(md5($id), 0, 8);
     }
 
+    /**
+     * The shell grants editing the help's addition: `$url` is the edit window's address, the
+     * topic id is appended as `?topic=`. '' = no editing (the default — member, frontend, a
+     * backend user below admin). A UI hint only; the edit action checks the rights itself.
+     */
+    public function editAt(string $url): void
+    {
+        $this->editUrl = $url;
+    }
+
+    /** The installation's additions ({@see HelpAddition::forInstallation()} unless one was injected). */
+    public function additions(): HelpAddition
+    {
+        return $this->additions ??= HelpAddition::forInstallation();
+    }
+
+    /**
+     * The addition of a help as its section (`partials/helpAddition`); '' when it has none.
+     */
+    public function additionHtml(string $topicId): string
+    {
+        $paragraphs = HelpAddition::paragraphs($this->additions()->load($topicId));
+        return $paragraphs === []
+            ? ''
+            : (new TemplateRenderer('Z77\\Shared'))->partial('partials/helpAddition', ['paragraphs' => $paragraphs], 'Z77\\Shared');
+    }
+
     /** The attached help as its transport block; '' without help. A missing template is the developer's error and throws. */
     public function render(): string
     {
         if ($this->attached === null) {
             return '';
         }
-        $file = DI::getFileFinder()->getFirstTplMatch($this->attached['path'] . '.tpl.php', $this->attached['nameSpace']);
-        $html = (new TemplateRenderer($this->attached['nameSpace']))->render($file, $this->attached['context']);
+        $file  = DI::getFileFinder()->getFirstTplMatch($this->attached['path'] . '.tpl.php', $this->attached['nameSpace']);
+        $html  = (new TemplateRenderer($this->attached['nameSpace']))->render($file, $this->attached['context']);
+        $topic = $this->topicId();
+        $edit  = $this->editUrl === ''
+            ? ''
+            : ' data-help-edit="' . htmlspecialchars($this->editUrl . '?topic=' . rawurlencode($topic), ENT_QUOTES) . '"';
 
         return '<template data-help data-help-title="' . htmlspecialchars($this->attached['title'], ENT_QUOTES)
-            . '" data-help-topic="' . htmlspecialchars($this->topicId(), ENT_QUOTES) . '">'
-            . $html . '</template>';
+            . '" data-help-topic="' . htmlspecialchars($topic, ENT_QUOTES) . '"' . $edit . '>'
+            . $html . $this->additionHtml($topic) . '</template>';
     }
 }

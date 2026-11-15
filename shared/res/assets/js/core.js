@@ -1649,6 +1649,16 @@ _Z77.core.windows = (function () {
  *   Inside the help window (built here):
  *   [data-help-full]            toggles full screen (`is-full`, aria-pressed follows)
  *   [data-help-close]           closes the help window
+ *   [data-help-edit-open]       «Hilfe ergänzen» (✎, left of ⤢, owner 2026-11-15): there only
+ *                               while the shown help's template carries `data-help-edit="<url>"`
+ *                               (HelpService, an admin in the backend). It is a plain
+ *                               `[data-window-open]` — the windows module opens the edit window;
+ *                               the server checks the rights again.
+ *   {action: 'help-addition', topic, title, paragraphs}
+ *                               the save's answer: the addition section `[data-help-addition]`
+ *                               is rebuilt from the texts (textContent, `\n` → <br>; no
+ *                               paragraphs = removed) and swapped in every help template of that
+ *                               topic and in the help window when it shows it.
  *
  * ONE help window: a second «i» replaces its content and title. Placement: docked to the right,
  * full height (`is-docked`); dragging the title bar makes it float (`is-floating`). Resizing is
@@ -1761,11 +1771,67 @@ _Z77.core.help = (function () {
         if (!tpl || !tpl.content) return null;
         var win = _win || _build();
         win.querySelector('.z77-help__title').textContent = tpl.getAttribute('data-help-title') || _Z77.core.i18n.t('common.help', 'Hilfe');
+        win._z77Topic = tpl.getAttribute('data-help-topic') || '';
+        _editButton(win, tpl.getAttribute('data-help-edit') || '');
         var body = win.querySelector('.z77-help__body');
         body.textContent = '';
         body.appendChild(tpl.content.cloneNode(true));
         _reveal(body, key || '');
         return win;
+    }
+
+    /* The pencil left of ⤢ — only while the shown help may be edited (the server put the edit
+     * window's address on its template). Same-origin path only; the windows module opens it. */
+    function _editButton(win, url) {
+        var head = win.querySelector('.z77-help__head');
+        var btn  = head.querySelector('[data-help-edit-open]');
+        if (!/^\/(?!\/)/.test(url)) {
+            if (btn) head.removeChild(btn);
+            return;
+        }
+        if (!btn) {
+            btn = _headButton('z77-help__edit', 'data-help-edit-open', _Z77.core.i18n.t('js.helpEdit', 'Hilfe ergänzen'), '✎');
+            head.insertBefore(btn, head.querySelector('[data-help-full]'));
+        }
+        btn.setAttribute('data-window-open', url);
+    }
+
+    /* `help-addition` after a save: the new addition section (no paragraphs = none) replaces the
+     * old one in every help template of the topic and in the help window when it shows that
+     * topic. Built node by node from the texts (Rule 7: no markup from data) — the same shape
+     * as `partials/helpAddition`, which renders it into the help block. */
+    function addition(topic, title, paragraphs) {
+        if (!topic) return;
+        var fresh = _additionSection(title, paragraphs || []);
+        var all = document.querySelectorAll('template[data-help]');
+        for (var i = 0; i < all.length; i++) {
+            if (all[i].getAttribute('data-help-topic') === topic) _swapAddition(all[i].content, fresh);
+        }
+        if (_win && _win._z77Topic === topic) _swapAddition(_win.querySelector('.z77-help__body'), fresh);
+    }
+    function _additionSection(title, paragraphs) {
+        if (!paragraphs.length) return null;
+        var sec = document.createElement('section');
+        sec.className = 'z77-help__addition';
+        sec.setAttribute('data-help-addition', '');
+        var head = document.createElement('h4');
+        head.className = 'z77-help__addition-title';
+        head.textContent = title || '';
+        sec.appendChild(head);
+        paragraphs.forEach(function (text) {
+            var p = document.createElement('p');
+            String(text).split('\n').forEach(function (line, i) {
+                if (i) p.appendChild(document.createElement('br'));
+                p.appendChild(document.createTextNode(line));
+            });
+            sec.appendChild(p);
+        });
+        return sec;
+    }
+    function _swapAddition(root, fresh) {
+        var old = root.querySelector('[data-help-addition]');
+        if (old) old.parentNode.removeChild(old);
+        if (fresh) root.appendChild(fresh.cloneNode(true));
     }
 
     /* Removes the help window; the next «i» builds a fresh one, docked again. */
@@ -1845,9 +1911,10 @@ _Z77.core.help = (function () {
             if (e.target.closest('[data-help-close]')) { close(); return; }
             if (e.target.closest('[data-help-full]')) _full(!_win.classList.contains('is-full'));
         });
+        _Z77.core.fetch.registerCommand('help-addition', function (p) { addition(p.topic, p.title, p.paragraphs); });
     }
 
-    return { open: open, close: close, bind: bind };
+    return { open: open, close: close, addition: addition, bind: bind };
 })();
 
 /* ── live listener ──────────────────────────────────────────────────────────

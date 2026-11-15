@@ -1,5 +1,7 @@
 {
     "common.help": "Help",
+    "common.helpAddition": "Addition",
+    "js.helpEdit": "Add to the help",
     "shared.upload.pick": "choose",
     "shared.upload.submit": "Upload",
     "js.upload.notAllowed": "not allowed ({$types})",
