@@ -1202,8 +1202,10 @@ _Z77.core.windows = (function () {
         Array.prototype.forEach.call(layer.parentNode.children, function (c) {
             // The message and flash channels stay live: a message about a window (a field
             // conflict, «gespeichert») must be readable and closable above the windows.
-            // The help window (ADR-048) is read beside the form: it stays live as well.
-            if (c === layer || c.tagName === 'SCRIPT' || c.tagName === 'DIALOG' || c.id === 'messages' || c.id === 'flash-messages' || c.hasAttribute('data-z77-help')) return;
+            // The help window (ADR-048) is read beside the form: it stays live as well — and so
+            // does any panel that marks itself `data-z77-stay-live` (the KI-Assistent, ADR-055:
+            // it answers questions ABOUT the open window; owner 2026-11-15, it was blocked).
+            if (c === layer || c.tagName === 'SCRIPT' || c.tagName === 'DIALOG' || c.id === 'messages' || c.id === 'flash-messages' || c.hasAttribute('data-z77-help') || c.hasAttribute('data-z77-stay-live')) return;
             if (on) c.setAttribute('inert', ''); else c.removeAttribute('inert');
         });
     }
