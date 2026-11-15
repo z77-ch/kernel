@@ -103,7 +103,7 @@ final class JobRunner
     /**
      * One pass over the queue.
      *
-     * @return array{executed:int,done:int,again:int,failed:int,reclaimed:int,seeded:int,queued:int,pruned:int,lines:list<string>}
+     * @return array{executed:int,done:int,again:int,failed:int,reclaimed:int,seeded:int,queued:int,pruned:int,problems:int,lines:list<string>}
      */
     public function run(?int $now = null): array
     {
@@ -120,6 +120,7 @@ final class JobRunner
             'seeded'    => 0,
             'queued'    => 0,
             'pruned'    => 0,
+            'problems'  => 0,
             'lines'     => [],
         ];
 
@@ -193,6 +194,7 @@ final class JobRunner
             $summary['queued'] = $this->schedules->enqueueDue($this->queue, $registry, $now, $problems);
 
             foreach ($problems as $problem) {
+                $summary['problems']++;
                 $summary['lines'][] = 'schedule problem — ' . $problem;
             }
         } finally {

@@ -11,9 +11,9 @@
  *   php /path/to/project/cron/run.php
  *
  * One cron line per installation; everything else is configured in the
- * application. A pass with nothing due boots and exits SILENTLY — cron
- * mails every run that produces output, so only a pass that did something
- * (or failed) says so.
+ * application. A healthy pass — idle or busy — exits SILENTLY: cron mails
+ * every run that produces output, so only a failed or crashed job, a
+ * schedule problem or a boot failure says so (on STDERR).
  *
  *   php vendor/bin/z77-run [--project=/abs/path]
  *   php vendor/bin/z77-run --list                 registry + queue overview
@@ -22,8 +22,9 @@
  * Unlike z77-backup this DOES boot the framework's service layer
  * (Bootstrap::pullUpServices) — a generic runner cannot know what an arbitrary
  * job needs. It stops short of HTTP: no request, no router, no session.
- * Output is cron-mail friendly: silence when idle, a summary when work ran,
- * STDERR on failure; exit 0 = pass completed, 1 = it could not run.
+ * Output is cron-mail friendly: silence unless something failed, then the
+ * pass's lines and a summary on STDERR; exit 0 = pass completed, 1 = it could
+ * not run.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -149,31 +150,27 @@ try {
 
     $summary = JobRunner::fromBootedProject($projectRoot)->run();
 
-    // An idle pass says NOTHING. Cron mails every run that produces output,
-    // and this runs once a minute — a summary of zeros would fill a mailbox
-    // with proof that nothing happened. Proof that the cron RUNS is the
-    // heartbeat (data/framework/jobs/last-pass.json → the job screen banner),
-    // not a mail; failures write to STDERR above and still get mailed.
-    $idle = $summary['executed'] === 0
-        && $summary['queued'] === 0
-        && $summary['reclaimed'] === 0
-        && $summary['pruned'] === 0
-        && $summary['lines'] === [];
-
-    if (!$idle) {
+    // A healthy pass says NOTHING — idle or busy. Cron mails every run that
+    // produces output, and this runs once a minute; a job on a short schedule
+    // (creditor-intake, every:10m) would mail on every run. Only a failed or
+    // crashed job or a schedule problem speaks, on STDERR (owner 2026-11-15).
+    // What ran is on the job screen; proof that the cron RUNS is the heartbeat
+    // (data/framework/jobs/last-pass.json → the job screen banner), not a mail.
+    if ($summary['failed'] > 0 || $summary['problems'] > 0) {
         foreach ($summary['lines'] as $line) {
-            echo '  ' . $line . "\n";
+            fwrite(STDERR, '  ' . $line . "\n");
         }
-        printf(
-            "z77-run: %d executed (%d done, %d continued, %d failed), %d queued by schedule, %d reclaimed, %d pruned\n",
+        fwrite(STDERR, sprintf(
+            "z77-run: %d executed (%d done, %d continued, %d failed), %d schedule problem(s), %d queued by schedule, %d reclaimed, %d pruned\n",
             $summary['executed'],
             $summary['done'],
             $summary['again'],
             $summary['failed'],
+            $summary['problems'],
             $summary['queued'],
             $summary['reclaimed'],
             $summary['pruned']
-        );
+        ));
     }
     exit(0);
 } catch (\Throwable $e) {

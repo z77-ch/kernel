@@ -64,7 +64,7 @@ convention (`Z77\Persistence\{Driver}\Bootstrap`) — `z77/persistence-doctrine`
 
 | Binary | Purpose |
 |---|---|
-| `z77-run` | the single cron entry: runs the due jobs, silent when idle (ADR-031) |
+| `z77-run` | the single cron entry: runs the due jobs, silent unless a job fails (ADR-031) |
 | `z77-backup {data\|db\|full}` | one backup with retention (ADR-028) |
 | `z77-restore` | reads an SQL dump back into the database |
 
