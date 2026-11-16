@@ -9,7 +9,10 @@
  *     the HTML popover — no JavaScript), whose field belongs to the list's
  *     GET form (`partials/listFind`);
  *   - a plain column is a title, a sort link when it sorts;
- *   - a slot is an empty cell with an `aria-label`.
+ *   - a slot is an empty cell with an `aria-label`;
+ *   - a selection slot (`Column::checkAll()`) is the checkbox «alle» for the rows
+ *     of its form — rendered `hidden`, core.js («check all») reveals it, so a page
+ *     without the script shows no dead control.
  *
  * A row cell that should open its column's search is a `<label for="…">`
  * of the magnifier button — `$definition->inputId($key)`. A kernel partial, namespace
@@ -26,7 +29,9 @@ $links = static fn(string $query): string => $action . '?' . ltrim(http_build_qu
 <div class="be-list__head">
     <?php foreach ($definition->columns() as $column): ?>
     <?php $priority = $column->priority !== null ? ' data-priority="' . e($column->priority) . '"' : ''; ?>
-    <?php if ($column->isSlot()): ?>
+    <?php if ($column->checkForm !== null): ?>
+    <span class="be-list__col"<?= $priority ?>><label class="be-choice" title="Alle auswählen" hidden><input type="checkbox" class="be-choice__input" data-check-all="<?= e($column->checkForm) ?>" aria-label="Alle auswählen"></label></span>
+    <?php elseif ($column->isSlot()): ?>
     <span class="be-list__col" aria-label="<?= e((string) $column->ariaLabel) ?>"<?= $priority ?>></span>
     <?php elseif ($column->isSearchable()): ?>
     <?php $key = (string) $column->key; $id = $definition->inputId($key); ?>

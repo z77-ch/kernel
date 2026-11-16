@@ -38,6 +38,8 @@
  *                                 change (see «windows»)
  *   [data-fetch-region="<name>"]  a part of the page that reloads alone —
  *     a[data-fetch-region-link] / form[data-fetch-region-form] inside it (see «fetch regions»)
+ *   input[data-check-all="<form id>"]  a list head's «alle»: ticks every row checkbox of that
+ *                                 form; a row's change sets it (see «check all»)
  *   [data-fetch-live="<url>"]     asks <url> at intervals, the answer's commands do the rest;
  *     [data-fetch-live-every="<s>"]  seconds between two questions (see «live listener»)
  *   form[target="_blank"][data-submit-navigate="<url>"]
@@ -501,6 +503,7 @@ _Z77.core.wire = function (container, defaultPostUrl, ctx) {
     // one on the page — otherwise its fallback list stays and a choice loads the whole page.
     _Z77.core.treePicker.init(container);
     _Z77.core.stickyTop.init(container);
+    _Z77.core.checkAll.init(container);
     _Z77.core.live.init(container);
     container.querySelectorAll('[data-fetch-post]').forEach(function (form) {
         var url = form.dataset.fetchPost || defaultPostUrl;
@@ -3428,6 +3431,69 @@ _Z77.core.triggers = (function () {
     return { bind: bind };
 })();
 
+/* ── check all ─────────────────────────────────────────────────────────────
+ * The checkbox «alle» in the head of a list with a selection (owner 2026-11-16, the
+ * Kreditorenjournal: «alle» like the DMS) — module-agnostic, opt-in (`Column::checkAll()`,
+ * listHead partial). Delegated on `document`: a swapped region needs no wiring.
+ *   input[type=checkbox][data-check-all="<form id>"]   the head's box. Its label is rendered
+ *        `hidden` and revealed by init(), so a page without this script shows no dead control.
+ *   the rows: every enabled checkbox associated with that form (`form="<form id>"` or inside
+ *        it — the form's `elements`).
+ * Ticking «alle» ticks / clears every row (each changed row fires `change`, so the live
+ * listener's hold and «dirty» see it); a row's change sets «alle» to checked, unchecked or
+ * indeterminate. Display only — the server judges every ticked row again (Rule 7).
+ */
+_Z77.core.checkAll = (function () {
+    function _rows(head) {
+        var form = document.getElementById(head.getAttribute('data-check-all'));
+        if (!form || !form.elements) return [];
+        return Array.prototype.filter.call(form.elements, function (el) {
+            return el !== head && el.type === 'checkbox' && !el.disabled;
+        });
+    }
+
+    function _sync(head) {
+        var rows = _rows(head);
+        var on = rows.filter(function (el) { return el.checked; }).length;
+        head.checked = rows.length > 0 && on === rows.length;
+        head.indeterminate = on > 0 && on < rows.length;
+    }
+
+    /* Reveals the boxes of container (a page, a swapped region) and shows what is ticked. */
+    function init(container) {
+        container.querySelectorAll('input[data-check-all]').forEach(function (head) {
+            var label = head.closest('label');
+            if (label) label.hidden = false;
+            head.hidden = false;
+            _sync(head);
+        });
+    }
+
+    function bind() {
+        document.addEventListener('change', function (e) {
+            var t = e.target;
+            if (!t || !t.matches || t.type !== 'checkbox') return;
+            if (t.matches('input[data-check-all]')) {
+                // Read once: each row's own change below re-syncs this box on its way.
+                var want = t.checked;
+                _rows(t).forEach(function (row) {
+                    if (row.checked === want) return;
+                    row.checked = want;
+                    row.dispatchEvent(new Event('change', { bubbles: true }));
+                });
+                _sync(t);
+                return;
+            }
+            if (!t.form || !t.form.id) return;
+            document.querySelectorAll('input[data-check-all]').forEach(function (head) {
+                if (head.getAttribute('data-check-all') === t.form.id) _sync(head);
+            });
+        });
+    }
+
+    return { bind: bind, init: init };
+})();
+
 /* ── sticky top under the action bar ──────────────────────────────────────
  * A form's action bar (`.z77-form-actions`, ADR-049) sticks at the top of its scroll area; a
  * second sticky block in the same form (the order's positions head, owner 2026-10-20) must stick
@@ -3622,6 +3688,7 @@ _Z77.core.menu = (function () {
 /* ── boot ───────────────────────────────────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.triggers.bind();
+    _Z77.core.checkAll.bind();
     _Z77.core.dirty.bind();
     _Z77.core.fill.bind();
     _Z77.core.rows.bind();

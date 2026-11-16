@@ -10,13 +10,17 @@ namespace Z77\Shared\Listing;
  * strictly — an unreadable value marks the field invalid and does not
  * narrow the list, so a typo never looks like «nothing found»).
  *
- * Three shapes:
+ * Four shapes:
  *
  *   - {@see search()} — a column with a magnifier: the title sorts when it
  *     has a sort key, the field `f_…` belongs to the list's GET form;
  *   - {@see plain()}  — a title only, sorting optional, no search;
  *   - {@see slot()}   — a cell without a title (the state icon, a checkbox,
- *     a row action), an `aria-label` for the reader.
+ *     a row action), an `aria-label` for the reader;
+ *   - {@see checkAll()} — the slot of a SELECTION: its head is the checkbox
+ *     «alle» that ticks every row checkbox of the named form at once (core.js
+ *     «check all», owner 2026-11-16 — the Kreditorenjournal; the DMS has its
+ *     own buttons). Display only: the server judges every ticked row again.
  *
  * `priority` is the drop stage of `.be-list__table--drop` (css-backend.md
  * LIST-DROP-STAGES-001): '3' leaves first on a narrow screen, '2' next,
@@ -38,6 +42,7 @@ final class Column
         public readonly ?string $inputMode,
         public readonly bool $descendingFirst,
         public readonly ?string $ariaLabel,
+        public readonly ?string $checkForm = null,
     ) {
         if ($key !== null && !preg_match(self::KEY, $key)) {
             throw new \InvalidArgumentException("A search field is named f_<name> — '{$key}' is not");
@@ -71,6 +76,19 @@ final class Column
     public static function slot(string $ariaLabel, string $width = '2rem', ?string $priority = null): self
     {
         return new self(null, '', null, $width, false, $priority, null, null, false, $ariaLabel);
+    }
+
+    /**
+     * The checkbox column of a selection: the head carries «alle» for the rows whose checkboxes
+     * belong to the form $form (`form="$form"`); the rows render their own checkbox.
+     */
+    public static function checkAll(string $form, string $ariaLabel = 'Auswahl', string $width = '2rem'): self
+    {
+        if (!preg_match('/^[a-z][a-z0-9-]*$/', $form)) {
+            throw new \InvalidArgumentException("A selection form id is kebab-case — '{$form}' is not");
+        }
+
+        return new self(null, '', null, $width, false, null, null, null, false, $ariaLabel, $form);
     }
 
     public function isSearchable(): bool
