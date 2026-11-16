@@ -420,7 +420,11 @@ class Request {
     {
         $cleanModuleUrl = $this->cleanAndTranslate($moduleUrl, 'cleanAlpha');
 
-        if ($this->moduleManager->hasModule($cleanModuleUrl)) {
+        // A module without a `defaultGroup` (contact: reachable only as a group of
+        // /backend/…) has no convention URL of its own — a 404 like an unknown
+        // module, not the RuntimeException of getDefaultGroup() (ROUTE-GROUP-001).
+        if ($this->moduleManager->hasModule($cleanModuleUrl)
+            && $this->moduleManager->getModuleConfig($cleanModuleUrl)?->getDefaultGroup()) {
             $this->module = $cleanModuleUrl;
             $this->setGroup($this->moduleManager->getDefaultGroup($cleanModuleUrl));
             return;
