@@ -12,7 +12,8 @@
  *
  * Three shapes, one behaviour (`$policy->shape`):
  *   drop   the drop zone in the work area — the file field is the zone's own label
- *   cell   a button for the shell's action cell; the WHOLE work area is the drop target
+ *   cell   a button for the shell's action cell; the WHOLE work area is the drop target, and
+ *          the run's rows show in a window (`upload.js`, UPLOAD-DIALOG-001), never in the page
  *   field  one file inside a form: the zone is small, a chosen file shows with «entfernen»
  *
  * The CSRF token travels as the global hidden field the backend writes into every form; the
@@ -89,9 +90,13 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
           // phone (visually, so the button keeps its name) and the cell becomes a square
           // with the arrow alone — owner 2026-10-10, «in mobile muss der Upload auch in
           // der Werkzeugzeile erscheinen». ?>
+    <?php // While a run lasts the label gives way to its count («3 / 20», `data-upload-running`),
+          // and a click shows the run's window again instead of the file dialog — the rows run
+          // in a window, not in the page (UPLOAD-DIALOG-001, owner 2026-11-17). ?>
     <label class="be-btn be-btn--primary z77-upload__cell" for="<?= e($inputId) ?>">
         <span class="z77-upload__arrow" aria-hidden="true">↑</span>
-        <span class="be-btn__label z77-upload__cell-label"><?= e($label) ?></span>
+        <span class="be-btn__label z77-upload__cell-label" data-upload-label><?= e($label) ?></span>
+        <span class="z77-upload__cell-count" data-upload-running></span>
     </label>
     <?php else: ?>
     <label class="z77-upload__zone" for="<?= e($inputId) ?>" data-upload-zone>
@@ -105,7 +110,8 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
     <?php endif; ?>
 
     <?php // The queue: written by the script, empty (and hidden) until files are chosen. A
-          // row carries name, progress and outcome; the summary carries the overall bar. ?>
+          // row carries name, progress and outcome; the summary carries the overall bar. The
+          // `cell` shape moves both into its window on bind. ?>
     <ul class="z77-upload__list" data-upload-list hidden></ul>
     <p class="z77-upload__summary" data-upload-summary hidden>
         <span class="z77-upload__bar" aria-hidden="true"><span class="z77-upload__bar-fill" data-upload-bar></span></span>

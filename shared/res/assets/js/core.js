@@ -1140,6 +1140,9 @@ _Z77.core.region = (function () {
  *                               `target` other than `_self` is the browser's. Without the script
  *                               it is a plain GET — the controller renders the same URL as a page.
  *
+ * From script: `_Z77.core.windows.openNode(node, {title, width})` puts content the client
+ *   already holds into a window (the upload's queue, UPLOAD-DIALOG-001) — no URL, no identity.
+ *
  * Identity = mask + entity: the same mask on the same record opens ONCE (a second click brings
  * it to the front). Two masks on one record are allowed — unless an editable field (a named
  * input that is not hidden, disabled or read-only; `_…` and `csrf_token` excluded) is in both:
@@ -1414,6 +1417,30 @@ _Z77.core.windows = (function () {
         }).catch(function () { window.location.href = url; });
     }
 
+    /* A window around content the CLIENT already holds — a node, not a controller's answer (first
+     * user: the upload's queue, owner 2026-11-17 — «der Fortschritt soll in einem Dialog laufen»).
+     * The same window as every other one: title bar, ×, ⤢, Esc, the layer and its inert page. No
+     * URL, no identity, nothing re-rendered: `node` is MOVED into the body as it is (no markup from
+     * a string), and leaves with the window when that closes — the caller keeps its reference and
+     * may show it again in a new window later. `opts.title` is a string or a node (a node lets
+     * the caller keep a live part in the title, the upload's «3 von 20»); `opts.width` as
+     * `data-window-width`. Answers the window. */
+    function openNode(node, opts) {
+        opts = opts || {};
+        var win = _build('', 'page');
+        var title = win.querySelector('.z77-window__title');
+        if (opts.title && typeof opts.title === 'object') title.appendChild(opts.title);
+        else title.textContent = opts.title || '';
+        if (opts.width && /^\d{1,3}(\.\d{1,2})?(rem|ch|px|%|vw)$/.test(opts.width)) win.style.setProperty('--z77-window-width', opts.width);
+        win.querySelector('.z77-window__body').appendChild(node);
+        var layer = _container(_topHost());
+        layer.appendChild(win);
+        if (layer.hidden) { layer.hidden = false; _inert(layer, true); }
+        front(win);
+        _focusIn(win);
+        return win;
+    }
+
     /* Loads <url> into an open window (read view ↔ edit form); the origin stays the window's. */
     function load(win, url) {
         var target = _url(url, win._z77Origin);
@@ -1626,7 +1653,7 @@ _Z77.core.windows = (function () {
         });
     }
 
-    return { open: open, load: load, reload: reload, formUrl: formUrl, fill: fill, close: close, front: front, byId: byId, of: of, scope: scope, all: all, bind: bind };
+    return { open: open, openNode: openNode, load: load, reload: reload, formUrl: formUrl, fill: fill, close: close, front: front, byId: byId, of: of, scope: scope, all: all, bind: bind };
 })();
 
 /* ── help (ADR-048) ────────────────────────────────────────────────────────

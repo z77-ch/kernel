@@ -18,8 +18,8 @@
 // div with a click handler.
 
 // Two roots, one set of tokens: the component itself, and — for the `cell` shape — the
-// container the QUEUE is moved into (`[data-upload-progress]`, marked by the script).
-// A row that leaves the component must take its colours with it.
+// panel the QUEUE is moved into (`.z77-upload-queue`, built by the script and shown in a
+// window, UPLOAD-DIALOG-001). A row that leaves the component must take its colours with it.
 .z77-upload,
 .z77-upload-queue {
     --z77-up-radius: 14px;
@@ -108,6 +108,24 @@
 }
 
 .z77-upload__label { font-weight: 600; }
+
+// The `cell` button while a run lasts: its label gives way to the count («3 / 20») — the
+// rows are in a window that may be closed, and the button is what says the run goes on.
+.z77-upload__cell-count {
+    display: none;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.z77-upload--cell.is-busy .z77-upload__cell-count { display: inline; }
+.z77-upload--cell.is-busy .z77-upload__cell-label { display: none; }
+
+// The queue in its window: the run's line on top, the rows under it.
+.z77-upload-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
 
 .z77-upload__pick {
     font-weight: 600;

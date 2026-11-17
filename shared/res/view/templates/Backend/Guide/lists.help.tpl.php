@@ -35,3 +35,4 @@
 
 <h4>Dateien hochladen</h4>
 <p>Wo Dateien hochgeladen werden, kannst du sie in das Feld ziehen oder auswählen und «Hochladen» klicken. Jede Datei zeigt ihren Fortschritt und ihr eigenes Ergebnis; eine abgelehnte Datei bleibt mit dem Grund stehen, die anderen werden trotzdem übernommen.</p>
+<p>Lädst du über einen Knopf hoch (z.B. «PDF hochladen»), läuft der Fortschritt in einem eigenen Fenster, oben «3 von 20». Du kannst es jederzeit mit × oder Esc schliessen: Das Hochladen läuft weiter, der Knopf zeigt solange «3 / 20», und ein Klick darauf öffnet das Fenster wieder.</p>

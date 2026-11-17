@@ -19,6 +19,16 @@
  *        data-upload-conflict="ask|overwrite|skip|error"   the ENDPOINT's rule, per endpoint
  *   [data-upload-zone] [data-upload-list] [data-upload-summary] [data-upload-bar]
  *   [data-upload-count] [data-upload-submit]
+ *   [data-upload-label] [data-upload-running]   the `cell` button's label, and its «3 / 20»
+ *
+ * THE `cell` SHAPE RUNS ITS QUEUE IN A WINDOW (UPLOAD-DIALOG-001, owner 2026-11-17): twenty
+ * PDFs dropped on «PDF hochladen» wrote twenty rows above the journal, pushed it below the fold
+ * and stayed there. Now a run opens the backend's window (`_Z77.core.windows.openNode`, the same
+ * one every record opens in — no second dialog), «PDF hochladen · 3 von 20» in its title bar,
+ * the overall bar and the rows in its body. × or Esc closes it at any time: the uploads go on,
+ * the button says «3 / 20» meanwhile, and a click on it while the run lasts shows the window
+ * again instead of the file dialog. Nothing of the run stays in the page. `drop` and `field`
+ * keep their rows under the zone — they already stand where the user looks (the Drive's modal).
  *
  * Per-file answer (JSON, one request per file):
  *   {status:"ok", name, message?, commands?} · {status:"conflict", name} ·
@@ -101,10 +111,58 @@ _Z77.upload = (function () {
         this.summary  = form.querySelector('[data-upload-summary]');
         this.bar      = form.querySelector('[data-upload-bar]');
         this.count    = form.querySelector('[data-upload-count]');
+        this.badge    = form.querySelector('[data-upload-running]');
         this.items    = [];
         this.running  = 0;
         this.commands = [];
+        this.panel    = null;   // the `cell` shape's queue: list + summary, shown in a window
+        this.heading  = null;   // that window's title: the button's label · «3 von 20»
+        this.win      = null;   // the window while it is open
     }
+
+    /** Is a file of this run still waiting, uploading or asking? */
+    Uploader.prototype.pending = function () {
+        return this.items.some(function (item) {
+            return item.state === 'queued' || item.state === 'running' || item.state === 'asking';
+        });
+    };
+
+    /**
+     * The `cell` shape's queue moves into a window of its own (UPLOAD-DIALOG-001): the summary on
+     * top, the rows under it, and the count out of the summary into the title — the title bar
+     * never scrolls away, the rows of twenty files do. Without core's windows (another host) the
+     * queue simply stays in the form.
+     */
+    Uploader.prototype.toWindow = function () {
+        if (!(_Z77.core && _Z77.core.windows && _Z77.core.windows.openNode)) return;
+        var label = this.form.querySelector('[data-upload-label]');
+
+        this.panel = document.createElement('div');
+        // The tokens live on the component's root: the queue takes a root of its own with it,
+        // or the rows land outside every `--z77-up-*` and render unstyled.
+        this.panel.className = 'z77-upload-queue';
+        this.panel.appendChild(this.summary);
+        this.panel.appendChild(this.list);
+
+        this.heading = document.createElement('span');
+        this.heading.appendChild(document.createTextNode((label ? label.textContent : '') + ' · '));
+        if (this.count) this.heading.appendChild(this.count);
+    };
+
+    /** Shows the queue's window — or brings it to the front while it is open. */
+    Uploader.prototype.show = function () {
+        if (!this.panel) return;
+        var windows = _Z77.core.windows;
+        if (this.win && this.win.isConnected) { windows.front(this.win); this.win.focus(); return; }
+        this.win = windows.openNode(this.panel, { title: this.heading, width: '40rem' });
+    };
+
+    /** A new run in the window starts empty: the rows of a finished one are read and gone. */
+    Uploader.prototype.reset = function () {
+        this.items.forEach(function (item) { if (item.row.el.parentNode) item.row.el.parentNode.removeChild(item.row.el); });
+        this.items = [];
+        if (this.bar) this.bar.style.width = '0%';
+    };
 
     /** Does one file match `accept`? Extensions by name, types by the browser's guess. */
     Uploader.prototype.accepts = function (file) {
@@ -165,6 +223,8 @@ _Z77.upload = (function () {
         var list = Array.prototype.slice.call(files || []);
         if (list.length === 0) return;
 
+        if (this.panel && !this.pending()) this.reset();
+
         if (!this.multiple) {
             list = list.slice(0, 1);
             this.items.forEach(function (item) { self.cancel(item); });
@@ -186,6 +246,7 @@ _Z77.upload = (function () {
         this.summary.hidden = false;
         this.form.classList.add('is-busy');
         this.form.classList.remove('is-done');
+        this.show();
         this.pump();
         this.paint();
     };
@@ -515,8 +576,11 @@ _Z77.upload = (function () {
         var settled = this.items.filter(function (item) { return item.state !== 'queued' && item.state !== 'running' && item.state !== 'asking'; }).length;
 
         if (this.bar)   this.bar.style.width = (total > 0 ? Math.round(moved / total * 100) : 0) + '%';
+        // «nicht schliessen» means the PAGE — in the window it would read as the window, which
+        // may be closed: the run goes on behind it.
         if (this.count) this.count.textContent = _tr('js.upload.count', '{$done} von {$total}', { done: settled, total: this.items.length })
-            + (settled < this.items.length ? _tr('js.upload.keepOpen', ' · nicht schliessen') : '');
+            + (settled < this.items.length && !this.panel ? _tr('js.upload.keepOpen', ' · nicht schliessen') : '');
+        if (this.badge) this.badge.textContent = settled + ' / ' + this.items.length;
     };
 
     /**
@@ -647,25 +711,25 @@ _Z77.upload = (function () {
 
             uploader.bindDrop(form);
 
-            // The action-cell shape has no zone of its own: the work area is the target,
-            // and the QUEUE moves out there too. A row with a progress bar cannot be read
-            // in a 210px cell, and the cell must not grow while files upload — so the
-            // list goes where the page offers room (`[data-upload-progress]`), and only
-            // the button stays behind (owner 2026-10-10).
+            // The action-cell shape has no zone of its own: the work area is the target, and
+            // the QUEUE leaves the button. A row with a progress bar cannot be read in a 210px
+            // cell, and the cell must not grow while files upload (owner 2026-10-10) — the
+            // rows run in a window (owner 2026-11-17, UPLOAD-DIALOG-001; until then they went
+            // into a `[data-upload-progress]` of the page, which twenty files filled).
             if (uploader.shape === 'cell') {
                 var area = document.querySelector('[data-upload-area]')
                     || document.querySelector('.be-shell-col--2, .me-shell__work, main');
                 if (area) uploader.bindDrop(area);
 
-                var target = document.querySelector('[data-upload-progress]');
-                if (target) {
-                    // The tokens live on the component's root, so the queue takes a root
-                    // of its own with it — otherwise the rows land outside every
-                    // `--z77-up-*` and render unstyled.
-                    target.classList.add('z77-upload-queue');
-                    target.appendChild(uploader.list);
-                    target.appendChild(uploader.summary);
-                }
+                uploader.toWindow();
+                // While a run lasts, the button shows its window again instead of the file
+                // dialog (owner 2026-11-17). The label's click reaches the input as a click,
+                // and so does Space on the focused input: one listener covers both.
+                uploader.input.addEventListener('click', function (e) {
+                    if (!uploader.panel || !uploader.pending()) return;
+                    e.preventDefault();
+                    uploader.show();
+                });
             }
         });
     }
