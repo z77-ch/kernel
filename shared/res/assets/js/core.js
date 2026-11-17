@@ -542,12 +542,17 @@ _Z77.core.wire = function (container, defaultPostUrl, ctx) {
     // response the checkbox reverts so the UI never lies about stored state.
     // The switch is disabled while its request runs (busy guard) — a second flip cannot
     // race the first one's revert.
+    // A stored state is the switch's new LOADED state (`defaultChecked`): it is no unsaved work
+    // any more. Left at the page's value, a flipped switch counted as «a field changed» for the
+    // rest of the page's life, and every live listener's move (a list refreshing itself) waited
+    // for ever (FETCH-LIVE-TOGGLE-001, creditor journal on z77.ch 2026-11-17).
     container.querySelectorAll('[data-fetch-toggle]').forEach(function (el) {
         el.addEventListener('change', function () {
             var sent = _Z77.core.busy.guard(el, el, function () {
                 return _Z77.core.fetch.post(el.dataset.fetchToggle, { value: el.checked })
                     .then(function (env) {
-                        if (!env || env.status !== 'success') { el.checked = !el.checked; }
+                        if (!env || env.status !== 'success') { el.checked = !el.checked; return; }
+                        el.defaultChecked = el.checked;
                     });
             });
             if (sent === null) el.checked = !el.checked;   // not sent — the switch must not lie
@@ -1950,7 +1955,9 @@ _Z77.core.help = (function () {
  * `refresh-window` (owner 2026-11-15: a list that updates itself must not swap the rows under a
  * ticked checkbox or a half-typed search) — while there are unsaved changes, a field changed from
  * its loaded value, an open <dialog>. What stands in a closed <dialog> does not count: closing one
- * is a deliberate discard (owner 2026-11-03). The rest of the answer runs at once; the held moves
+ * is a deliberate discard (owner 2026-11-03). Nor does a control that saves itself: a stored
+ * `data-fetch-toggle` takes its new state as its loaded one (FETCH-LIVE-TOGGLE-001) — a control of
+ * that kind built elsewhere must do the same. The rest of the answer runs at once; the held moves
  * run when the work is done — one per listener, its latest.
  *
  * Rule 7: this decides nothing and renders nothing itself — the server sends the commands, and
