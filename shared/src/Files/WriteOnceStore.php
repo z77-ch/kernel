@@ -19,9 +19,10 @@ namespace Z77\Shared\Files;
  *     altered file is null, never silently accepted.
  *
  * Lifted on 2026-11-17 (ADR-061 stage C3, debtor's camt.054 archive) from financial's
- * `Bank\BankStatementArchive`, which follows the same rules for the camt.053 (Rule 9: the third
- * archive of the kind — after debtor's invoice PDFs and financial's statements — made it a
- * shared block). Non-public by its location: the callers write below `data/`, which is never
+ * `Bank\BankStatementArchive` (Rule 9: the third archive of the kind — after debtor's invoice
+ * PDFs and financial's statements — made it a shared block). Since stage C2 the statement archive
+ * itself and the vouchers of direct postings (`Bank\BankVoucherArchive`) write through it too.
+ * Non-public by its location: the callers write below `data/`, which is never
  * served and lies in the release's shared `data` store and the «Daten» backup.
  */
 final class WriteOnceStore
