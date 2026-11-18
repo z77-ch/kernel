@@ -730,9 +730,36 @@ _Z77.upload = (function () {
                     e.preventDefault();
                     uploader.show();
                 });
+                // `data-upload-before` (UploadPolicy::$before): the button opens a window instead
+                // of the file dialog — core's `[data-window-open]` does that. During a run the
+                // button still shows the run's window: this listener runs first (capture) and
+                // keeps the click from core.
+                var before = form.querySelector('[data-upload-before]');
+                if (before) {
+                    before.addEventListener('click', function (e) {
+                        if (!uploader.panel || !uploader.pending()) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        uploader.show();
+                    }, true);
+                }
             }
         });
     }
+
+    // The pick inside the window of `before`: `[data-upload-pick="<id of the file field>"]` opens
+    // that component's file dialog and closes its own window — the run's window follows.
+    document.addEventListener('click', function (e) {
+        var pick = e.target.closest ? e.target.closest('[data-upload-pick]') : null;
+        if (!pick) return;
+        var input = document.getElementById(pick.getAttribute('data-upload-pick'));
+        if (!input) return;
+        e.preventDefault();
+        input.click();
+        var windows = _Z77.core && _Z77.core.windows;
+        var win = windows && windows.of ? windows.of(pick) : null;
+        if (win) windows.close(win);
+    });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', function () { bind(document); });

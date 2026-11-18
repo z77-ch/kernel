@@ -43,6 +43,11 @@ final class UploadPolicy
      *                                          both, and a client that knows only the bigger
      *                                          one lets the user wait for a refusal.
      * @param string               $shape       `drop` | `cell` | `field`
+     * @param string               $before      `cell` shape only: the URL of a WINDOW the button opens INSTEAD of the
+     *                                          file dialog (owner 2026-11-18, the bank's «camt.053 Upload»: what to
+     *                                          download before picking). The window carries the pick itself — a
+     *                                          button `data-upload-pick="{@see inputId()}"` (`upload.js`). Dropping files
+     *                                          stays as it is. '' = the button opens the file dialog.
      */
     public function __construct(
         public readonly string $endpoint,
@@ -55,6 +60,7 @@ final class UploadPolicy
         public readonly string $label = '',
         public readonly string $hint = '',
         public readonly array $maxBytesPer = [],
+        public readonly string $before = '',
     ) {
         if ($endpoint === '') {
             throw new \InvalidArgumentException('UploadPolicy needs an endpoint.');
@@ -85,7 +91,17 @@ final class UploadPolicy
             label:       $this->label,
             hint:        $this->hint,
             maxBytesPer: $this->maxBytesPer,
+            before:      $this->before,
         );
+    }
+
+    /**
+     * The id of the component's file field — one place, because a control OUTSIDE the form may point
+     * at it: the pick button in the window of `before` (`data-upload-pick`).
+     */
+    public function inputId(): string
+    {
+        return 'z77-upload-' . substr(hash('sha256', $this->endpoint . $this->shape), 0, 8);
     }
 
     /** The per-file byte cap that actually applies: the configured one, never above the transport cap. */

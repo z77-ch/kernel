@@ -13,7 +13,9 @@
  * Three shapes, one behaviour (`$policy->shape`):
  *   drop   the drop zone in the work area — the file field is the zone's own label
  *   cell   a button for the shell's action cell; the WHOLE work area is the drop target, and
- *          the run's rows show in a window (`upload.js`, UPLOAD-DIALOG-001), never in the page
+ *          the run's rows show in a window (`upload.js`, UPLOAD-DIALOG-001), never in the page.
+ *          With `$policy->before` the button opens that window instead of the file dialog
+ *          (what to prepare before picking); the window's own label picks the files
  *   field  one file inside a form: the zone is small, a chosen file shows with «entfernen»
  *
  * The CSRF token travels as the global hidden field the backend writes into every form; the
@@ -75,7 +77,11 @@ if (($transport ?? '') !== '') {
         . ' data-upload-transport-config="' . e((string) json_encode($transportConfig ?? [])) . '"';
 }
 
-$inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0, 8);
+$inputId = $policy->inputId();
+// `before`: the cell's button opens a window first (core's `[data-window-open]` takes the click, so
+// the label does not reach the file field); the window carries the pick. Without the script the
+// label opens the file dialog as ever.
+$before  = $shape === 'cell' && $policy->before !== '' ? ' data-window-open="' . e($policy->before) . '" data-upload-before' : '';
 ?>
 <form class="z77-upload z77-upload--<?= e($shape) ?>" method="post" enctype="multipart/form-data"<?= $attributes ?>>
     <?= $csrfField ?? '' ?>
@@ -93,7 +99,7 @@ $inputId = 'z77-upload-' . substr(hash('sha256', $policy->endpoint . $shape), 0,
     <?php // While a run lasts the label gives way to its count («3 / 20», `data-upload-running`),
           // and a click shows the run's window again instead of the file dialog — the rows run
           // in a window, not in the page (UPLOAD-DIALOG-001, owner 2026-11-17). ?>
-    <label class="be-btn be-btn--primary z77-upload__cell" for="<?= e($inputId) ?>">
+    <label class="be-btn be-btn--primary z77-upload__cell" for="<?= e($inputId) ?>"<?= $before ?>>
         <span class="z77-upload__arrow" aria-hidden="true">↑</span>
         <span class="be-btn__label z77-upload__cell-label" data-upload-label><?= e($label) ?></span>
         <span class="z77-upload__cell-count" data-upload-running></span>
