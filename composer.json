@@ -39,7 +39,10 @@
         "php": ">=8.2",
         "ext-mbstring": "*",
         "ext-fileinfo": "*",
-        "ext-zip": "*"
+        "ext-zip": "*",
+        "ext-openssl": "*",
+        "ext-iconv": "*",
+        "ext-simplexml": "*"
     },
     "require-dev": {
         "composer/composer": "^2.0"
