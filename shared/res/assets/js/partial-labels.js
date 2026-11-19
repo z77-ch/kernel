@@ -10,7 +10,7 @@
  *
  * Only ever served when the tool is active (flag + DEBUG + admin) — never in
  * production output. Positioning/depth/observer logic ported from the proven
- * zihlundsee prototype (work/docs/topics/partial-labels.md appendix).
+ * client-project prototype (work/docs/topics/partial-labels.md appendix).
  */
 (function () {
     'use strict';

@@ -34,7 +34,7 @@ final class StatsClassifier
      * agent is a bot too (no browser sends none).
      *
      * `z77-` covers OUR OWN tooling, which is not a visitor either. Measured in
-     * production 2026-09-23 (zihlundsee): `.releases/switch.php` calls `/` twice
+     * production 2026-09-23 (a client project): `.releases/switch.php` calls `/` twice
      * per door switch — once to prove the new release answers, once as the
      * reachability probe — with `User-Agent: z77-releases-switch`, and neither
      * matched any token above. On the day of a deploy that was 10 of 47 raw

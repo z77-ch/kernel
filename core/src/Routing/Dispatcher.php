@@ -123,7 +123,7 @@ class Dispatcher
      * guest (the login card, `/fr/member/main/login`). Without the key nothing changes —
      * the URL alone decides, as everywhere else (I18N-LANG-STABLE-001).
      *
-     * After sign-in no URL carries a prefix (owner decision 2026-11-07, z77-rudaz.ch): a
+     * After sign-in no URL carries a prefix (owner decision 2026-11-07): a
      * signed-in page view (GET/HEAD, Page mode) on a prefixed URL answers with the redirect
      * target without it — an old bookmark or a link from the login phase cleans itself up.
      * `localizedUrl()` builds no prefix there either (Translator::urlLanguage()).

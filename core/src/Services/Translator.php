@@ -15,7 +15,7 @@ use Z77\Core\DI;
  *               code (`member.*`, `dms.*`). Read live from the package, never seeded, so a
  *               `composer update` brings new keys to an installed project at once.
  *   2. PROJECT  `override/z77/<namespace>/res/i18n/{lang}.json` — the project's own keys
- *               (`rudaz.*`) and its rewording of a package key, versioned in its repo.
+ *               (`client.*`) and its rewording of a package key, versioned in its repo.
  *   3. RUNTIME  `data/framework/i18n/{lang}.json` — installer-seeded, edited by the
  *               backend translation tool. The installation's last word.
  * Layers 1 and 2 are found through the FileFinder's namespace paths: every namespace
@@ -125,7 +125,7 @@ class Translator
     /**
      * The JS-facing subset of the dictionary for the shared `core.js` and module/project
      * scripts: every key in a `js` namespace — `js.*` (framework) or `<ns>.js.*` (a module or
-     * project: `member.js.*`, `rudaz.js.*`) — plus SHARED_CLIENT_KEYS, resolved for $language
+     * project: `member.js.*`, `client.js.*`) — plus SHARED_CLIENT_KEYS, resolved for $language
      * with the default-language fallback. The set of keys here is exactly what the client
      * needs — it is inlined into the page head as a JSON data island (see {@see HtmlView})
      * and read once at boot.

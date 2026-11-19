@@ -8,7 +8,7 @@ use Z77\Core\DI,
 
 /**
  * Session-based abuse protection for public forms — the generic mechanics every
- * public form needs, extracted from the first consumer (zihlundsee contact
+ * public form needs, extracted from the first consumer (a client project's contact
  * form; see docs/03-development/review-email-service-usage.md §1a):
  *
  *   - Time-trap: armTimeTrap() on every form render (idempotent — a re-render

@@ -1,5 +1,12 @@
 # z77/kernel
 
+> **Install with an AI assistant.** [INSTALL-AI.md](https://github.com/z77-ch/z77-framework/blob/main/INSTALL-AI.md) is an installation guide written for an AI coding assistant (e.g. Claude Code) — no developer knowledge needed ([download](https://raw.githubusercontent.com/z77-ch/z77-framework/main/INSTALL-AI.md)). Paste one of these prompts into your assistant:
+>
+> ```text
+> Read https://raw.githubusercontent.com/z77-ch/z77-framework/main/INSTALL-AI.md and install z77 for me. Ask me before you decide anything.
+> Lies https://raw.githubusercontent.com/z77-ch/z77-framework/main/INSTALL-AI.md und installiere z77 für mich. Frag mich, bevor du etwas entscheidest.
+> ```
+
 Foundation package of the z77 PHP MVC framework — one Composer package, three namespaces.
 Every z77 project and every z77 module depends on it.
 Read-only split from [z77-ch/z77-framework](https://github.com/z77-ch/z77-framework). Do not commit here.
@@ -46,7 +53,7 @@ as one package rather than three cyclic ones. See
 **`Z77\Shared` — platform building blocks for the modules**
 
 Auth and roles, forms (`FormGuard`, public form handler), listing (`ListDefinition` and the list
-partials), paging, upload component, tree (`TreeService`), money (`Money`, `AmountFormat`), PDF writer
+partials), paging, upload component (`UploadPolicy` with `$before` — a window the upload button opens first — and `inputId()`; `partials/uploadField` — one file that travels with its form), write-once file archive (`Files\WriteOnceStore`), tree (`TreeService`), money (`Money`, `AmountFormat`), PDF writer
 and QR encoder facades (the Swiss QR-bill itself is built in module-debtor on top of them), payment
 identifiers (`Payment\Iban`, `QrReference`, `ScorReference`, `Mod97` — shared by module-debtor and
 module-creditor), mail, jobs (`z77-run`), backup/restore, import (staging, plan, apply), statistics,
@@ -110,4 +117,4 @@ Start at [`docs/README.md`](https://github.com/z77-ch/z77-framework/blob/main/do
 
 ## License
 
-MIT — Peter Ruepp, [z77.ch](https://z77.ch).
+MIT — see [`LICENSE`](LICENSE). Author: Peter Ruepp, [z77.ch](https://z77.ch).

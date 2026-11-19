@@ -8,8 +8,8 @@ namespace Z77\Core\Libraries\Seo;
  * `site` of the requested module (a project overrides `<module>Config.inc.php`):
  *
  *   'site' => [
- *       'name'    => 'Zihl & See',                 // og:site_name, <title> fallback
- *       'author'  => 'sihlestate AG',              // <meta name="author">
+ *       'name'    => 'Client A',                    // og:site_name, <title> fallback
+ *       'author'  => 'Client A AG',                // <meta name="author">
  *       'locales' => ['de' => 'de_CH', 'fr' => 'fr_CH'],   // og:locale per language
  *       'image'   => [                             // og:image / twitter:image
  *           'path'   => '/assets/frontend/images/og.jpg',  // site-relative or absolute

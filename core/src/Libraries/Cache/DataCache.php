@@ -16,7 +16,7 @@ namespace Z77\Core\Libraries\Cache;
  * The pool prefix is NAMESPACED PER INSTALLATION (hash of ABS_BASE_PATH):
  * APCu is shared across every vhost of a PHP pool, so two z77 installations
  * on the same hosting account would otherwise read each other's entries —
- * observed live 2026-08-06 (cyon: axo3.ch served zihlundsee.ch's cached
+ * observed live 2026-08-06 (cyon: axo3.ch served another project's cached
  * layout/config the moment both ran with debug off). Same reason
  * clearAllApcu() deletes only this pool's keys, never the whole APCu.
  *

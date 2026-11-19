@@ -24,7 +24,7 @@ return [
     // What this installation calls itself in the backend chrome — the one place
     // that says WHICH project a backend tab belongs to when several are open
     // (parallel dev servers, a client's test and live door). Free text, e.g.
-    // 'Zihl und See' or 'Kunde AG (Test)'.
+    // 'Client A' or 'Kunde AG (Test)'.
     //
     // Empty is the seed and is not an error: the shell then shows the host of
     // `canonicalBaseUrl` — `localhost:8077`, `kunde.ch` — which distinguishes

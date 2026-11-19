@@ -8,7 +8,7 @@
  * attachment (Bauplan step 2: the link is the report). Every `<tr data-str="new-line">`
  * and closing block tag becomes a line break in the plain-text part (HtmlToText).
  *
- * @var string $siteName  host of canonicalBaseUrl, e.g. zihlundsee.ch
+ * @var string $siteName  host of canonicalBaseUrl, e.g. client-a.example
  * @var array  $report    StatsReport::build()
  * @var array  $headline  StatsReport::headline() — label/value pairs
  * @var string $url       the tokenized report link

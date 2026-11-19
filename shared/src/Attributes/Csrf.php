@@ -12,7 +12,7 @@ namespace Z77\Shared\Attributes;
  * Failure: Fetch mode → error envelope (same as the global fetch check);
  * Page mode → 303 redirect to the site root (no message channel — actions
  * that want a friendly failure UX validate in-action instead, e.g. the
- * zihlundsee contact form).
+ * a client contact form).
  *
  * Note: fetch POSTs are CSRF-checked globally regardless — this attribute
  * exists for page-mode POST endpoints (form posts).

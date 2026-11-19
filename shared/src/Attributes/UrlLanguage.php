@@ -4,7 +4,7 @@ namespace Z77\Shared\Attributes;
 
 /**
  * A page that belongs to a GUEST act renders in the URL's language, also when the browser
- * has a signed-in member (ADR-056, owner decision 2026-11-07, z77-rudaz.ch).
+ * has a signed-in member (ADR-056, owner decision 2026-11-07).
  *
  * Where a module renders signed-in members in their account's language
  * (`languageFromAccount`), the Dispatcher otherwise adopts that language and strips the
