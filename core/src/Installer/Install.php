@@ -258,6 +258,7 @@ class Install
         }
 
         $this->reportMissingCanonicalBaseUrl();
+        $this->reportUnregisteredModules();
 
         // Last thing shown, so the developer can't miss it: what was refreshed silently,
         // then a single coloured notice listing the framework assets that differ from
@@ -1253,6 +1254,56 @@ class Install
             '<assetDir>'      => $this->bootstrapConfig['assetDir'],
             '<tplDir>'        => $this->bootstrapConfig['tplDir'],
         ];
+    }
+
+    /**
+     * INST-MODULE-UNREGISTERED-001: a module is registered only from the PROJECT's
+     * `autoload.psr-4` (resolveModules()). An installed `Z77\Module\X\` package without
+     * that entry is silently dead — no routes, no tables. Warn with the exact line to
+     * paste; nothing is refused or written.
+     *
+     * @param list<string>|null $installedNamespaces module namespaces of the installed packages
+     *                                               (null = read from Composer)
+     * @return list<string> the namespaces reported
+     */
+    private function reportUnregisteredModules(?array $installedNamespaces = null): array
+    {
+        $prefix = rtrim($this->frameworkPrefix, '\\') . '\\' . rtrim($this->modulePrefix, '\\') . '\\';
+
+        if ($installedNamespaces === null) {
+            $installedNamespaces = [];
+            foreach ($this->getInstalledPackages() as $package) {
+                foreach (array_keys($package->getAutoload()['psr-4'] ?? []) as $namespace) {
+                    if (str_starts_with($namespace, $prefix)) {
+                        $installedNamespaces[] = $namespace;
+                    }
+                }
+            }
+        }
+
+        $registered = $this->resolveModules();
+        $missing    = [];
+        foreach ($installedNamespaces as $namespace) {
+            $parts = array_values(array_filter(explode('\\', $namespace)));
+            if (isset($parts[2]) && !isset($registered[strtolower($parts[2])])) {
+                $missing[$namespace] = strtolower($parts[0] . '/' . $parts[1] . '/' . $parts[2]);
+            }
+        }
+        if ($missing === []) {
+            return [];
+        }
+
+        ksort($missing);
+        $this->io->write('');
+        $this->io->write('WARNING: installed module package(s) NOT registered — the project\'s composer.json');
+        $this->io->write('         `autoload.psr-4` has no entry for them, so they get no routes and no tables.');
+        $this->io->write('         Add to `autoload.psr-4`, then run `composer dump-autoload` / `composer install`:');
+        foreach ($missing as $namespace => $dir) {
+            $this->io->write('           ' . json_encode($namespace, JSON_UNESCAPED_SLASHES)
+                . ': ["override/' . $dir . '/src/"],');
+        }
+
+        return array_keys($missing);
     }
 
     private function resolveModules(): array
