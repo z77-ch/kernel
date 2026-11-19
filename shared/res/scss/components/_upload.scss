@@ -81,6 +81,23 @@
     }
 
     .z77-upload__hint { margin-left: auto; }
+
+    // The inline field (`partials/uploadField`): a long file name is cut, never widens the form.
+    .z77-upload__label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    &.is-chosen .z77-upload__hint { display: none; }
+    &.is-over .z77-upload__zone { border-color: var(--z77-up-accent-color); }
+}
+// The inline field lines its «entfernen» up beside the zone.
+.z77-upload[data-upload-inline] {
+    flex-direction: row;
+    align-items: center;
+
+    .z77-upload__zone { flex: 1 1 auto; min-width: 0; }
 }
 
 .z77-upload__arrow {

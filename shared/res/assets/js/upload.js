@@ -747,6 +747,69 @@ _Z77.upload = (function () {
         });
     }
 
+    /**
+     * `[data-upload-inline]` (`partials/uploadField`, owner 2026-11-19): ONE file that travels with
+     * the form it stands in — no request of its own. The script only shows what was chosen (the
+     * name as TEXT, never markup) with «entfernen», and takes a file dropped onto the zone into the
+     * file field (`DataTransfer`, where the browser allows it). The accept list and the size are
+     * the client's courtesy gate; the server checks again.
+     */
+    function bindInline(scope) {
+        (scope || document).querySelectorAll('[data-upload-inline]').forEach(function (box) {
+            if (box._z77UploadInline) return;
+            box._z77UploadInline = true;
+            var input = box.querySelector('input[type=file]');
+            var name  = box.querySelector('[data-upload-chosen-name]');
+            var pick  = box.querySelector('[data-upload-chosen-pick]');
+            var clear = box.querySelector('[data-upload-clear]');
+            var zone  = box.querySelector('[data-upload-zone]');
+            if (!input || !name || !zone) return;
+            var empty  = name.textContent;
+            var accept = (box.getAttribute('data-upload-accept') || '').split(',')
+                .map(function (s) { return s.trim().toLowerCase(); }).filter(function (s) { return s !== ''; });
+            var max    = parseInt(box.getAttribute('data-upload-max') || '0', 10) || 0;
+
+            function fits(file) {
+                var n = (file.name || '').toLowerCase(), t = (file.type || '').toLowerCase();
+                var typeOk = accept.length === 0 || accept.some(function (a) {
+                    if (a.charAt(0) === '.') return n.slice(-a.length) === a;
+                    if (a.slice(-2) === '/*') return t.indexOf(a.slice(0, -1)) === 0;
+                    return a === t;
+                });
+                if (!typeOk) return _tr('js.upload.notAllowed', 'nicht erlaubt ({$types})', { types: accept.join(', ') });
+                if (max > 0 && file.size > max) return _tr('js.upload.tooLarge', 'zu gross (max. {$max})', { max: _bytes(max) });
+                return null;
+            }
+            function show() {
+                var file = input.files && input.files[0];
+                var bad  = file ? fits(file) : null;
+                if (bad) { input.value = ''; file = null; }
+                name.textContent = file ? file.name : (bad ? bad : empty);
+                if (pick) pick.hidden = !!file;
+                if (clear) clear.hidden = !file;
+                box.classList.toggle('is-chosen', !!file);
+                box.classList.toggle('is-over-bad', !!bad);
+            }
+            input.addEventListener('change', show);
+            if (clear) clear.addEventListener('click', function () { input.value = ''; show(); input.focus(); });
+            zone.addEventListener('dragover', function (e) { e.preventDefault(); box.classList.add('is-over'); });
+            zone.addEventListener('dragleave', function () { box.classList.remove('is-over'); });
+            zone.addEventListener('drop', function (e) {
+                e.preventDefault();
+                e.stopPropagation();   // a `cell` upload watching the work area must not take it too
+                box.classList.remove('is-over');
+                var files = e.dataTransfer ? e.dataTransfer.files : null;
+                if (!files || files.length === 0) return;
+                try {
+                    var one = new DataTransfer();
+                    one.items.add(files[0]);
+                    input.files = one.files;
+                } catch (err) { return; }   // an old browser: the dialog still works
+                show();
+            });
+        });
+    }
+
     // The pick inside the window of `before`: `[data-upload-pick="<id of the file field>"]` opens
     // that component's file dialog and closes its own window — the run's window follows.
     document.addEventListener('click', function (e) {
@@ -762,15 +825,24 @@ _Z77.upload = (function () {
     });
 
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function () { bind(document); });
+        document.addEventListener('DOMContentLoaded', function () { bind(document); bindInline(document); });
     } else {
         bind(document);
+        bindInline(document);
     }
+    // A window brings its markup later (ADR-047): an inline field inside it binds on the first touch.
+    ['focusin', 'dragenter', 'pointerdown'].forEach(function (type) {
+        document.addEventListener(type, function (e) {
+            var box = e.target && e.target.closest ? e.target.closest('[data-upload-inline]') : null;
+            if (box && !box._z77UploadInline) bindInline(box.parentNode);
+        }, true);
+    });
 
     // A window or a region brings its own markup (ADR-047): bind what arrives.
     if (_Z77.core && _Z77.core.fetch) {
         _Z77.core.fetch.registerCommand('bind-upload', function (cmd) {
             bind(cmd.selector ? document.querySelector(cmd.selector) : document);
+            bindInline(cmd.selector ? document.querySelector(cmd.selector) : document);
         });
     }
 
