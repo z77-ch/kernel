@@ -5,6 +5,7 @@ namespace Z77\Core\Installer;
 use Composer\Script\Event;
 use Composer\Composer;
 use Composer\IO\IOInterface;
+use Symfony\Component\Console\Exception\MissingInputException;
 use Z77\Shared\Auth\PasswordPolicy;
 use Z77\Shared\Auth\PasswordTier;
 use Z77\Shared\Import\ImportSourceException;
@@ -65,6 +66,12 @@ class Install
     private const SETUP_TOKEN_FILE      = 'SETUP_TOKEN';
     private const ADMIN_USERNAME        = 'admin';
     private const BCRYPT_COST           = 12;
+
+    // How often the admin password prompt re-asks (empty answer, mismatch, too weak for
+    // veryStrong) before it gives up and defers to the SETUP_TOKEN (INST-PROMPT-EOF-001).
+    // On Windows a closed stdin reads as an EMPTY answer (hiddeninput.exe), so an
+    // unbounded re-ask is an endless loop.
+    private const MAX_PASSWORD_ATTEMPTS = 3;
 
     private const DOCS_PACKAGE          = 'z77/docs';
     private const CLAUDE_TEMPLATE       = __DIR__ . '/../../res/CLAUDE.project.md';
@@ -891,6 +898,7 @@ class Install
         }
 
         $deployed = 0;
+        $noInput  = false;
 
         try {
             foreach ($this->assetDriftChanged as $entry) {
@@ -899,19 +907,29 @@ class Install
                 $this->io->write('   ' . $this->driftReasonLabel($entry));
                 $this->io->write('   ⚠ This may be YOUR own edit or a compiled build artefact (from override/scss).');
                 $this->io->write('   ⚠ Overwriting replaces it with the framework version — your changes are lost.');
-                if ($this->io->askConfirmation('   Overwrite public/ file? [y/N] ', false)) {
+                $answer = $this->confirm('   Overwrite public/ file? [y/N] ', false);
+                if ($answer === null) {
+                    $noInput = true;
+                    break;
+                }
+                if ($answer) {
                     $this->deployAsset($entry['src'], $entry['dst']);
                     $this->io->write('   ✓ overwritten');
                     $deployed++;
                 }
             }
 
-            foreach ($this->assetRemovedHere as $entry) {
+            foreach ($noInput ? [] : $this->assetRemovedHere as $entry) {
                 $this->io->write('');
                 $this->io->write('− removed here: ' . $entry['display']);
                 $this->io->write('   ⚠ The installer published this file once; it is gone now — someone deleted it here.');
                 $this->io->write('   ⚠ Restoring it undoes that deletion.');
-                if ($this->io->askConfirmation('   Restore into public/? [y/N] ', false)) {
+                $answer = $this->confirm('   Restore into public/? [y/N] ', false);
+                if ($answer === null) {
+                    $noInput = true;
+                    break;
+                }
+                if ($answer) {
                     $this->deployAsset($entry['src'], $entry['dst']);
                     $this->io->write('   ✓ restored');
                     $deployed++;
@@ -924,9 +942,28 @@ class Install
         }
 
         $this->io->write('');
+        if ($noInput) {
+            $this->io->write('Asset deploy: no input on stdin — the files not asked about keep their current state.');
+        }
         $this->io->write($deployed > 0
             ? "Asset deploy: {$deployed} file(s) written to public/."
             : 'Asset deploy: nothing written on request — public/ keeps its own files.');
+    }
+
+    /**
+     * askConfirmation() that survives a stdin without input (INST-PROMPT-EOF-001): at EOF
+     * Symfony (inside Composer) throws MissingInputException ("Aborted."), which would fail
+     * the whole install after its work is done. Returns null for "no answer"; the caller
+     * then keeps the safe side (writes nothing, requires nothing). Only that exception is
+     * caught — any other failure still ends the run.
+     */
+    private function confirm(string $question, bool $default): ?bool
+    {
+        try {
+            return (bool) $this->io->askConfirmation($question, $default);
+        } catch (MissingInputException) {
+            return null;
+        }
     }
 
     /**
@@ -1946,6 +1983,12 @@ class Install
      *   non-interactive → defer: write a one-time `SETUP_TOKEN` under `data/` so a
      *                     token-gated `/setup` can create the account on first run.
      *
+     * "Interactive" is Composer's verdict AND a terminal on stdin (INST-PROMPT-EOF-001):
+     * Composer counts every Git Bash (MSYSTEM=MINGW*) as a TTY, and a nested
+     * `@composer install` script never inherits `--no-interaction` — so an agent's shell
+     * with a closed stdin reached the prompt. No terminal, or no password read within
+     * MAX_PASSWORD_ATTEMPTS, defers to the SETUP_TOKEN exactly like `--no-interaction`.
+     *
      * The environment (`debug` flag, host) is deliberately NOT a factor here —
      * security is by default, not by environment detection.
      */
@@ -1958,11 +2001,24 @@ class Install
             return;
         }
 
-        if ($this->io->isInteractive()) {
-            $this->provisionAdminInteractive($authDir, $usersFile);
-        } else {
-            $this->provisionSetupToken($authDir);
+        if ($this->io->isInteractive() && !$this->stdinIsTerminal()) {
+            $this->io->write('');
+            $this->io->write('Z77 — stdin is not a terminal: the admin password cannot be asked here.');
+        } elseif ($this->io->isInteractive() && $this->provisionAdminInteractive($authDir, $usersFile)) {
+            return;
         }
+
+        $this->provisionSetupToken($authDir);
+    }
+
+    /**
+     * True when stdin is a terminal a person can type into. A pipe, a file, NUL or a
+     * closed stream is not — and a hidden prompt there reads EOF, which Composer's
+     * Windows helper (hiddeninput.exe) returns as an empty answer, not as an error.
+     */
+    private function stdinIsTerminal(): bool
+    {
+        return defined('STDIN') && stream_isatty(STDIN);
     }
 
     /**
@@ -1971,8 +2027,11 @@ class Install
      * one is accepted but the resulting `password_weak` flag drives the every-login
      * nag. The user store is written as plain JSON matching the {@see BackendUser}
      * shape (snake_case) — no DI / EntityManager boot needed at install time.
+     *
+     * Returns false — nothing written — when no acceptable password was read within
+     * MAX_PASSWORD_ATTEMPTS; the caller then defers to the SETUP_TOKEN.
      */
-    private function provisionAdminInteractive(string $authDir, string $usersFile): void
+    private function provisionAdminInteractive(string $authDir, string $usersFile): bool
     {
         $username = self::ADMIN_USERNAME;
         $tier     = PasswordTier::fromName($this->authConfig['passwordTier'] ?? null);
@@ -1981,16 +2040,23 @@ class Install
         $this->io->write('Z77 — create the admin account');
         $this->io->write("   Username: {$username}");
 
-        // veryStrong is the only tier that rejects a weak password — re-prompt
-        // until it passes. All other tiers accept it (the every-login nag handles it).
+        // veryStrong is the only tier that rejects a weak password — re-prompt, bounded.
+        // All other tiers accept it (the every-login nag handles it).
+        $attempt = 0;
         do {
             $password = $this->promptNewPassword();
-            $eval     = PasswordPolicy::evaluate($password, [$username], $tier);
+            if ($password === null) {
+                return $this->giveUpPasswordPrompt();
+            }
+            $eval = PasswordPolicy::evaluate($password, [$username], $tier);
 
             if ($eval['weak'] && $tier->blocksWeak()) {
                 $this->io->writeError('   Password does not meet the required strength (' . $tier->value . '):');
                 foreach ($eval['reasons'] as $reason) {
                     $this->io->writeError('       – ' . $reason);
+                }
+                if (++$attempt >= self::MAX_PASSWORD_ATTEMPTS) {
+                    return $this->giveUpPasswordPrompt();
                 }
                 continue;
             }
@@ -2018,24 +2084,55 @@ class Install
         $json = json_encode($admin, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
         $this->writeFile($authDir, self::BACKEND_USERS_FILE, $json);
         $this->io->write('   ✓ Admin account created → ' . self::AUTH_DIR . '/' . self::BACKEND_USERS_FILE);
+        return true;
     }
 
-    /** Asks for a password twice (hidden) until non-empty and both entries match. */
-    private function promptNewPassword(): string
+    /** Reports the give-up of the password prompt; the caller defers to the SETUP_TOKEN. */
+    private function giveUpPasswordPrompt(): bool
     {
-        while (true) {
-            $password = (string) $this->io->askAndHideAnswer('   Choose a password: ');
+        $this->io->writeError('   No password was set — the admin is created through the setup page instead.');
+        return false;
+    }
+
+    /**
+     * Asks for a password twice (hidden) until non-empty and both entries match —
+     * at most MAX_PASSWORD_ATTEMPTS rounds. Returns null when no input can be read:
+     * EOF (Symfony answers null, or throws MissingInputException "Aborted.") or the
+     * rounds are used up (on Windows EOF reads as '', see stdinIsTerminal()).
+     */
+    private function promptNewPassword(): ?string
+    {
+        for ($attempt = 1; $attempt <= self::MAX_PASSWORD_ATTEMPTS; $attempt++) {
+            $password = $this->askHidden('   Choose a password: ');
+            if ($password === null) {
+                return null;
+            }
             if ($password === '') {
                 $this->io->writeError('   Password must not be empty.');
                 continue;
             }
-            $confirm = (string) $this->io->askAndHideAnswer('   Repeat password:   ');
+            $confirm = $this->askHidden('   Repeat password:   ');
+            if ($confirm === null) {
+                return null;
+            }
             if ($password !== $confirm) {
                 $this->io->writeError('   Passwords do not match — try again.');
                 continue;
             }
             return $password;
         }
+        return null;
+    }
+
+    /** One hidden answer, or null when stdin has no input left (EOF / aborted read). */
+    private function askHidden(string $question): ?string
+    {
+        try {
+            $answer = $this->io->askAndHideAnswer($question);
+        } catch (MissingInputException) {
+            return null;
+        }
+        return $answer === null ? null : (string) $answer;
     }
 
     /**
@@ -2119,10 +2216,14 @@ class Install
         }
 
         $this->io->write('');
-        $wants = $this->io->askConfirmation(
+        $wants = $this->confirm(
             'Install the AI-optimized framework docs into vendor/ (recommended for Claude Code)? [Y/n] ',
             true
         );
+        if ($wants === null) {
+            $this->io->write('No input on stdin. Add the docs any time with: composer require --dev ' . self::DOCS_PACKAGE);
+            return;
+        }
         if (!$wants) {
             $this->io->write('Skipped. Add them any time with: composer require --dev ' . self::DOCS_PACKAGE);
             return;
