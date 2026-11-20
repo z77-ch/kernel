@@ -2291,7 +2291,7 @@ class Install
      * is installed or required. Default YES: unlike the overwrite prompts (default No),
      * saying yes only adds a dev dependency; nothing existing is touched.
      *
-     *   interactive     → ask, then run a nested `composer require --dev z77/docs:^1.0`.
+     *   interactive     → ask, then run a nested `composer require --dev z77/docs:^2.0`.
      *                     A failure is non-fatal (the install itself is already complete);
      *                     the manual command is printed instead.
      *   non-interactive → never ask, never require — print the manual command once.
@@ -2324,7 +2324,7 @@ class Install
         }
 
         $cmd = $this->composerCommand()
-             . ' require --dev ' . escapeshellarg(self::DOCS_PACKAGE . ':^1.0')
+             . ' require --dev ' . escapeshellarg(self::DOCS_PACKAGE . ':^2.0')
              . ' --working-dir=' . escapeshellarg($this->baseDir);
 
         $this->io->write('Running: composer require --dev ' . self::DOCS_PACKAGE);
