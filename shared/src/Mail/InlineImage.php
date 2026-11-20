@@ -9,9 +9,8 @@ namespace Z77\Shared\Mail;
  *
  * Why the pixel size travels along: Outlook (desktop, the Word engine) draws an image at its
  * INTRINSIC size and ignores CSS widths — so the file must already be the display size, and
- * the `width` / `height` attributes are the image's own. Nothing is resized here (owner
- * 2026-10-23: the operator uploads the right size). SVG is not taken: most mail clients do
- * not show it.
+ * the `width` / `height` attributes are the image's own (divided by the declared density, see
+ * {@see fromFile()}). Nothing is resized here. SVG is not taken: most mail clients do not show it.
  */
 final class InlineImage
 {
@@ -29,8 +28,14 @@ final class InlineImage
     /**
      * The image of `$path`, or null when there is none to show: missing, unreadable, not a
      * PNG / JPEG / GIF (judged by the file's header, not its name), or without a size.
+     *
+     * `$density` (2026-11-20, the mandator's logo set-up): how many file pixels make one
+     * display pixel. 1 = the file is the display size (a hand-uploaded «Logo (E-Mail)»);
+     * 2 = a file made for high-density screens (the variant module-mandator derives) — the
+     * `width` / `height` it answers are then half the pixel size, and Outlook, which honours
+     * the HTML attributes, draws it at that size.
      */
-    public static function fromFile(string $path, string $alt = ''): ?self
+    public static function fromFile(string $path, string $alt = '', int $density = 1): ?self
     {
         if ($path === '' || !is_file($path) || !is_readable($path)) {
             return null;
@@ -39,7 +44,13 @@ final class InlineImage
         if (!is_array($info) || !in_array($info[2] ?? null, self::TYPES, true) || ($info[0] ?? 0) < 1 || ($info[1] ?? 0) < 1) {
             return null;
         }
+        $density = max(1, $density);
 
-        return new self($path, (int) $info[0], (int) $info[1], trim((string) preg_replace('/\s+/u', ' ', $alt)));
+        return new self(
+            $path,
+            max(1, intdiv((int) $info[0], $density)),
+            max(1, intdiv((int) $info[1], $density)),
+            trim((string) preg_replace('/\s+/u', ' ', $alt)),
+        );
     }
 }

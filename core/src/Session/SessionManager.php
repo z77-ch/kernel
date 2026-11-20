@@ -15,10 +15,18 @@ class SessionManager
     private ?SessionHandler $sessionHandler = null;
 
     /**
-     * Konstruktor
-     * Startet die Session sofort.
+     * Starts the session at once.
+     *
+     * @param ?string $saveDir       the installation's own directory for the session files
+     *                               (absolute); null leaves the host's `session.save_path`
+     * @param ?int    $gcMaxLifetime seconds after which an untouched session file may be
+     *                               collected; null leaves the host's value
+     *
+     * ⚠️ Both come from Bootstrap (SessionPolicy, login.md LOGIN-SESSION-001). Without them the
+     * files sit in the host's shared session directory and die by ITS garbage collection —
+     * on shared hosting after a few minutes, whatever this installation wants.
      */
-    public function __construct()
+    public function __construct(private ?string $saveDir = null, private ?int $gcMaxLifetime = null)
     {
         $this->startSession();
     }
@@ -57,6 +65,7 @@ class SessionManager
             // strict mode so uninitialized session ids are rejected
             // (session fixation).
             ini_set('session.use_strict_mode', '1');
+            $this->ownStorage();
             session_set_cookie_params([
                 'lifetime' => 0,
                 'path'     => '/',
@@ -69,6 +78,59 @@ class SessionManager
         }
 
         $this->started = true;
+    }
+
+    /**
+     * The session files in the installation's own directory, with its own collection.
+     *
+     * - Only for PHP's `files` handler: with another one (redis, memcached) `save_path` is not
+     *   a directory, and the host's store has its own expiry.
+     * - The collector is switched ON explicitly: distributions that clean the default directory
+     *   by cron ship `session.gc_probability = 0`, and that cron never looks into a custom path.
+     *   One request in a hundred sweeps the directory.
+     * - A directory that cannot be created (a dangling `var/lib` after a release switch) must not
+     *   lock everybody out: the host's path stays, with a log line.
+     */
+    private function ownStorage(): void
+    {
+        if ($this->gcMaxLifetime !== null) {
+            ini_set('session.gc_maxlifetime', (string) $this->gcMaxLifetime);
+        }
+        if ($this->saveDir === null || ini_get('session.save_handler') !== 'files') {
+            return;
+        }
+
+        if (!self::prepareSaveDir($this->saveDir)) {
+            error_log('SessionManager: session directory not usable, the host\'s session.save_path stays — ' . $this->saveDir);
+            return;
+        }
+
+        ini_set('session.save_path', $this->saveDir);
+        ini_set('session.gc_probability', '1');
+        ini_set('session.gc_divisor', '100');
+    }
+
+    /**
+     * Creates the directory for the owner only (0700) and puts the deny-all `.htaccess` into it:
+     * it is outside the document root, the file is the alarm if a link ever points there.
+     */
+    private static function prepareSaveDir(string $dir): bool
+    {
+        if (!is_dir($dir)) {
+            $parent = dirname($dir);
+            if (!is_dir($parent) && !@mkdir($parent, 0755, true) && !is_dir($parent)) {
+                return false;
+            }
+            if (!@mkdir($dir, 0700) && !is_dir($dir)) {
+                return false;
+            }
+            $deny = __DIR__ . '/../../res/htaccess-deny';
+            if (is_file($deny)) {
+                @copy($deny, $dir . '/.htaccess');
+            }
+        }
+
+        return is_writable($dir);
     }
 
     /**

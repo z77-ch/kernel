@@ -64,14 +64,21 @@ final class DashboardEntry
     /**
      * @param list<string>          $route [module, group, controller, action]
      * @param array<string, scalar> $query the target list's filter, e.g. ['view' => 'overdue']
+     * @param string                $opens how the line opens its target (2026-11-20): {@see OPEN_PAGE} (a plain link,
+     *                                     the default) or {@see OPEN_WINDOW} (`data-window-open`, ADR-047 — the
+     *                                     target answers as a window; without the script the link opens it as a page).
+     *                                     First user: the setup step «Firmenlogo … hinterlegen» opens the logo window.
      */
-    public static function pending(Severity $severity, string $label, array $route, array $query = [], ?int $count = null, ?Money $amount = null): self
+    public static function pending(Severity $severity, string $label, array $route, array $query = [], ?int $count = null, ?Money $amount = null, string $opens = self::OPEN_PAGE): self
     {
         if ($route === []) {
             throw new \InvalidArgumentException("Dashboard entry «{$label}» needs a target route.");
         }
+        if ($opens === self::OPEN_DIALOG) {
+            throw new \InvalidArgumentException("Dashboard entry «{$label}»: a pending line opens as a page or a window, not as a dialog.");
+        }
 
-        return new self(self::KIND_PENDING, $severity, $label, $route, $query, $count, $amount, self::OPEN_PAGE);
+        return new self(self::KIND_PENDING, $severity, $label, $route, $query, $count, $amount, $opens);
     }
 
     /** @param list<string> $route the add action the list's «+ Neu» opens */

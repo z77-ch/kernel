@@ -23,6 +23,7 @@ use Z77\Core\DI,
     Z77\Core\Routing\PageCachePolicy,
     Z77\Core\Routing\Router,
     Z77\Core\Session\SessionManager,
+    Z77\Shared\Auth\SessionPolicy,
     Z77\Core\Services\ModuleManager,
     Z77\Core\Services\I18n,
     Z77\Core\Services\Translator,
@@ -348,7 +349,8 @@ class Bootstrap
 
         // Session is started after routing — see method docblock for rationale
         $di->set('SessionManager', function() {
-                return new SessionManager();
+                // The installation's own session directory and file lifetime (LOGIN-SESSION-001).
+                return new SessionManager(SessionPolicy::saveDir(), SessionPolicy::fromConfig()->gcMaxLifetime());
             }, true)
             ->set('MessageService', function($c) {
                 return new MessageService($c->get('SessionManager'));

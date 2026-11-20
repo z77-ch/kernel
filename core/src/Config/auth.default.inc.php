@@ -14,4 +14,19 @@ return [
     // seed-once file has no such keys. See docs/topics/security.md.
     'loginFailuresPerUsernameIp' => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_USERNAME_IP,
     'loginFailuresPerIp'         => \Z77\Shared\Auth\LoginThrottle::FAILURES_PER_IP,
+    // How long a backend login lasts (LOGIN-SESSION-001), enforced by the framework per request,
+    // not by PHP's session garbage collection. Bound to the class that reads them and supplies
+    // the fallback for a seed-once file without the keys. See docs/topics/login.md.
+    //   sessionIdleMinutes    signed out after this long without a request
+    //   sessionLifetimeHours  signed out this long after the login, in any case
+    'sessionIdleMinutes'   => \Z77\Shared\Auth\SessionPolicy::IDLE_MINUTES,
+    'sessionLifetimeHours' => \Z77\Shared\Auth\SessionPolicy::LIFETIME_HOURS,
+    // «Auf diesem Gerät angemeldet bleiben» on the backend login. false: the checkbox is not
+    // rendered and no device cookie is accepted. A remembered device signs in without the
+    // password for rememberDeviceDays after its last full login; with
+    // rememberSkipsSecondFactor it also skips the TOTP code (the device passed it when it was
+    // remembered), with false the code is asked again every time.
+    'rememberDevice'            => \Z77\Shared\Auth\SessionPolicy::REMEMBER_DEVICE,
+    'rememberDeviceDays'        => \Z77\Shared\Auth\SessionPolicy::REMEMBER_DEVICE_DAYS,
+    'rememberSkipsSecondFactor' => \Z77\Shared\Auth\SessionPolicy::REMEMBER_SKIPS_SECOND_FACTOR,
 ];

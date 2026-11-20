@@ -2,6 +2,7 @@
 
 namespace Z77\Shared\Auth;
 
+use Z77\Core\DI;
 use Z77\Shared\Throttle\FileThrottle;
 
 /**
@@ -35,6 +36,22 @@ final class LoginThrottle
         private int $failuresPerIp = self::FAILURES_PER_IP,
     ) {
         $this->counter = new FileThrottle($dir);
+    }
+
+    /**
+     * The installation's throttle: the limits from `config/client/auth.inc.php`, a seed-once file
+     * from before SEC-004 gets the class's defaults. The one place that reads the two keys — the
+     * login, the 2FA enrolment and the remembered-device door all come here.
+     */
+    public static function fromConfig(): self
+    {
+        $config = DI::getConfigManager()->getBaseConfig('config/auth', throwError: false);
+
+        return new self(
+            self::defaultDir(),
+            max(1, (int) $config->get('loginFailuresPerUsernameIp', self::FAILURES_PER_USERNAME_IP)),
+            max(1, (int) $config->get('loginFailuresPerIp', self::FAILURES_PER_IP)),
+        );
     }
 
     /** `var/lib/throttle/login`: disposable, shared across releases — same reasoning as MemberThrottle::defaultDir(). */

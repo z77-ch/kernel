@@ -2,6 +2,7 @@
 namespace Z77\Shared\Services;
 
 use Z77\Shared\Auth\AuthUser,
+    Z77\Shared\Auth\SessionPolicy,
     Z77\Shared\Entities\BackendUser,
     Z77\Shared\Libraries\Convention\Naming,
     Z77\Core\Session\SessionManager,
@@ -15,14 +16,23 @@ class AuthService
     private SessionManager $sessionManager;
     private ControllerHandler $controllerHandler;
 
+    /**
+     * Session key: why a backend identity was just removed by its clock (SessionPolicy::EXPIRED_*).
+     * The login page reads it once, for its one sentence; a new login clears it.
+     */
+    public const EXPIRED_KEY = 'auth.expired';
+
     private ?AuthUser  $currentUser  = null;
     private ?BackendUser $verifiedUser = null;
     private bool $secondFactorPassed = false;
+    private ?SessionPolicy $sessionPolicy;
 
-    public function __construct(SessionManager $sessionManager, ControllerHandler $controllerHandler)
+    /** @param ?SessionPolicy $sessionPolicy null = the installation's (`config/client/auth.inc.php`), read on first use */
+    public function __construct(SessionManager $sessionManager, ControllerHandler $controllerHandler, ?SessionPolicy $sessionPolicy = null)
     {
         $this->sessionManager    = $sessionManager;
         $this->controllerHandler = $controllerHandler;
+        $this->sessionPolicy     = $sessionPolicy;
     }
 
     public static function hasSufficientRole(AuthUser $authUser, string $requiredRole): bool
@@ -152,6 +162,9 @@ class AuthService
             $this->sessionManager->remove('auth_user');
             $data = null;
         }
+        if ($data) {
+            $data = $this->withinSessionClocks($data);
+        }
 
         $this->currentUser = $data
             ? new AuthUser([
@@ -196,6 +209,36 @@ class AuthService
         }
 
         return $user instanceof BackendUser && self::stampMatches($data, $user);
+    }
+
+    /**
+     * The two clocks of a backend login (LOGIN-SESSION-001): idle and absolute, from timestamps in
+     * the slot itself, checked on every request — never left to PHP's session collector. Run out:
+     * the identity goes and the reason waits in {@see EXPIRED_KEY} for the login page. Still
+     * running: this request is the new «last seen». Returns the slot, or null when it ran out.
+     *
+     * Backend realm only: the member door has its own idle clock (MemberSession). A slot from
+     * before the clocks existed is stamped now and runs from here.
+     */
+    private function withinSessionClocks(array $data): ?array
+    {
+        if (($data['realm'] ?? AuthUser::REALM_BACKEND) !== AuthUser::REALM_BACKEND) {
+            return $data;
+        }
+
+        $now    = time();
+        $reason = ($this->sessionPolicy ??= SessionPolicy::fromConfig())->expiryOf($data, $now);
+        if ($reason !== null) {
+            $this->sessionManager->remove('auth_user');
+            $this->sessionManager->set(self::EXPIRED_KEY, $reason);
+            return null;
+        }
+
+        $data['login_at'] = (int) ($data['login_at'] ?? 0) ?: $now;
+        $data['seen_at']  = $now;
+        $this->sessionManager->set('auth_user', $data);
+
+        return $data;
     }
 
     /** The rule itself, pure: a missing stamp reads 0, a mismatch in either direction is stale. */
@@ -249,6 +292,21 @@ class AuthService
         return $this;
     }
 
+    /**
+     * The remembered device's way to {@see login()} (login.md LOGIN-REMEMBER-001): no password in
+     * this request, the device presented a token that was issued at the end of a COMPLETE login.
+     * Only for a caller that has just redeemed such a token for exactly this user.
+     *
+     * @param bool $coversSecondFactor the installation lets a remembered device skip the code
+     *        (`rememberSkipsSecondFactor`); false leaves login() refusing an account with 2FA
+     */
+    public function restoredFromDevice(BackendUser $user, bool $coversSecondFactor): self
+    {
+        $this->verifiedUser       = $user;
+        $this->secondFactorPassed = $coversSecondFactor;
+        return $this;
+    }
+
     public function login(): void
     {
         if ($this->verifiedUser === null) {
@@ -264,15 +322,20 @@ class AuthService
         $this->secondFactorPassed = false;
 
         $this->sessionManager->regenerate();
+        $now     = time();
         $payload = [
             'id'         => $user->getId(),
             'user_name'  => $user->getUsername(),
             'roles'      => $user->getRoles(),
             'realm'      => AuthUser::REALM_BACKEND,
             'auth_epoch' => $user->getAuthEpoch(),
+            // The two clocks of SessionPolicy start here.
+            'login_at'   => $now,
+            'seen_at'    => $now,
         ];
         $this->currentUser = new AuthUser($payload);
         $this->sessionManager->set('auth_user', $payload);
+        $this->sessionManager->remove(self::EXPIRED_KEY);
     }
 
     public function logout(): void
