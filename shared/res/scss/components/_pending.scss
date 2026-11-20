@@ -1,0 +1,77 @@
+// ── Pending state (PENDING-001, owner 2026-11-20) — the shared primitive ─────────────────────
+//
+// What the page shows while a request is on its way to the server and an answer (or a page
+// load) is awaited — set by core.js «pending state», nothing per screen. Three parts:
+//
+//   [data-z77-pending]            the control that sent it: locked, a small spinner
+//                                 (`.z77-pending__spin`, appended by core.js) beside its text —
+//                                 or, on a control without text (="icon"), in place of its icon
+//   [aria-busy="true"]            the part that is replaced (a form, a fetch region, a window's
+//                                 body): no pointer at once, faded only after 300 ms
+//   html[data-z77-loading]        a thin bar at the top edge (core.js sets it after 300 ms)
+//
+// Neutral tokens with fallbacks (ADR-018 rule 5); a host binds them to its palette:
+//   --z77-pending-bar    the bar's colour
+//   --z77-pending-fade   the opacity of a waiting part
+//
+// `prefers-reduced-motion`: the spinner stands still as a calm ring, the bar is a still line.
+
+// 1 — the control
+[data-z77-pending] { cursor: progress; }
+a[data-z77-pending] { pointer-events: none; }
+
+.z77-pending__spin {
+    display:        inline-block;
+    flex:           none;
+    width:          .85em;
+    height:         .85em;
+    margin-inline-start: .45em;
+    vertical-align: -.1em;
+    border:         2px solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius:  50%;
+    animation:      z77-pending-spin .7s linear infinite;
+}
+// A control without text: the spinner stands where its icon stood (no width added — the narrow
+// leading cell of a row keeps its size).
+[data-z77-pending="icon"] { position: relative; }
+[data-z77-pending="icon"] > :not(.z77-pending__spin) { visibility: hidden; }
+[data-z77-pending="icon"] > .z77-pending__spin {
+    position: absolute;
+    inset:    0;
+    margin:   auto;
+}
+
+@keyframes z77-pending-spin { to { transform: rotate(360deg); } }
+
+// 2 — the part that waits. A window keeps its title bar (× closes it while it loads).
+[aria-busy="true"]:not([data-z77-pending]):not([data-no-pending]):not(.z77-window),
+.z77-window[aria-busy="true"] > .z77-window__body {
+    pointer-events: none;
+    cursor:         progress;
+    opacity:        var(--z77-pending-fade, .55);
+    transition:     opacity .2s ease .3s;
+}
+
+// 3 — the bar at the top edge (CSS only: no node in the page).
+html[data-z77-loading] body::after {
+    content:          '';
+    position:         fixed;
+    top:              0;
+    left:             0;
+    z-index:          2147483000;
+    width:            40%;
+    height:           3px;
+    background:       var(--z77-pending-bar, #2563eb);
+    pointer-events:   none;
+    animation:        z77-pending-bar 1.4s ease-in-out infinite;
+}
+@keyframes z77-pending-bar {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(250%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .z77-pending__spin { animation: none; border-inline-end-color: currentColor; opacity: .5; }
+    html[data-z77-loading] body::after { animation: none; width: 100%; opacity: .6; }
+}

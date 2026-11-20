@@ -45,10 +45,13 @@
  *   form[target="_blank"][data-submit-navigate="<url>"]
  *                                 after the native submit into a new tab, THIS tab goes to <url>
  *                                 (see «submit-navigate»)
+ *   [data-no-pending]             a control (or its ancestor) without the pending state (see «pending state»)
  *
  * Native semantics carry validity state:
  *   input/select … aria-invalid="true|false"
- *   form / trigger … aria-busy="true" while its request runs (see «busy guard»)
+ *   form / region / window / trigger … aria-busy="true" while its request runs (see «busy guard»,
+ *                                 «pending state»); the control that sent it [data-z77-pending],
+ *                                 <html data-z77-loading> after 300 ms (the bar at the top edge)
  *
  * Extension points:
  *   _Z77.core.fetch.registerEnvelopeHandler(key, fn)
@@ -453,11 +456,207 @@ function _bindCheckUrl(scope) {
     });
 }
 
+/* ── pending state (PENDING-001, owner 2026-11-20) ──────────────────────────
+ * The ONE way the page shows that a request went to the server and an answer (or a page load)
+ * is awaited — without it users clicked twice. No screen builds its own variant; every path
+ * of this file that sends on a user's action goes through here (the busy guard, fetch regions,
+ * windows, full page loads).
+ *
+ *   the control that sent it   locked at once: `disabled` (a button) or `aria-disabled="true"`
+ *                              (a link), `data-z77-pending="text|icon"` and a small spinner
+ *                              `span.z77-pending__spin` — appended beside the text, or in place
+ *                              of the icon of a control without text. Its text stays.
+ *   the part that is replaced  `aria-busy="true"` — the form, the fetch region, the window. CSS
+ *                              makes it inert (no pointer) and fades it only after 300 ms.
+ *   the top edge               `html[data-z77-loading]` after 300 ms while anything waits: a thin
+ *                              bar (CSS only). Nothing flickers on a fast answer.
+ *
+ * Released when the answer is in — success, refusal, network error alike (the callers release
+ * in `finally`); the existing flash / message channel reports a failure. A full page load
+ * (a link, a form sent natively) ends the state by replacing the page; should none follow (a
+ * file answered as a download, a load the browser dropped) it is released after
+ * NAV_RELEASE_MS, and a page restored from the back-forward cache (`pageshow` persisted)
+ * starts clean. A fetch has no time limit of its own: it ends with the browser's network
+ * timeout, and so does its pending state — a long server job is not cut off.
+ *
+ *   [data-no-pending]         on a control or an ancestor: none of this (a fetch form keeps
+ *                             only the busy guard's lock). Links with `download`, a `target`
+ *                             other than `_self`, `mailto:` / `tel:` and in-page anchors are
+ *                             left alone without it — no page load follows them.
+ *
+ * UX only (Rule 7): the server keeps its own checks (CSRF, idempotency) — a request can be
+ * repeated by hand. Background requests (the live listener) are quiet: no lock, no bar.
+ */
+_Z77.core.pending = (function () {
+    var BAR_DELAY_MS   = 300;
+    var NAV_RELEASE_MS = 15000;
+    var _waiting = 0;        // requests a user waits for
+    var _clock   = 0;        // invalidates a bar timer that is no longer wanted
+    var _quiet   = 0;        // > 0 while a background answer runs its commands
+    var _active  = [];       // the release of every state set now (the bfcache reset)
+
+    function optedOut(el) { return !!(el && el.closest && el.closest('[data-no-pending]')); }
+
+    function _bar(on) {
+        var root = document.documentElement;
+        if (!root) return;
+        if (on) root.setAttribute('data-z77-loading', '');
+        else root.removeAttribute('data-z77-loading');
+    }
+    function _barStart() {
+        if (++_waiting !== 1) return;
+        var clock = ++_clock;
+        setTimeout(function () { if (clock === _clock && _waiting > 0) _bar(true); }, BAR_DELAY_MS);
+    }
+    function _barStop() {
+        if (_waiting > 0) _waiting--;
+        if (_waiting === 0) { _clock++; _bar(false); }
+    }
+
+    /* aria-busy counted per element: two loads of one region overlap, the first answer must not
+     * free the region the second still fills. */
+    function _busyOn(el) {
+        el._z77BusyN = (el._z77BusyN || 0) + 1;
+        el.setAttribute('aria-busy', 'true');
+    }
+    function _busyOff(el) {
+        el._z77BusyN = Math.max(0, (el._z77BusyN || 0) - 1);
+        if (!el._z77BusyN) el.removeAttribute('aria-busy');
+    }
+
+    /* The spinner: built node by node (no markup from a string). A field holds no child. */
+    function _spin(control) {
+        if (/^(INPUT|SELECT|TEXTAREA)$/.test(control.tagName) || typeof control.appendChild !== 'function') return null;
+        var spin = document.createElement('span');
+        spin.className = 'z77-pending__spin';
+        spin.setAttribute('aria-hidden', 'true');
+        control.appendChild(spin);
+        return spin;
+    }
+
+    /* Marks `control` (may be null) and `scope` (may be null) and starts the bar's clock. `after`
+     * (optional) runs on release. Answers the release; a second call does nothing. */
+    function start(control, scope, after) {
+        var quiet = _quiet > 0 || optedOut(control) || optedOut(scope);
+        // A button or field is locked by `disabled`, anything else (a link, a label) by
+        // `aria-disabled` + the capture guard in bind().
+        var lockable = !!control && 'disabled' in control;
+        var disabled = lockable && !control.disabled ? control : null;
+        if (disabled) disabled.disabled = true;     // the lock — even when the look is opted out
+        var marked = null, aria = false, spin = null, busy = null;
+        if (!quiet) {
+            if (control && !control.hasAttribute('data-z77-pending')) {
+                marked = control;
+                marked.setAttribute('data-z77-pending', (control.textContent || '').trim() === '' ? 'icon' : 'text');
+                aria = !lockable && !control.hasAttribute('aria-disabled');
+                if (aria) control.setAttribute('aria-disabled', 'true');
+                spin = _spin(control);
+            }
+            if (scope) { busy = scope; _busyOn(scope); }
+            _barStart();
+        }
+        var done = false;
+        function release() {
+            if (done) return;
+            done = true;
+            _active = _active.filter(function (r) { return r !== release; });
+            if (disabled) disabled.disabled = false;
+            if (marked) marked.removeAttribute('data-z77-pending');
+            if (aria) marked.removeAttribute('aria-disabled');
+            if (spin && spin.parentNode) spin.parentNode.removeChild(spin);
+            if (busy) _busyOff(busy);
+            if (!quiet) _barStop();
+            if (after) after();
+        }
+        _active.push(release);
+        return release;
+    }
+
+    /* A full page load starts: it ends the state itself by replacing the page. */
+    function navigate(control, scope, after) {
+        if (_quiet > 0) return;
+        setTimeout(start(control || null, scope || null, after), NAV_RELEASE_MS);
+    }
+
+    /* Runs fn with every state it starts quiet — a background answer (the live listener). */
+    function quietly(fn) {
+        _quiet++;
+        try { return fn(); } finally { _quiet--; }
+    }
+    function isQuiet() { return _quiet > 0; }
+
+    /* Everything released — a page shown again from the back-forward cache. */
+    function reset() {
+        _active.slice().forEach(function (release) { release(); });
+        _waiting = 0;
+        _clock++;
+        _bar(false);
+    }
+
+    /* A link that loads a new page in this tab — or null. */
+    function _pageLink(e) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return null;
+        var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+        if (!a || a.hasAttribute('download') || optedOut(a)) return null;
+        var target = a.getAttribute('target');
+        if (target && target !== '_self') return null;
+        var url;
+        try { url = new URL(a.href, window.location.href); } catch (err) { return null; }
+        if (!/^https?:$/.test(url.protocol)) return null;
+        // An anchor on this page (also a bare `href="#"` a script handles): no page load.
+        if (url.href.indexOf('#') !== -1 && url.href.split('#')[0] === window.location.href.split('#')[0]) return null;
+        return a;
+    }
+
+    /* A form the browser sends itself in this tab. */
+    function _pageForm(form, sub) {
+        if (!form || form.tagName !== 'FORM' || optedOut(sub || form)) return false;
+        var target = (sub && sub.getAttribute('formtarget')) || form.getAttribute('target') || '';
+        if (target && target !== '_self') return false;
+        var method = ((sub && sub.getAttribute('formmethod')) || form.getAttribute('method') || 'get').toLowerCase();
+        return method !== 'dialog';
+    }
+
+    function bind() {
+        // A control that waits takes no second click and its form no second submit — capture,
+        // before any other handler sees them.
+        document.addEventListener('click', function (e) {
+            var t = e.target && e.target.closest ? e.target.closest('[data-z77-pending]') : null;
+            if (t) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }, true);
+        document.addEventListener('submit', function (e) {
+            if (e.target && e.target._z77PagePending) { e.preventDefault(); e.stopImmediatePropagation(); }
+        }, true);
+        // Full page loads: decided after every other handler ran — a click or submit a handler
+        // took over (a window, a region, a fetch form) is not a page load.
+        document.addEventListener('click', function (e) {
+            var link = _pageLink(e);
+            if (!link) return;
+            setTimeout(function () { if (!e.defaultPrevented) navigate(link); }, 0);
+        });
+        document.addEventListener('submit', function (e) {
+            var form = e.target, sub = e.submitter || null;
+            if (!_pageForm(form, sub)) return;
+            // The browser built the form's data during the event: disabling the submitter now
+            // takes nothing out of it.
+            setTimeout(function () {
+                if (e.defaultPrevented) return;
+                form._z77PagePending = true;
+                navigate(sub, form, function () { form._z77PagePending = false; });
+            }, 0);
+        });
+        window.addEventListener('pageshow', function (e) { if (e.persisted) reset(); });
+    }
+
+    return { start: start, navigate: navigate, quietly: quietly, isQuiet: isQuiet, bind: bind };
+})();
+
 /* ── busy guard ─────────────────────────────────────────────────────────────
  * One request per form (or trigger) at a time: a double click on «Speichern» created two
  * contacts or two journal entries (review 2026-10-13, H2). While the request runs the
- * owner carries `aria-busy="true"` and the control that sent it is disabled; both are
- * released when the request settles (`finally` — success, refusal or network error alike).
+ * owner carries `aria-busy="true"` and the control that sent it is disabled and marked —
+ * the shared pending state («pending state» above); both are released when the request
+ * settles (`finally` — success, refusal or network error alike).
  * A second send while busy is ignored. This spares the server a duplicate, it does not
  * replace the server's own checks (Rule 7): a request can still be repeated by hand.
  *
@@ -471,14 +670,7 @@ _Z77.core.busy = (function () {
     function guard(owner, control, send) {
         if (isBusy(owner)) return null;
         owner._z77Busy = true;
-        owner.setAttribute('aria-busy', 'true');
-        var held = control && !control.disabled && 'disabled' in control ? control : null;
-        if (held) held.disabled = true;
-        function release() {
-            owner._z77Busy = false;
-            owner.removeAttribute('aria-busy');
-            if (held) held.disabled = false;
-        }
+        var release = _Z77.core.pending.start(control, owner, function () { owner._z77Busy = false; });
         var request;
         try {
             request = Promise.resolve(send());
@@ -686,7 +878,11 @@ _Z77.core.fetch = (function () {
     });
     registerEnvelopeHandler('redirect', function (r) {
         if (!r) return;
-        setTimeout(function () { window.location.href = r.url; }, r.delay || 0);
+        var quiet = _Z77.core.pending.isQuiet();
+        setTimeout(function () {
+            if (!quiet) _Z77.core.pending.navigate();
+            window.location.href = r.url;
+        }, r.delay || 0);
     });
     registerEnvelopeHandler('commands', function (cmds, env, _src, ctx) {
         _executeCommands(cmds, env && env.data, ctx);
@@ -842,7 +1038,7 @@ _Z77.core.fetch = (function () {
         var el = _find(p);
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-    registerCommand('reload', function () { window.location.reload(); });
+    registerCommand('reload', function () { _Z77.core.pending.navigate(); window.location.reload(); });
     /* {action: 'stop-live', target, origin?} — the listener on `target` asks no more (core.js
      * «live listener»). The attribute IS the listener's state: without it the next look ends it. */
     registerCommand('stop-live', function (p) {
@@ -1008,21 +1204,24 @@ _Z77.core.region = (function () {
      * element. */
     var _latest = {};
 
-    function _load(region, url) {
+    /* `control` (optional): the link or submitter that asked — it shows the pending state. */
+    function _load(region, url, control) {
         var name = region.getAttribute('data-fetch-region');
         // A region INSIDE a window (the customer picker, 2026-10-15) is not the page: its address
         // stays out of the address bar, and a failed load never navigates — the page behind holds
         // a half-filled form. It says so instead.
         var host = _Z77.core.windows.of(region);
         function fail() {
-            region.removeAttribute('aria-busy');
+            release();
             if (host) _Z77.core.message.show('error', _Z77.core.i18n.t('js.requestFailed', 'Anfrage fehlgeschlagen'));
-            else window.location.href = url;
+            else { _Z77.core.pending.navigate(); window.location.href = url; }
         }
         var ticket = (_latest[name] || 0) + 1;
         _latest[name] = ticket;
         var focusId = document.activeElement && region.contains(document.activeElement) ? document.activeElement.id : '';
-        region.setAttribute('aria-busy', 'true');
+        // aria-busy + the pending state («pending state»); a background reload (the live
+        // listener) runs quiet.
+        var release = _Z77.core.pending.start(control || null, region);
         return fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then(function (r) { return r.text(); })
             .then(function (html) {
@@ -1059,7 +1258,8 @@ _Z77.core.region = (function () {
             })
             .catch(function () {
                 if (_latest[name] === ticket) fail();
-            });
+            })
+            .finally(release);
     }
 
     function bind() {
@@ -1069,7 +1269,7 @@ _Z77.core.region = (function () {
             var region = link.closest('[data-fetch-region]');
             if (!region) return;
             e.preventDefault();
-            _load(region, link.href);
+            _load(region, link.href, link);
         });
         document.addEventListener('submit', function (e) {
             var form = e.target.closest('form[data-fetch-region-form]');
@@ -1081,7 +1281,7 @@ _Z77.core.region = (function () {
             var params = new URLSearchParams();
             new FormData(form).forEach(function (value, key) { if (value !== '') params.append(key, value); });   // empty fields stay out of the address
             url.search = params.toString();
-            _load(region, url.toString());
+            _load(region, url.toString(), e.submitter || null);
         });
     }
 
@@ -1414,7 +1614,7 @@ _Z77.core.windows = (function () {
             front(win);
             _focusIn(win);
             return win;
-        }).catch(function () { window.location.href = url; });
+        }).catch(function () { _Z77.core.pending.navigate(); window.location.href = url; });
     }
 
     /* A window around content the CLIENT already holds — a node, not a controller's answer (first
@@ -1441,19 +1641,24 @@ _Z77.core.windows = (function () {
         return win;
     }
 
-    /* Loads <url> into an open window (read view ↔ edit form); the origin stays the window's. */
-    function load(win, url) {
+    /* Loads <url> into an open window (read view ↔ edit form); the origin stays the window's.
+     * `control` (optional): the link or submitter that asked. While it loads the window is
+     * aria-busy (its body inert and faded, its title bar — × — stays usable), «pending state». */
+    function load(win, url, control) {
         var target = _url(url, win._z77Origin);
         // Numbered per window: a GET form that re-renders on every change can send a second load
         // before the first answered — only the latest fills the window.
         var ticket = win._z77Load = (win._z77Load || 0) + 1;
+        var release = _Z77.core.pending.start(control || null, win);
         return _get(target, { window: win.getAttribute('data-z77-window') }).then(function (html) {
             if (html === null || !win.isConnected || win._z77Load !== ticket) return;
             fill(win, html, target);
             front(win);
             var auto = win.querySelector('[autofocus]');
             if (auto) auto.focus();
-        });
+        }, function () {
+            if (win.isConnected && win._z77Load === ticket) _Z77.core.message.show('error', _Z77.core.i18n.t('js.connectionError', 'Verbindungsfehler'));
+        }).finally(release);
     }
 
     /* The window's content again, from the address it last loaded (`refresh-window`). */
@@ -1480,8 +1685,9 @@ _Z77.core.windows = (function () {
     function _sendForm(form, submitter) {
         var url = formUrl(form, submitter);
         var win = of(form);
-        if (win) return load(win, url);
-        return open(url, { origin: _originOf(form), parent: '' });
+        if (win) return load(win, url, submitter);
+        // Through the busy guard, as a [data-window-open] trigger: locked until the window stands.
+        return _Z77.core.busy.guard(form, submitter, function () { return open(url, { origin: _originOf(form), parent: '' }); });
     }
 
     /* A field of a form[data-window-form="change"] that waits for its blur before it submits. */
@@ -1570,16 +1776,21 @@ _Z77.core.windows = (function () {
             if (opener) {
                 e.preventDefault();
                 var parent = of(opener);
-                open(_withFields(opener, opener.getAttribute('data-window-open')), {
-                    origin: _originOf(opener),
-                    parent: parent ? parent.getAttribute('data-z77-window') : ''
+                // The trigger is locked and shows the pending state until the window stands
+                // («pending state»); a second click meanwhile opens nothing (busy guard). `send`
+                // runs at once: the fields ride along as they stand at the click.
+                _Z77.core.busy.guard(opener, opener, function () {
+                    return open(_withFields(opener, opener.getAttribute('data-window-open')), {
+                        origin: _originOf(opener),
+                        parent: parent ? parent.getAttribute('data-z77-window') : ''
+                    });
                 });
                 return;
             }
             var win = of(e.target);
             if (!win) return;
             var link = e.target.closest('a[data-window-link]');
-            if (link) { e.preventDefault(); load(win, link.href); return; }
+            if (link) { e.preventDefault(); load(win, link.href, link); return; }
             var fullBtn = e.target.closest('[data-window-full]');
             if (fullBtn) {
                 var isFull = win.classList.toggle('is-full');
@@ -2081,7 +2292,7 @@ _Z77.core.live = (function () {
         setTimeout(function () {
             if (_atWork()) { _waitForCalm(); return; }
             _held.splice(0).forEach(function (held) {
-                _Z77.core.fetch.handleEnvelope(held.env, held.url, held.ctx);
+                _Z77.core.pending.quietly(function () { _Z77.core.fetch.handleEnvelope(held.env, held.url, held.ctx); });
             });
         }, CALM_MS);
     }
@@ -2114,7 +2325,8 @@ _Z77.core.live = (function () {
             if (!_alive(el)) return false;
             var win = el.closest('[data-z77-window]');
             var ctx = win ? { window: win.getAttribute('data-z77-window') } : undefined;
-            _Z77.core.fetch.handleEnvelope(_holdMove(env, url, ctx), url, ctx);
+            // Nobody clicked: what its commands reload runs quiet («pending state»).
+            _Z77.core.pending.quietly(function () { _Z77.core.fetch.handleEnvelope(_holdMove(env, url, ctx), url, ctx); });
             return !!env && env.status !== 'error';
         });
     }
@@ -2163,7 +2375,7 @@ _Z77.core.submitNavigate = (function () {
             // After every other handler ran: a submit another script took over is not followed.
             setTimeout(function () {
                 if (e.defaultPrevented) return;
-                setTimeout(function () { window.location.assign(url.href); }, DELAY_MS);
+                setTimeout(function () { _Z77.core.pending.navigate(); window.location.assign(url.href); }, DELAY_MS);
             }, 0);
         });
     }
@@ -3738,6 +3950,7 @@ document.addEventListener('DOMContentLoaded', function () {
     _Z77.core.region.bind();
     _Z77.core.live.bind();
     _Z77.core.submitNavigate.bind();
+    _Z77.core.pending.bind();
     _Z77.core.i18n.load();
     _Z77.core.wire(document);
     _bindCheckUrl(document);
