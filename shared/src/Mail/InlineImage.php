@@ -30,7 +30,7 @@ final class InlineImage
      * PNG / JPEG / GIF (judged by the file's header, not its name), or without a size.
      *
      * `$density` (2026-11-20, the mandator's logo set-up): how many file pixels make one
-     * display pixel. 1 = the file is the display size (a hand-uploaded «Logo (E-Mail)»);
+     * display pixel. 1 = the file is the display size;
      * 2 = a file made for high-density screens (the variant module-mandator derives) — the
      * `width` / `height` it answers are then half the pixel size, and Outlook, which honours
      * the HTML attributes, draws it at that size.

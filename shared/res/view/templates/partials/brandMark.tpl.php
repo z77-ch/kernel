@@ -23,7 +23,7 @@
  *
  * `logo` => true (opt-in, owner 2026-11-20; the backend login screens pass it): the
  * installation's logo as an <img> instead of the wordmark — what the ONE module declared
- * under `brandLogo` answers (module-mandator: the mandator's «Logo (E-Mail)»), inlined as a
+ * under `brandLogo` answers (module-mandator: the login variant of the logo window, else its e-mail variant), inlined as a
  * `data:` URI by `Z77\Shared\Site\BrandLogo` (no route, nothing else reachable). No
  * source, nothing stored, an unreadable or too large file, any error → the wordmark. The
  * caller adds the modifier `<class>--image` (its bundle styles the picture); the label stays

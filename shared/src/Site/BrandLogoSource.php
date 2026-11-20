@@ -9,7 +9,7 @@ use Z77\Shared\Mail\InlineImage;
  * (`partials/brandMark` of `Z77\Shared`; first: the backend login screens, owner 2026-11-20).
  * Registered by ONE module under the config key `brandLogo` (a class name), read by
  * {@see BrandLogo::current()}. First source: module-mandator's `Logo\LoginLogo` — the login
- * variant of the mandator's logo set-up (2026-11-20), else its old «Logo (E-Mail)» path.
+ * variant of the mandator's logo set-up (2026-11-20), else its e-mail variant.
  *
  * The answer is an {@see InlineImage} — the same judgement as the mails' logo: a readable PNG,
  * JPEG or GIF with its display size and the alt text; nothing is resized here.

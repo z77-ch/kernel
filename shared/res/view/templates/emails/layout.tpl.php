@@ -9,7 +9,7 @@
  * see HtmlToText.
  *
  * The LOGO (owner 2026-11-12): the empty slot `data-z77-inline="logo"` above the body is filled
- * at SEND time by `InlineImages` (kernel mail) — module-mandator answers «Logo (E-Mail)». Here, in
+ * at SEND time by `InlineImages` (kernel mail) — module-mandator answers its e-mail logo. Here, in
  * the layout, so EVERY template mail carries it (document mails, the app's sign-in code, DMS ZIP
  * mails, …); a body template never writes the slot itself. No logo stored → the slot is removed.
  *

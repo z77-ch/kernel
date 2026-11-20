@@ -10,15 +10,15 @@ use Z77\Shared\Mail\InlineImage;
  * mandator's logo, like the mails) — asked by `partials/brandMark` when the caller passes
  * `'logo' => true`. The kernel knows no module: ONE module declares a {@see BrandLogoSource}
  * under the config key `brandLogo` (module-mandator: `Logo\LoginLogo` — the login variant of the
- * logo set-up window, else the old «Logo (E-Mail)» path). The public website's logo is another
+ * logo set-up window, else its e-mail variant). The public website's logo is another
  * registry, {@see SiteLogo} (`siteLogo`, a `/media` address, not inlined).
  *
  * Delivered INLINE as a `data:` URI — no route and no file address: the login is public, and an
  * action serving a file to anyone would be one more door; this way nothing below `data/` or the
  * project is reachable, the page carries exactly the one image the source named. The page CSP
  * admits it (`img-src 'self' data:`, `SecurityHeaders`). Only a display-size file is inlined: up
- * to {@see MAX_BYTES}; a bigger one is not shown (logged) — the «Logo (E-Mail)» is about 100 px
- * wide and far below.
+ * to {@see MAX_BYTES}; a bigger one is not shown (logged) — the mandator's login / e-mail variant
+ * is far below.
  *
  * Never throws: no source, two sources, a source that fails, nothing stored, a missing, unreadable,
  * non-PNG/JPEG/GIF or too large file → null, and the mark shows its wordmark. A failure is logged
