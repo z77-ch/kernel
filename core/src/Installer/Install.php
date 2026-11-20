@@ -6,6 +6,7 @@ use Composer\Script\Event;
 use Composer\Composer;
 use Composer\IO\IOInterface;
 use Symfony\Component\Console\Exception\MissingInputException;
+use Z77\Shared\Auth\FirstAdminSetup;
 use Z77\Shared\Auth\PasswordPolicy;
 use Z77\Shared\Auth\PasswordTier;
 use Z77\Shared\Import\ImportSourceException;
@@ -63,7 +64,7 @@ class Install
 
     private const AUTH_DIR              = 'data/framework/auth';
     private const BACKEND_USERS_FILE      = 'backendUsers.json';
-    private const SETUP_TOKEN_FILE      = 'SETUP_TOKEN';
+    // The SETUP_TOKEN path and the setup URL: FirstAdminSetup (shared with the setup screen and the login page).
     private const ADMIN_USERNAME        = 'admin';
     private const BCRYPT_COST           = 12;
 
@@ -272,6 +273,9 @@ class Install
         // After everything else so the answer can trigger a nested `composer require`
         // without interleaving the install log.
         $this->offerDocsInstall();
+
+        // The very last lines: a deferred first admin must not drown in composer output.
+        $this->reportPendingAdminSetup();
     }
 
     // -------------------------------------------------------------------------
@@ -2059,7 +2063,7 @@ class Install
             return;
         }
 
-        $this->provisionSetupToken($authDir);
+        $this->provisionSetupToken();
     }
 
     /**
@@ -2192,21 +2196,60 @@ class Install
      * web-reachable and re-open the public first-in-first-win race). A token-gated
      * `/setup` then creates the admin and deletes the token (Phase 5).
      */
-    private function provisionSetupToken(string $authDir): void
+    private function provisionSetupToken(): void
     {
-        $tokenFile = $this->trailingSlash($authDir) . self::SETUP_TOKEN_FILE;
+        $tokenFile = FirstAdminSetup::tokenPath($this->baseDir);
         if (file_exists($tokenFile)) {
             return;
         }
 
         $token = bin2hex(random_bytes(32));
-        $this->writeFile($authDir, self::SETUP_TOKEN_FILE, $token . "\n");
+        $this->writeFile(dirname($tokenFile), basename($tokenFile), $token . "\n");
 
+        // Mid-run on purpose short: composer output follows. The how-to is the closing
+        // notice (reportPendingAdminSetup()), the last lines of the run.
         $this->io->write('');
-        $this->io->write('Z77 — non-interactive install: no admin account was created.');
-        $this->io->write('A one-time setup token was written to:');
-        $this->io->write('    ' . self::AUTH_DIR . '/' . self::SETUP_TOKEN_FILE);
-        $this->io->write('Read it from the server filesystem, then open /backend/system/setup/setup to create the admin.');
+        $this->io->write('Z77 — no admin account was created; one-time setup token written → ' . FirstAdminSetup::TOKEN_FILE);
+    }
+
+    /**
+     * The closing notice while the first admin is still to be created (INST-SETUP-HINT-001):
+     * printed as the LAST lines of the run, so it does not drown in composer output. Pending =
+     * a SETUP_TOKEN on disk and no `backendUsers.json` — the run that deferred, and every later
+     * run until the setup is done. Never prints the token itself.
+     */
+    private function reportPendingAdminSetup(): void
+    {
+        $lines = self::pendingAdminSetupNotice($this->baseDir);
+        if ($lines === null) {
+            return;
+        }
+        $this->io->write('');
+        $this->io->write('<bg=yellow;fg=black> ' . array_shift($lines) . ' </>');
+        foreach ($lines as $line) {
+            $this->io->write($line);
+        }
+    }
+
+    /**
+     * The lines of that notice, or null when no setup is pending. Public and static so the
+     * fresh-install harness checks the wording without a Composer run (like
+     * canonicalBaseUrlNotice()). The first line is the headline.
+     *
+     * @return list<string>|null
+     */
+    public static function pendingAdminSetupNotice(string $baseDir): ?array
+    {
+        $usersFile = rtrim(str_replace('\\', '/', $baseDir), '/') . '/' . self::AUTH_DIR . '/' . self::BACKEND_USERS_FILE;
+        if (!FirstAdminSetup::hasToken($baseDir) || is_file($usersFile)) {
+            return null;
+        }
+
+        return [
+            'Next step: create the first admin — no backend user exists yet.',
+            '   Token:  ' . FirstAdminSetup::TOKEN_FILE . '  (read it on the server; never share it)',
+            '   Open:   ' . FirstAdminSetup::URL . '  (the backend login page links to it)',
+        ];
     }
 
     // -------------------------------------------------------------------------
