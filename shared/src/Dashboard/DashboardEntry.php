@@ -5,7 +5,7 @@ namespace Z77\Shared\Dashboard;
 use Z77\Shared\Money\Money;
 
 /**
- * One line a module hands the backend dashboard (ADR-052). Two kinds:
+ * One line a module hands the backend dashboard (ADR-052). Three kinds:
  *
  *   - **pending** — work that waits: a weight ({@see Severity}), a German
  *     label («Rechnungen überfällig»), optionally a count and an amount, and
@@ -15,6 +15,9 @@ use Z77\Shared\Money\Money;
  *   - **create** — a «+ Neu» button in the head of its tile («Neuer
  *     Auftrag»), opened the way the list's own «+ Neu» opens it
  *     ({@see OPEN_PAGE}, {@see OPEN_WINDOW}, {@see OPEN_DIALOG}).
+ *   - **figure** — a stock number that is NOT open work («12 Mandanten»,
+ *     ADR-052 addendum 2026-11-22): part of the ONE quiet sub line of its
+ *     tile, never in the pending list, no weight.
  *
  * The route is `[module, group, controller, action]` as a navigation entry
  * stores it (`action` '' = the controller's default). It is the ONE thing
@@ -25,6 +28,7 @@ final class DashboardEntry
 {
     public const KIND_PENDING = 'pending';
     public const KIND_CREATE  = 'create';
+    public const KIND_FIGURE  = 'figure';
 
     /** How a create entry opens — the attribute the list's «+ Neu» carries. */
     public const OPEN_PAGE   = 'page';     // a plain link
@@ -34,8 +38,10 @@ final class DashboardEntry
     private const OPENS = [self::OPEN_PAGE, self::OPEN_WINDOW, self::OPEN_DIALOG];
 
     /**
-     * @param list<string>          $route [module, group, controller, action]; [] = no target (an unavailable line)
+     * @param list<string>          $route  [module, group, controller, action]; [] = no target (an unavailable line)
      * @param array<string, scalar> $query
+     * @param bool                  $linked false = the entry is shown as plain text; the route still places it
+     *                                      and decides who sees it (only a figure may be unlinked)
      */
     private function __construct(
         public readonly string $kind,
@@ -46,6 +52,7 @@ final class DashboardEntry
         public readonly ?int $count,
         public readonly ?Money $amount,
         public readonly string $opens,
+        public readonly bool $linked = true,
     ) {
         if (trim($label) === '') {
             throw new \InvalidArgumentException('A dashboard entry needs a label.');
@@ -89,6 +96,25 @@ final class DashboardEntry
         }
 
         return new self(self::KIND_CREATE, null, $label, $route, [], null, null, $opens);
+    }
+
+    /**
+     * A stock number that is not open work (owner 2026-11-22): the tile shows «{count} {label}» in its
+     * one sub line. The contributor hands the finished label — singular or plural is its choice
+     * («1 Mandant», «12 Mandanten», «2 ruhend»).
+     *
+     * @param list<string>          $route the page the number belongs to: it places the figure on a tile and
+     *                                     decides who sees it (`canReach()`), like every entry
+     * @param array<string, scalar> $query the target list's filter when the figure links, e.g. ['view' => 'dormant']
+     * @param bool                  $link  false = plain text, no link (the route still places and filters)
+     */
+    public static function figure(string $label, int $count, array $route, array $query = [], bool $link = true): self
+    {
+        if ($route === []) {
+            throw new \InvalidArgumentException("Dashboard entry «{$label}» needs a target route.");
+        }
+
+        return new self(self::KIND_FIGURE, null, $label, $route, $query, $count, null, self::OPEN_PAGE, $link);
     }
 
     /** The line that replaces a contributor's entries when it failed — no target, so no tile and no link. */
