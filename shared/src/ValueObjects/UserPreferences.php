@@ -6,6 +6,13 @@ final class UserPreferences
     /** The backend palette of a user who has not picked one (ADR-051 addendum 2026-10-17). */
     public const DEFAULT_PALETTE = 'salbei';
 
+    /**
+     * The backend font slider's range (FONT-SCALE-LINEAR-001): 85–125 %, default 100 % in the
+     * middle. The slider multiplies the root font size once, so 1.25 = every font 25 % larger.
+     */
+    public const FONT_SCALE_MIN = 0.85;
+    public const FONT_SCALE_MAX = 1.25;
+
     private string $palette   = self::DEFAULT_PALETTE;
     private bool   $darkMode  = false;
     private float  $fontScale = 1.0;
@@ -23,8 +30,7 @@ final class UserPreferences
     {
         $this->palette   = $data['palette']    ?? self::DEFAULT_PALETTE;
         $this->darkMode  = (bool) ($data['dark_mode']  ?? false);
-        $this->fontScale = (float) ($data['font_scale'] ?? 1.0);
-        $this->fontScale = max(1.0, min(1.4, $this->fontScale));
+        $this->fontScale = self::clampFontScale((float) ($data['font_scale'] ?? 1.0));
 
         foreach ((array) ($data['partial_labels'] ?? []) as $viewArea => $on) {
             $this->partialLabels[(string) $viewArea] = (bool) $on;
@@ -50,7 +56,21 @@ final class UserPreferences
 
     public function setPalette(string $palette): void  { $this->palette   = $palette; }
     public function setDarkMode(bool $dark): void      { $this->darkMode  = $dark; }
-    public function setFontScale(float $scale): void   { $this->fontScale = max(1.0, min(1.4, $scale)); }
+    public function setFontScale(float $scale): void   { $this->fontScale = self::clampFontScale($scale); }
+
+    /**
+     * Into the slider's range, rounded to its 5 % step. Applied on read as well as on write: the
+     * value is rendered into `style="--be-font-scale: …"` of every backend page, so a stored value
+     * outside the range (or from the old 1.0–1.4 range) never reaches the page.
+     */
+    private static function clampFontScale(float $scale): float
+    {
+        if (!is_finite($scale)) {
+            return 1.0;
+        }
+        $scale = max(self::FONT_SCALE_MIN, min(self::FONT_SCALE_MAX, $scale));
+        return round($scale * 20) / 20;
+    }
 
     public function setPartialLabelsEnabled(string $viewArea, bool $on): void
     {
