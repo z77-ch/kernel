@@ -7,11 +7,11 @@ final class UserPreferences
     public const DEFAULT_PALETTE = 'salbei';
 
     /**
-     * The backend font slider's range (FONT-SCALE-LINEAR-001): 85–125 %, default 100 % in the
-     * middle. The slider multiplies the root font size once, so 1.25 = every font 25 % larger.
+     * The backend font slider's range (FONT-SCALE-LINEAR-001): 80–120 %, default 100 % in the
+     * middle. The slider multiplies the root font size once, so 1.2 = every font 20 % larger.
      */
-    public const FONT_SCALE_MIN = 0.85;
-    public const FONT_SCALE_MAX = 1.25;
+    public const FONT_SCALE_MIN = 0.80;
+    public const FONT_SCALE_MAX = 1.20;
 
     private string $palette   = self::DEFAULT_PALETTE;
     private bool   $darkMode  = false;
