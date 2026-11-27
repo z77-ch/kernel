@@ -16,6 +16,9 @@
 // hidden but focusable and remains the label's target, so the whole zone is one
 // big `<label for>` — keyboard and screen reader get a real file field, not a
 // div with a click handler.
+//
+// Text is `1rem` throughout — the host's root size (the backend's flat 16px baseline × font
+// slider since 2026-11-26, css-backend.md). Only glyphs (the ↑, the row's ✓/!) keep a size.
 
 // Two roots, one set of tokens: the component itself, and — for the `cell` shape — the
 // panel the QUEUE is moved into (`.z77-upload-queue`, built by the script and shown in a
@@ -105,9 +108,11 @@
     align-items: center;
     justify-content: center;
     flex: none;
-    width: 48px;
-    height: 48px;
-    font-size: 22px;
+    // rem: the box and its ↑ grow with the host's root (the backend's font slider). The glyph
+    // keeps its own size — it is not text.
+    width: 3rem;
+    height: 3rem;
+    font-size: 1.375rem;
     font-weight: 700;
     border-radius: 14px;
     color: var(--z77-up-accent-color);
@@ -151,7 +156,7 @@
 }
 
 .z77-upload__hint {
-    font-size: .78rem;
+    font-size: 1rem;
     color: var(--z77-up-muted, #6c878c);
 }
 
@@ -180,7 +185,7 @@
 .z77-upload-row__name {
     min-width: 0;
     overflow: hidden;
-    font-size: .82rem;
+    font-size: 1rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
@@ -192,7 +197,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: .78rem;
+    font-size: 1rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
@@ -201,16 +206,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 18px;
-    height: 18px;
-    font-size: .72rem;
+    width: 1.125rem;
+    height: 1.125rem;
+    font-size: .72rem;   // the ✓ / ! glyph in the circle — not text
     font-weight: 700;
     border-radius: 50%;
 }
 
 .z77-upload-row__message {
     grid-column: 1 / -1;
-    font-size: .76rem;
+    font-size: 1rem;
 }
 
 // A 5px bar under the row, as wide as the row: the progress of one file.
@@ -234,7 +239,7 @@
 .z77-upload-row__cancel {
     padding: 2px 8px;
     font: inherit;
-    font-size: .76rem;
+    font-size: 1rem;
     cursor: pointer;
     border: 1px solid var(--z77-up-line);
     border-radius: 6px;
@@ -259,7 +264,7 @@
     grid-column: 1 / -1;
     gap: 8px;
     align-items: center;
-    font-size: .78rem;
+    font-size: 1rem;
 }
 
 // ── the run's own line ────────────────────────────────────────────────────
@@ -269,7 +274,7 @@
     gap: 10px;
     align-items: center;
     margin: 0;
-    font-size: .78rem;
+    font-size: 1rem;
     color: var(--z77-up-muted, #6c878c);
 }
 

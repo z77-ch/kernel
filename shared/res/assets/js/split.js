@@ -22,8 +22,9 @@
  *   [data-z77-split-overlay="nav|detail"]    written by this file onto the root; the CSS reads
  *                                            it. Never set it in markup.
  *
- * The width variable may be declared in ANY unit (the DMS uses rem, the shell px) — the drag
- * start is measured off the pane, not parsed off the token. See `currentPx`.
+ * The width variable may be declared in px or rem (the DMS and, since 2026-11-26, the shell use
+ * rem) — the drag start is measured off the pane, not parsed off the token; a handle without a
+ * sibling pane resolves rem against the root. See `currentPx`.
  *
  * No build step, no framework — same shape as panel-toggle.js.
  */
@@ -65,7 +66,15 @@
             return parseFloat(raw) || 0;
         }
         var pane = targetPane(handle);
-        return pane ? pane.getBoundingClientRect().width : (parseFloat(raw) || 0);
+        if (pane) {
+            return pane.getBoundingClientRect().width;
+        }
+        // No sibling pane (the shell's grid overlay): a rem token is resolved against the root,
+        // which holds the backend's font slider — `--shell-c1: 15.5rem` is not 15.5px.
+        if (/rem$/.test(raw)) {
+            return (parseFloat(raw) * parseFloat(getComputedStyle(document.documentElement).fontSize)) || 0;
+        }
+        return parseFloat(raw) || 0;
     }
 
     /* Dragging right must GROW a pane that sits before the handle and SHRINK one after it.

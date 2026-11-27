@@ -3,15 +3,22 @@ namespace Z77\Shared\ValueObjects;
 
 final class UserPreferences
 {
-    /** The backend palette of a user who has not picked one (ADR-051 addendum 2026-10-17). */
-    public const DEFAULT_PALETTE = 'salbei';
+    /**
+     * The backend palette of a user who has not picked one: Schwarz-Weiss since 2026-11-26
+     * (owner, design-lab handoff step 1; Salbei before, ADR-051 addendum 2026-10-17). A stored
+     * palette is kept — note that `toArray()` always writes the palette, so a user who saved any
+     * preference carries the default of that day as a stored choice.
+     */
+    public const DEFAULT_PALETTE = 'schwarzweiss';
 
     /**
-     * The backend font slider's range (FONT-SCALE-LINEAR-001): 80–120 %, default 100 % in the
-     * middle. The slider multiplies the root font size once, so 1.2 = every font 20 % larger.
+     * The backend font slider's range (FONT-SCALE-LINEAR-001): 85–115 % in 5 % steps, default
+     * 100 % in the middle (owner 2026-11-26). The slider multiplies the 16px root once, so 1.15 =
+     * every font 15 % larger. A stored value below 0.85 (the 80–120 % range of the same day)
+     * clamps to 0.85 on read — no migration.
      */
-    public const FONT_SCALE_MIN = 0.80;
-    public const FONT_SCALE_MAX = 1.20;
+    public const FONT_SCALE_MIN = 0.85;
+    public const FONT_SCALE_MAX = 1.15;
 
     private string $palette   = self::DEFAULT_PALETTE;
     private bool   $darkMode  = false;
