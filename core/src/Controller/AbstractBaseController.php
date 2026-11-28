@@ -53,8 +53,13 @@ abstract class AbstractBaseController
             DI::getControllerHandler(),
             DEBUG
         );
-        $this->messageService = DI::getMessageService();
-        $this->help           = DI::getHelpService();
+        // A stateless request (a #[CrossOriginPost] door, CROSS-ORIGIN-POST-001) has no session:
+        // MessageService and HelpService are not registered there, and an action that reaches for
+        // them fails on the uninitialised property — fail fast, never a session started by accident.
+        if (!DI::getRequest()->isStateless()) {
+            $this->messageService = DI::getMessageService();
+            $this->help           = DI::getHelpService();
+        }
         // initialize() is called lazily in html() — only when HTML output is needed
 
         if (method_exists($this, 'preExecute')) {

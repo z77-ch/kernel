@@ -10,6 +10,8 @@ use Z77\Core\Http\Response\ResponseInterface;
  *
  *   - stateful routes (default) → AccessGuard  (session, roles, CSRF)
  *   - stateless routes (`stateless` reserved routes, e.g. /api) → ApiKeyGuard
+ *   - a #[CrossOriginPost] door named in `crossOriginPosts` → CrossOriginPostGuard
+ *     (stateless as well, CROSS-ORIGIN-POST-001)
  *
  * Return null to allow the request, or a ready-to-send response (401 envelope,
  * login redirect, …) to deny it — the Dispatcher sends it and skips the action.

@@ -15,6 +15,7 @@ use Z77\Core\Config\AuthRole,
     Z77\Core\Http\Response\PageCacheStatus,
     Z77\Core\Http\Response\ResponseInterface,
     Z77\Core\Libraries\CacheManager,
+    Z77\Core\Services\CrossOriginPostGuard,
     Z77\Core\Services\NavigationService,
     Z77\Core\Services\RequestGuardInterface,
     Z77\Shared\Attributes\Fetch,
@@ -60,6 +61,12 @@ class Dispatcher
                 // Stateless route (e.g. /api): no language session, no page
                 // cache, no navigation resolution — guard, action, response.
                 $response = $controller->run();
+
+                // A cross-origin door: JSON only, and the door's CORS headers on the
+                // answer (CROSS-ORIGIN-POST-001).
+                if ($this->guard instanceof CrossOriginPostGuard) {
+                    $response = $this->guard->finish($response);
+                }
 
                 // HEAD: same status and headers as GET, body suppressed
                 // (api-envelope-v1 — monitoring tools HEAD health endpoints).

@@ -32,6 +32,8 @@ class Request {
     private RequestMode $mode;
     /** True when the matched reserved route is declared `stateless` (e.g. /api). */
     private bool $statelessRoute = false;
+    /** True once Bootstrap found a #[CrossOriginPost] door for this request (CROSS-ORIGIN-POST-001). */
+    private bool $crossOriginPost = false;
     /** True when a reserved route (e.g. /media) resolved this request. */
     private bool $reservedRoute = false;
 
@@ -774,13 +776,48 @@ class Request {
     }
 
     /**
-     * True when the matched route is a `stateless` reserved route (e.g. /api):
-     * no session, no locale/navigation logic, no page cache, JSON errors.
-     * Bootstrap::pullUp() branches on this AFTER runParsing().
+     * True when the matched route is a `stateless` reserved route (e.g. /api)
+     * or a #[CrossOriginPost] door: no session, no locale/navigation logic, no
+     * page cache, JSON errors. Bootstrap::pullUp() branches on this AFTER runParsing().
      */
     public function isStateless(): bool
     {
-        return $this->statelessRoute;
+        return $this->statelessRoute || $this->crossOriginPost;
+    }
+
+    /**
+     * Bootstrap marks the request once it has found a `#[CrossOriginPost]` action
+     * named in `crossOriginPosts` (CROSS-ORIGIN-POST-001): from then on it is
+     * stateless like a stateless reserved route. One way only.
+     */
+    public function enterCrossOriginPost(): void
+    {
+        $this->crossOriginPost = true;
+    }
+
+    /** True on a #[CrossOriginPost] door (see enterCrossOriginPost()). */
+    public function isCrossOriginPost(): bool
+    {
+        return $this->crossOriginPost;
+    }
+
+    /**
+     * The media type of the body as sent — `Content-Type` without its parameters,
+     * lowercase — or '' without one.
+     */
+    public function getContentType(): string
+    {
+        $value = (string) ($_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '');
+
+        return strtolower(trim(explode(';', $value, 2)[0]));
+    }
+
+    /** The `Content-Length` header as a byte count, or null when absent or not a number. */
+    public function getContentLength(): ?int
+    {
+        $value = trim((string) ($_SERVER['CONTENT_LENGTH'] ?? ''));
+
+        return ctype_digit($value) ? (int) $value : null;
     }
 
     /**

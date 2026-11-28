@@ -33,6 +33,26 @@ class JsonResponse implements ResponseInterface
         return $this;
     }
 
+    /**
+     * Adds response headers after the action built the response — the cross-origin
+     * door's CORS headers (CrossOriginPostGuard::finish()). The given headers replace
+     * the action's of the same name: CORS on that door is the guard's, not the action's.
+     *
+     * @param array<string,string> $headers
+     */
+    public function withHeaders(array $headers): self
+    {
+        // Case-insensitive: header() replaces by name, so a lower-case twin sent later would win.
+        $replaced = array_map('strtolower', array_keys($headers));
+        foreach (array_keys($this->headers) as $name) {
+            if (in_array(strtolower($name), $replaced, true)) {
+                unset($this->headers[$name]);
+            }
+        }
+        $this->headers = $this->headers + $headers;
+        return $this;
+    }
+
     /** For the API request log — the status the response will send. */
     public function getStatus(): int
     {

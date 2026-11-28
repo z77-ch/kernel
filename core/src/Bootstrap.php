@@ -12,6 +12,8 @@ use Z77\Core\DI,
     Z77\Core\Routing\Dispatcher,
     Z77\Core\Services\AccessGuard,
     Z77\Core\Services\ApiKeyGuard,
+    Z77\Core\Services\CrossOriginPostDoor,
+    Z77\Core\Services\CrossOriginPostGuard,
     Z77\Core\Services\MessageService,
     Z77\Core\Services\HelpService,
     Z77\Core\Services\NavigationService,
@@ -323,20 +325,38 @@ class Bootstrap
             ExceptionHandler::handle($e);
         }
 
-        // Stateless reserved route (e.g. /api — see Request::isStateless()):
-        // no session, no locale logic, no page cache. The ApiKeyGuard replaces
-        // the AccessGuard; everything session-bound stays deliberately
-        // UNREGISTERED — a stateless code path resolving SessionManager,
-        // MessageService or the page cache is a bug and must fail fast.
+        // A #[CrossOriginPost] door (CROSS-ORIGIN-POST-001) — decided here, after the route
+        // is locked and BEFORE any session service is registered: the door never starts one.
+        $crossOriginPolicy = CrossOriginPostDoor::policyFor($request, DI::getControllerHandler(), $di->getModuleManager());
+        if ($crossOriginPolicy !== null) {
+            $request->enterCrossOriginPost();
+        }
+
+        // Stateless reserved route (e.g. /api — see Request::isStateless()) or a
+        // cross-origin door: no session, no locale logic, no page cache. The
+        // ApiKeyGuard / CrossOriginPostGuard replaces the AccessGuard; everything
+        // session-bound stays deliberately UNREGISTERED — a stateless code path
+        // resolving SessionManager, MessageService or the page cache is a bug and
+        // must fail fast.
         if ($request->isStateless()) {
-            $di->set('ApiKeyGuard', function($c) {
+            $guardKey = $crossOriginPolicy !== null ? 'CrossOriginPostGuard' : 'ApiKeyGuard';
+
+            if ($crossOriginPolicy !== null) {
+                $route = CrossOriginPostDoor::route($request);
+                $di->set('CrossOriginPostGuard', function() use ($route, $crossOriginPolicy) {
+                    return new CrossOriginPostGuard($route, $crossOriginPolicy);
+                }, true);
+            } else {
+                $di->set('ApiKeyGuard', function($c) {
                     return new ApiKeyGuard($c->getModuleManager());
-                }, true)
-                ->set('Dispatcher', function($c) {
+                }, true);
+            }
+
+            $di->set('Dispatcher', function($c) use ($guardKey) {
                     return new Dispatcher(
                         $c->getCacheManager(),
                         null,               // no PageCachePolicy — it reads the session
-                        $c->get('ApiKeyGuard'),
+                        $c->get($guardKey),
                         stateless: true
                     );
                 }, true)
