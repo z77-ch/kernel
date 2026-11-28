@@ -19,6 +19,8 @@ use Z77\Core\DI,
  *
  * Checks, in this order, before the action runs (the first that fails answers):
  *
+ *   0. per-IP throttle (/64) — counts every request that reaches the door, refusals
+ *      included (owner 2026-11-28)            → 429
  *   1. POST                                   → 405
  *   2. Fetch mode (Sec-Fetch-Mode present, not navigate; cors and no-cors pass) — a classic
  *      cross-site <form> navigates and is refused, it would reach the action unchecked
@@ -31,11 +33,10 @@ use Z77\Core\DI,
  *   6. the project's policy allows the origin → 403 origin_denied
  *   7. a FormStamp for this route in the body, 3 s – 2 h old; no key configured = shut
  *                                             → 403 stamp
- *   8. per-IP throttle (/64)                  → 429
  *
  * Every answer of the door carries CORS headers so the foreign form can read why: the checked
- * origin from step 6 on, `*` before it (no credentials travel, so `*` opens nothing). Never
- * `Access-Control-Allow-Credentials`. A refusal is `{"status":"error","reason":"…"}`.
+ * origin from step 6 on, `*` before it (no credentials travel, so `*` opens nothing), and
+ * `Access-Control-Expose-Headers: Retry-After`. Never `Access-Control-Allow-Credentials`. A refusal is `{"status":"error","reason":"…"}`.
  *
  * What the guard does NOT do (the project's action): a throttle per widget / per form, field
  * validation, storage. ⚠️ A stamp is not single-use (FormStamp) — those throttles are the answer.
@@ -64,6 +65,13 @@ final class CrossOriginPostGuard implements RequestGuardInterface
     public function enforce(): ?ResponseInterface
     {
         $request = DI::getRequest();
+
+        // The throttle counts EVERY request that reaches the door, refusals included (owner
+        // 2026-11-28): probing for a stamp or an origin costs the same as a real post.
+        $throttled = $this->throttled($request);
+        if ($throttled !== null) {
+            return $throttled;
+        }
 
         if (!$request->isPost()) {
             return $this->refuse('method', 405, ['Allow' => 'POST']);
@@ -94,7 +102,7 @@ final class CrossOriginPostGuard implements RequestGuardInterface
             return $this->refuse('stamp', 403);
         }
 
-        return $this->throttled($request);
+        return null;
     }
 
     /**
@@ -154,6 +162,9 @@ final class CrossOriginPostGuard implements RequestGuardInterface
             'Access-Control-Allow-Origin' => $this->checkedOrigin ?? '*',
             'Vary'                        => 'Origin',
             'Cache-Control'               => 'no-store',
+            // Not a CORS-safelisted response header: without this the foreign form cannot
+            // read how long a 429 asks it to wait (owner 2026-11-28).
+            'Access-Control-Expose-Headers' => 'Retry-After',
         ];
     }
 
